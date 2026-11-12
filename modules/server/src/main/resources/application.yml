@@ -1,0 +1,13 @@
+# SpecHub server —— SPECHUB_* 环境变量可覆盖（compose 注入）
+spechub:
+  gitsource-path: ${SPECHUB_GITSOURCE_PATH:data/gitsource}
+  db-path: ${SPECHUB_DB_PATH:data/spechub.db}
+
+server:
+  port: ${SPECHUB_PORT:8080}
+
+spring:
+  application:
+    name: spechub
+  jackson:
+    default-property-inclusion: non_null

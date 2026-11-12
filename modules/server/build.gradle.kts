@@ -15,9 +15,11 @@ dependencies {
     implementation(project(":kernel:git-store"))
     implementation(project(":kernel:spec-index"))
 
+    implementation(platform(libs.spring.boot.dependencies))
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-validation")
 
+    testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
