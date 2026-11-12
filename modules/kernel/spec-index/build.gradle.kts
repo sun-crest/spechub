@@ -11,6 +11,8 @@ dependencies {
     implementation(project(":kernel:spec-model"))
     implementation(libs.sqlite.jdbc)
 
+    testImplementation(kotlin("test"))
+    testImplementation(project(":kernel:spec-parser"))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
