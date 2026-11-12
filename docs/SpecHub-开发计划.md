@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-12　**状态**：P0 分解完成，待开工
+> **日期**：2026-11-12　**状态**：P0 开发中（A/B/C/D/E 主线完成，E2/E7 待补）
 
 ---
 
@@ -22,41 +22,41 @@
 
 ### A 项目骨架
 
-- [ ] A1 建 monorepo 目录树 `modules/ apps/ compose/ docs/ e2e/` 与根 README [根]
-- [ ] A2 Gradle（Kotlin DSL）根构建 + `gradle/libs.versions.toml` 版本目录；锁定 Java 25 / Spring Boot 4 当前 GA 小版本 [根]
-- [ ] A3 `kernel/spec-model` 空壳 + JVM 侧 kernel 四模块占位（`spec-parser / git-store / spec-index`）[modules/kernel]
-- [ ] A4 compose 蓝图 v1：`backend`（空 Spring 应用）+ `gitea` + 四个命名卷 + `.env.example` [compose]
+- [x] A1建 monorepo 目录树 `modules/ apps/ compose/ docs/ e2e/` 与根 README [根]
+- [x] A2Gradle（Kotlin DSL）根构建 + `gradle/libs.versions.toml` 版本目录；锁定 Java 25 / Spring Boot 4 当前 GA 小版本 [根]
+- [x] A3`kernel/spec-model` 空壳 + JVM 侧 kernel 四模块占位（`spec-parser / git-store / spec-index`）[modules/kernel]
+- [x] A4compose 蓝图 v1：`backend`（空 Spring 应用）+ `gitea` + 四个命名卷 + `.env.example` [compose]
 
 ### B OpenAPI 3.1 内部模型 [modules/kernel/spec-model]
 
-- [ ] B1 核心模型类：`OpenApiDoc / Operation / PathItem / Schema / Component / Server`（Kotlin data class，空安全）
-- [ ] B2 JSON / YAML 序列化（Jackson + jackson-dataformat-yaml，支持单/多文档）
-- [ ] B3 归一化模型指纹 `specHash`（作为 Version 发布快照的主键，见 P2 I6）
+- [x] B1核心模型类：`OpenApiDoc / Operation / PathItem / Schema / Component / Server`（Kotlin data class，空安全）
+- [x] B2JSON / YAML 序列化（Jackson + jackson-dataformat-yaml，支持单/多文档）
+- [x] B3归一化模型指纹 `specHash`（作为 Version 发布快照的主键，见 P2 I6）
 
 ### C 多版本归一化 [modules/kernel/spec-parser] → B
 
-- [ ] C1 集成 swagger-parser，自动探测 `swagger: "2.0"` / `openapi: "3.0"` / `"3.1"`
-- [ ] C2 升级映射：`definitions → components/schemas`、`nullable → type:[...,null]`、`exclusiveMin/Max` 布尔→数值、`consumes/produces → requestBody` 等（§6.5）
-- [ ] C3 升级变更日志输出（"自动转换 / 待人工复核"标注，对接评审流状态）
-- [ ] C4 解析失败容错与错误收集（坏 spec 隔离，不拖垮整次摄取）
+- [x] C1集成 swagger-parser，自动探测 `swagger: "2.0"` / `openapi: "3.0"` / `"3.1"`
+- [x] C2升级映射：`definitions → components/schemas`、`nullable → type:[...,null]`、`exclusiveMin/Max` 布尔→数值、`consumes/produces → requestBody` 等（§6.5）
+- [x] C3升级变更日志输出（"自动转换 / 待人工复核"标注，对接评审流状态）
+- [x] C4解析失败容错与错误收集（坏 spec 隔离，不拖垮整次摄取）
 
 ### D git 化读写 [modules/kernel/git-store]
 
-- [ ] D1 系统 git CLI 子进程封装（参数化安全、超时、`--no-pager`）
-- [ ] D2 `clone / fetch` 镜像远程仓到 `gitsource/repos/<org>/<repo>`（§7.3）
-- [ ] D3 `commit / push` 写回真源仓（Web 直改与平台提交，R1-C 兜底形态）
-- [ ] D4 `diff / status` 提取 spec 变更（喂给 ChangeLog）
+- [x] D1系统 git CLI 子进程封装（参数化安全、超时、`--no-pager`）
+- [x] D2`clone / fetch` 镜像远程仓到 `gitsource/repos/<org>/<repo>`（§7.3）
+- [x] D3`commit / push` 写回真源仓（Web 直改与平台提交，R1-C 兜底形态）
+- [x] D4`diff / status` 提取 spec 变更（喂给 ChangeLog）
 
 ### E 摄取链路 + 索引（P0 核心） [modules/kernel/spec-index + modules/server]
 
-- [ ] E1 Spring Boot 4 应用骨架（引导类、`SPECHUB_*` 配置绑定、单测基建）[modules/server] → A2 A4
+- [x] E1Spring Boot 4 应用骨架（引导类、`SPECHUB_*` 配置绑定、单测基建）[modules/server] → A2 A4
 - [ ] E2 Repo 注册 REST：添加仓地址 / 分支 / 凭据注入 [modules/server]
-- [ ] E3 摄取器主线：`git-store → spec-parser → 索引`（增量 + 幂等续跑）[modules/server] → C D
-- [ ] E4 SQLite 表：`project / repo / api / schema / doc / version` + 唯一键 + api↔schema 引用 [modules/kernel/spec-index]
-- [ ] E5 全量重扫命令 `reindex`（验证"索引可重建"纪律，§6.4 决策 7）[modules/server]
-- [ ] E6 webhook 接收端点（内容变更触发增量摄取）[modules/server]
+- [x] E3摄取器主线：`git-store → spec-parser → 索引`（增量 + 幂等续跑）[modules/server] → C D
+- [x] E4SQLite 表：`project / repo / api / schema / doc / version` + 唯一键 + api↔schema 引用 [modules/kernel/spec-index]
+- [x] E5全量重扫命令 `reindex`（验证"索引可重建"纪律，§6.4 决策 7）[modules/server]
+- [x] E6webhook 接收端点（内容变更触发增量摄取）[modules/server]
 - [ ] E7 轮询兜底（未配 webhook 的仓定时 `fetch`+diff）[modules/server]
-- [ ] E8 首次启动初始化：目录、DB、admin 种子命令（UI 化在 P1 H6）
+- [x] E8首次启动初始化：目录、DB、admin 种子命令（UI 化在 P1 H6）
 
 **P0 验收**：对一个小 git 仓触发 push → SQLite 查到归一化的 api 记录；`docker compose up -d --build` 起 gitea+backend；`reindex` 可整体重建。
 
