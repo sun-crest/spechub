@@ -1,0 +1,61 @@
+# SpecHub P0 compose 蓝图 v1（§7.1 部署 / P0 验收）
+# 服务：backend（解析+索引+摄取）、gitea（默认内置 Git 托管，§7.3，可切换外部托管）
+# 四个命名卷：gitea_data / gitea_config / spechub_data —— gitsource 镜像与 SQLite 索引一并落 spechub_data
+
+name: spechub
+
+services:
+  backend:
+    build:
+      # context 指向仓库根（Dockerfile 需 COPY modules/kernel 等仓库内目录）
+      context: ..
+      dockerfile: compose/backend/Dockerfile
+    image: spechub/backend:0.1.0
+    environment:
+      # JVM 侧存储：gitsource 镜像仓 + SQLite 索引；容器内统一挂 /data
+      SPECHUB_GITSOURCE_PATH: /data/gitsource
+      SPECHUB_DB_PATH: /data/spechub.db
+      # Gitea 默认实例（容器网络内）：P2 提托管 adapter 时剥到配置
+      SPECHUB_GITEA_BASE_URL: http://gitea:3000
+      SPECHUB_PORT: 8080
+    ports:
+      - "${SPECHUB_PORT:-8080}:8080"
+    volumes:
+      - spechub_data:/data
+    depends_on:
+      gitea:
+        condition: service_healthy
+    healthcheck:
+      # temurin jre 无 wget/curl，用 bash 内建 /dev/tcp 探活（镜像含 bash）
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  gitea:
+    image: gitea/gitea:1.22
+    environment:
+      GITEA__server__ROOT_URL: ${GITEA_ROOT_URL:-http://localhost:3000/}
+      GITEA__server__DOMAIN: ${GITEA_DOMAIN:-localhost}
+      # 首次启动完成安装即锁定，避免无头部署被 Web 安装页打断
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__service__DISABLE_REGISTRATION: ${GITEA_DISABLE_REGISTRATION:-false}
+    ports:
+      - "${GITEA_PORT:-3000}:3000"
+      - "${GITEA_SSH_PORT:-2222}:22"
+    volumes:
+      - gitea_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  gitea_data:
+  # P0 单卷 /data 已承载 git+DB；后续按服务拆分索引与镜像卷演进
+  spechub_data:

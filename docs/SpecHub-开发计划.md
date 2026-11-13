@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-12　**状态**：P0 开发中（A/B/C/D/E 主线完成，E2/E7 待补）
+> **日期**：2026-11-12　**状态**：P0 全部 21 项完成；待 compose 部署验收 + 提交
 
 ---
 
@@ -50,12 +50,12 @@
 ### E 摄取链路 + 索引（P0 核心） [modules/kernel/spec-index + modules/server]
 
 - [x] E1Spring Boot 4 应用骨架（引导类、`SPECHUB_*` 配置绑定、单测基建）[modules/server] → A2 A4
-- [ ] E2 Repo 注册 REST：添加仓地址 / 分支 / 凭据注入 [modules/server]
+- [x] E2 Repo 注册 REST：添加仓地址 / 分支 / 凭据注入（`POST /api/repos` + 可选 token 注入 origin URL，不落库）[modules/server]
 - [x] E3摄取器主线：`git-store → spec-parser → 索引`（增量 + 幂等续跑）[modules/server] → C D
 - [x] E4SQLite 表：`project / repo / api / schema / doc / version` + 唯一键 + api↔schema 引用 [modules/kernel/spec-index]
 - [x] E5全量重扫命令 `reindex`（验证"索引可重建"纪律，§6.4 决策 7）[modules/server]
 - [x] E6webhook 接收端点（内容变更触发增量摄取）[modules/server]
-- [ ] E7 轮询兜底（未配 webhook 的仓定时 `fetch`+diff）[modules/server]
+- [x] E7 轮询兜底（未配 webhook 的仓定时 fetch + diff；`PollingIngestor` 复用 Ingestor 幂等，间隔可配）[modules/server]
 - [x] E8首次启动初始化：目录、DB、admin 种子命令（UI 化在 P1 H6）
 
 **P0 验收**：对一个小 git 仓触发 push → SQLite 查到归一化的 api 记录；`docker compose up -d --build` 起 gitea+backend；`reindex` 可整体重建。

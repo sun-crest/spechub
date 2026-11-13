@@ -2,6 +2,8 @@
 spechub:
   gitsource-path: ${SPECHUB_GITSOURCE_PATH:data/gitsource}
   db-path: ${SPECHUB_DB_PATH:data/spechub.db}
+  poll:
+    interval-ms: ${SPECHUB_POLL_INTERVAL_MS:60000}
 
 server:
   port: ${SPECHUB_PORT:8080}

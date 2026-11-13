@@ -8,6 +8,10 @@ import org.springframework.web.bind.annotation.*
 @RequestMapping("/api")
 class ApiQueryController(private val index: IndexService) {
 
+    /** 存活探针：容器 healthcheck 使用（不依赖 wget/curl）。 */
+    @GetMapping("/health")
+    fun health(): Map<String, String> = mapOf("status" to "up")
+
     @GetMapping("/projects/{project}/repos/{org}/{repo}/apis")
     fun listApis(
         @PathVariable project: String,

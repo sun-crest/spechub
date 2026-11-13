@@ -45,8 +45,13 @@ class SpecIndexStore(private val db: IndexDb) {
     }
 
     fun listRepos(): List<IndexDb.RepoProject> =
-        query("SELECT r.*, p.* FROM repo r JOIN project p ON p.id = r.project_id ORDER BY r.id") { rs ->
-            IndexDb.RepoProject(readRepo(rs), readProject(rs))
+        query("""
+            SELECT r.*, p.id AS p_id, p.name AS p_name
+            FROM repo r JOIN project p ON p.id = r.project_id
+            ORDER BY r.id
+        """) { rs ->
+            // 列名带别名读 project，避免 r.* 与 p.* 的 id/name 同名列被 JDBC 取错（取第一个匹配）
+            IndexDb.RepoProject(readRepo(rs), IndexDb.ProjectRow(rs.getLong("p_id"), rs.getString("p_name")))
         }
 
     // ---------------- 摄取快照（E3，幂等） ----------------

@@ -40,9 +40,12 @@ class Ingestor(
         branch: String = "main",
         source: String,
         message: String? = null,
+        token: String? = null,
     ): Result {
         val ref = GitRepoRef(org, name)
-        val dir = gitStore.syncRemote(ref, remoteUrl)
+        // E2 凭据注入：token 只拼进本次同步的 http userinfo，registry 落库仍存原始 URL
+        val syncUrl = token?.let { injectToken(remoteUrl, it) } ?: remoteUrl
+        val dir = gitStore.syncRemote(ref, syncUrl)
 
         // 找 spec 文件并归一化
         val specFile = findSpecFileIn(dir) ?: return Result(repoId = -1, specFile = null, unchanged = true)
@@ -72,6 +75,18 @@ class Ingestor(
      * 成功且含 paths 的第一个文件胜出。跳过 .git。
      */
     private fun specVersionOf(raw: String): String = detectSpecVersion(raw).label
+
+    /** 把 `token` 拼进 http(s) URL 的 userinfo 段；非 http(s) 或已有 userinfo 则原样返回。 */
+    internal fun injectToken(url: String, token: String): String {
+        val scheme = url.takeWhile { it != ':' }
+        if (scheme != "http" && scheme != "https") return url
+        val rest = url.removePrefix("$scheme://")
+        val (authority, tail) = rest.split('/', limit = 2).let {
+            it[0] to if (it.size > 1) "/${it[1]}" else ""
+        }
+        // authority 已含 userinfo（user:pass@host）时不覆盖，避免破坏已配凭据
+        return if (authority.contains('@')) url else "$scheme://$token@$authority$tail"
+    }
 
     private fun findSpecFileIn(dir: java.nio.file.Path): String? {
         val candidates = mutableListOf<String>()

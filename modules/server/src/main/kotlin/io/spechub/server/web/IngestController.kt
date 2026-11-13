@@ -24,6 +24,12 @@ class IngestController(private val ingestor: Ingestor) {
         @NotBlank val name: String,
         @NotBlank val remoteUrl: String,
         val branch: String = "main",
+        /**
+         * E2 凭据注入（可选）：内置 Gitea 匿名拉取场景可省略。
+         * 透传给 git 做 http 认证（形如 `token` 或 `user:token`，Gitea 兼容 `oauth2:token`），
+         * 仅注入到 clone 的 origin URL，不写入 SQLite（repo.remoteUrl 保持原始地址）。
+         */
+        val token: String? = null,
     )
 
     @PostMapping("/repos")
@@ -32,6 +38,7 @@ class IngestController(private val ingestor: Ingestor) {
             ingestor.ingest(
                 project = req.project, org = req.org, name = req.name,
                 remoteUrl = req.remoteUrl, branch = req.branch, source = "api",
+                token = req.token,
             )
         } catch (e: SpecFileInvalidException) {
             throw ResponseStatusException(HttpStatusCode.valueOf(422), e.message, e)
