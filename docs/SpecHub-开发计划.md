@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-12　**状态**：P0 全部 21 项完成；待 compose 部署验收 + 提交
+> **日期**：2026-11-14　**状态**：P0 按新规范重建中——**A 组骨架（A1–A4）已完成并实证**（`./gradlew build` 全绿 + compose 双服务 healthy）；B 组起待办（2026-11-13 四项技术决策定案，见产品方案 §0）
 
 ---
 
@@ -22,41 +22,41 @@
 
 ### A 项目骨架
 
-- [x] A1建 monorepo 目录树 `modules/ apps/ compose/ docs/ e2e/` 与根 README [根]
-- [x] A2Gradle（Kotlin DSL）根构建 + `gradle/libs.versions.toml` 版本目录；锁定 Java 25 / Spring Boot 4 当前 GA 小版本 [根]
-- [x] A3`kernel/spec-model` 空壳 + JVM 侧 kernel 四模块占位（`spec-parser / git-store / spec-index`）[modules/kernel]
-- [x] A4compose 蓝图 v1：`backend`（空 Spring 应用）+ `gitea` + 四个命名卷 + `.env.example` [compose]
+- [x] A1建 monorepo 目录树 `modules/ apps/ compose/ docs/ e2e/` 与根 README [根] ✅ 2026-11-14：含 apps/plugins/e2e 占位说明，依赖方向写入根 README
+- [x] A2Gradle（Kotlin DSL）根构建 + `gradle/libs.versions.toml` 版本目录；锁定 Java 25 / Spring Boot 4 当前 GA 小版本；**JUnit 对齐 `spring-boot-dependencies` BOM（6.0.3）**——教训：版本目录勿自声明 5.13.2 而让 starter-test 实际跑 6.0.3 [根] ✅ 2026-11-14：Boot 4.1.2 / Kotlin 2.3.21 对齐 BOM / Jackson 3.1.7（tools.jackson 撤双栈）；实证「声明 X、实跑 Y」漂移已消除（dependencyInsight 显 6.0.3）
+- [x] A3`kernel/spec-model` 空壳 + JVM 侧 kernel 四模块占位（`spec-parser / git-store / spec-index`）[modules/kernel] ✅ 2026-11-14：依赖方向先行声明（parser/index→spec-model；git-store 零第三方），JUnit 冒烟测试全绿
+- [x] A4compose 蓝图 v1：`backend`（空 Spring 应用）+ `gitea` + 四个命名卷 + `.env.example` [compose] ✅ 2026-11-14：server 最小可启动空壳（org.springframework.boot 引导类，E1 再补配置绑定/单测）；多阶段 Dockerfile + gitea:1.22 双服务健康（排障：INSTALL_LOCK 属 [security] 段）
 
 ### B OpenAPI 3.1 内部模型 [modules/kernel/spec-model]
 
-- [x] B1核心模型类：`OpenApiDoc / Operation / PathItem / Schema / Component / Server`（Kotlin data class，空安全）
-- [x] B2JSON / YAML 序列化（Jackson + jackson-dataformat-yaml，支持单/多文档）
-- [x] B3归一化模型指纹 `specHash`（作为 Version 发布快照的主键，见 P2 I6）
+- [ ] B1核心模型类：`OpenApiDoc / Operation / PathItem / Schema / Component / Server`（Kotlin data class，空安全）
+- [ ] B2JSON / YAML 序列化（Jackson + jackson-dataformat-yaml，支持单/多文档）
+- [ ] B3归一化模型指纹 `specHash`（作为 Version 发布快照的主键，见 P2 I6）
 
 ### C 多版本归一化 [modules/kernel/spec-parser] → B
 
-- [x] C1集成 swagger-parser，自动探测 `swagger: "2.0"` / `openapi: "3.0"` / `"3.1"`
-- [x] C2升级映射：`definitions → components/schemas`、`nullable → type:[...,null]`、`exclusiveMin/Max` 布尔→数值、`consumes/produces → requestBody` 等（§6.5）
-- [x] C3升级变更日志输出（"自动转换 / 待人工复核"标注，对接评审流状态）
-- [x] C4解析失败容错与错误收集（坏 spec 隔离，不拖垮整次摄取）
+- [ ] C1自研解析器（Jackson 3 / tools.jackson 直读 JSON/YAML），自动探测 `swagger: "2.0"` / `openapi: "3.0"` / `"3.1"`；**撤 swagger-parser**（其 3.1 支持弱且锁死 Jackson 2，见产品方案 §7）
+- [ ] C2升级映射（P0 覆盖 **3.0→3.1 语义升级**）：`nullable → type:[...,null]`、`exclusiveMin/Max` 布尔→数值；2.0 的结构升级（`definitions → components/schemas`、`host/basePath → servers`、`consumes/produces → requestBody`）**推迟到 P2 J2**
+- [ ] C3升级变更日志输出（"自动转换 / 待人工复核"标注，对接评审流状态）
+- [ ] C4解析失败容错与错误收集（坏 spec 隔离，不拖垮整次摄取）
 
 ### D git 化读写 [modules/kernel/git-store]
 
-- [x] D1系统 git CLI 子进程封装（参数化安全、超时、`--no-pager`）
-- [x] D2`clone / fetch` 镜像远程仓到 `gitsource/repos/<org>/<repo>`（§7.3）
-- [x] D3`commit / push` 写回真源仓（Web 直改与平台提交，R1-C 兜底形态）
-- [x] D4`diff / status` 提取 spec 变更（喂给 ChangeLog）
+- [ ] D1系统 git CLI 子进程封装（参数化安全、超时、`--no-pager`）
+- [ ] D2`clone / fetch` 镜像远程仓到 `gitsource/repos/<org>/<repo>`（§7.3）
+- [ ] D3`commit / push` 写回真源仓（Web 直改与平台提交，R1-C 兜底形态）
+- [ ] D4`diff / status` 提取 spec 变更（喂给 ChangeLog）
 
 ### E 摄取链路 + 索引（P0 核心） [modules/kernel/spec-index + modules/server]
 
-- [x] E1Spring Boot 4 应用骨架（引导类、`SPECHUB_*` 配置绑定、单测基建）[modules/server] → A2 A4
-- [x] E2 Repo 注册 REST：添加仓地址 / 分支 / 凭据注入（`POST /api/repos` + 可选 token 注入 origin URL，不落库）[modules/server]
-- [x] E3摄取器主线：`git-store → spec-parser → 索引`（增量 + 幂等续跑）[modules/server] → C D
-- [x] E4SQLite 表：`project / repo / api / schema / doc / version` + 唯一键 + api↔schema 引用 [modules/kernel/spec-index]
-- [x] E5全量重扫命令 `reindex`（验证"索引可重建"纪律，§6.4 决策 7）[modules/server]
-- [x] E6webhook 接收端点（内容变更触发增量摄取）[modules/server]
-- [x] E7 轮询兜底（未配 webhook 的仓定时 fetch + diff；`PollingIngestor` 复用 Ingestor 幂等，间隔可配）[modules/server]
-- [x] E8首次启动初始化：目录、DB、admin 种子命令（UI 化在 P1 H6）
+- [ ] E1Spring Boot 4 应用骨架（引导类、`SPECHUB_*` 配置绑定、单测基建）[modules/server] → A2 A4
+- [ ] E2 Repo 注册 REST：添加仓地址 / 分支 / 凭据注入（`POST /api/repos` + 可选 token 注入 origin URL，不落库）[modules/server]
+- [ ] E3摄取器主线：`git-store → spec-parser → 索引`（增量 + 幂等续跑）[modules/server] → C D
+- [ ] E4SQLite 表：`project / repo / api / schema / doc / version` + 唯一键 + api↔schema 引用 [modules/kernel/spec-index]
+- [ ] E5全量重扫命令 `reindex`（验证"索引可重建"纪律，§6.4 决策 7）[modules/server]
+- [ ] E6webhook 接收端点（内容变更触发增量摄取）[modules/server]
+- [ ] E7 轮询兜底（未配 webhook 的仓定时 fetch + diff；`PollingIngestor` 复用 Ingestor 幂等，间隔可配）[modules/server]
+- [ ] E8首次启动初始化：目录、DB、admin 种子命令（UI 化在 P1 H6）
 
 **P0 验收**：对一个小 git 仓触发 push → SQLite 查到归一化的 api 记录；`docker compose up -d --build` 起 gitea+backend；`reindex` 可整体重建。
 
@@ -95,7 +95,7 @@
 
 - [ ] I1 在线调试 Try it out（读 spec 发请求）[modules/server]
 - [ ] I2 Mock 规则引擎（pattern / value / script）[modules/server] → I3
-- [ ] I3 Mock 服务（WebFlux）独立成 compose 服务 [modules/mock] → E4 I2
+- [ ] I3 Mock 并入 backend（**MVC + Java 25 虚拟线程**，不引 WebFlux）；`modules/mock` 为依赖 kernel 的独立模块、部署并入 backend 进程 [modules/mock + modules/server] → E4 I2
 - [ ] I4 RBAC（owner / admin / editor / viewer）
 - [ ] I5 评论 / 变更记录
 - [ ] I6 draft → release 双层版本 + 发布快照（consumer 默认读 release）→ E3
@@ -105,7 +105,7 @@
 ### J 导入导出 [modules/kernel/spec-parser + modules/server]
 
 - [ ] J1 导入 Postman collection（验证归一化管道）→ C
-- [ ] J2 导入 Swagger 2.0 存量 → C
+- [ ] J2 导入 Swagger 2.0 存量 → 自研实现 2.0→3.1 结构化升级（承接原 C2，产品方案 §6.5）
 - [ ] J3 导出 OpenAPI 3.1 / 3.0 降级 / Postman
 - [ ] J4 导出 Markdown / docx(pandoc 子进程) / PDF / 静态 HTML 门户 → `artifacts` 卷
 
@@ -142,7 +142,7 @@
 
 ## 横向贯穿（各阶段同步）
 
-- **测试**：解析器黄金用例集（2.0/3.0/3.1 对拍）[modules/kernel/spec-parser]；e2e 链路（真 git 仓 → 摄取 → 查询 → mock）[e2e]；Gradle 单测随模块
+- **测试**：解析器黄金用例集（3.0/3.1 全覆盖；2.0 于 P2 J2 补齐）[modules/kernel/spec-parser]；e2e 链路（真 git 仓 → 摄取 → 查询 → mock）[e2e]；Gradle 单测随模块
 - **CI**：GitHub Actions 建 `build + test + 镜像构建推送`（CLI 交叉编译产物一并产出）[根]
 - **托管适配器**：P0 先 Gitea + 本地目录两档；P1 加 GitHub / GitLab webhook 适配（§7.3 落地为代码）[modules/server]
 - **文档**：每个工作包完成时同步 [docs]
@@ -159,13 +159,13 @@ C ─▶ D ─▶ E3              （P0 摄入主线）
 B/C ─▶ L1                  （IntelliJ 复用内核）
 ```
 
-**风险前置**：C2（2.0→3.1 归一化映射）是唯一高不确定任务，P0 一开工就放第一批，早暴露边界成本。
+**风险前置**：C 组自研解析（Jackson 3 直读 + 3.0→3.1 语义升级）是确定性工程，解析器黄金用例集（3.0/3.1）P0 首批补齐；2.0 结构化升级（原 C2 一部分）整体推迟 P2 J2，不确定性收敛到导入件，不再阻塞 P0 主线。
 
 ---
 
 ## P0 首批排期建议（开工顺序）
 
-1. A1–A4 骨架（半天~1天）——目录与环境先定死
+1. A1–A4 骨架（半天~1天）——目录与环境先定死 ✅ 已完成（2026-11-14）
 2. B1–B3 模型 + C1–C4 归一化（映射成本先暴露）
 3. D1–D4 git 封装
 4. E1–E4 摄取主线贯通（先本地目录仓可走通）

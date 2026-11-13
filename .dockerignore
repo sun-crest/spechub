@@ -1,9 +1,14 @@
-.git
-.gradle
-build
+# compose backend 构建上下文 = 仓库根；构建仅需 Gradle 脚本 + modules/
+**/.git
+**/.gradle
 **/build
-data
-node_modules
-dist
+**/node_modules
+.gradle
+docs
+apps
+plugins
+e2e
 *.md
 .env
+.env.*
+!.env.example

@@ -2,7 +2,7 @@
 
 > **定位一句话**：以 git 化契约文件为真源的接口文档平台——Claude Code 读写、人用 Web 管理、IDE 插件注入，三方永远围绕同一份 OpenAPI spec。
 >
-> **角色**：评审草稿 v0.1　**日期**：2026-11-10　**状态**：待团队评审
+> **角色**：评审草稿 v0.1　**日期**：2026-11-13　**状态**：待团队评审（技术决策 2026-11-13 定案，见 §0）
 
 ---
 
@@ -20,7 +20,13 @@ SpecHub 换个思路：**文档即源码**。AI 产出的研发知识——接�
 | 2 | **契约真源** | OpenAPI 单一模型，mock / 调试 / 导出 / 契约测试从契约长出来 |
 | 3 | **IDE 注入** | 从路由与注解一键导入，编辑器里 hover 即见定义 |
 
-**当前决策**：名字定为 **SpecHub**（中文副名「契书」），命名查重已完成（见附录 A），主流域名被占但 `.io` 可注册，品牌面无撞车。产品重心 = **API 接口管理优先**；AI 接手分析、需求分析等认知文档作为**辅助层**，与接口文档**分开管理**（独立管理域，见 §5.7 / §6.2）。部署默认内置 Gitea 文档仓托管（可切换外部 git 托管，见 §7.3）。代码尚未开始，P0 待开工。
+**当前决策**：名字定为 **SpecHub**（中文副名「契书」），命名查重已完成（见附录 A），主流域名被占但 `.io` 可注册，品牌面无撞车。产品重心 = **API 接口管理优先**；AI 接手分析、需求分析等认知文档作为**辅助层**，与接口文档**分开管理**（独立管理域，见 §5.7 / §6.2）。部署默认内置 Gitea 文档仓托管（可切换外部 git 托管，见 §7.3）。
+
+> **技术决策（2026-11-13 定案，代码已清空按此重建）**
+> 1. **Jackson 单运行时**：kernel 统一用 **Jackson 3（tools.jackson，≥3.1.4）**，不再引入 Jackson 2（swagger-parser 已撤）；与 Spring Boot 4 web 层默认运行时对齐，消除双栈冲突。
+> 2. **自研 OpenAPI 解析**：撤 swagger-parser；3.0 / 3.1 由自研解析器直读并升级到内部 3.1 模型，2.0 结构化升级推迟到 P2 导入件（见 §6.5 / 计划 J2）。
+> 3. **JUnit 对齐 6.0.3**：版本目录与 `spring-boot-dependencies` BOM 一致，消除"声明 5.x、实跑 6.x"漂移。
+> 4. **mock 并入 backend**：MVC（阻塞 + Java 25 虚拟线程）而非 WebFlux；代码独立于 `modules/mock`（依赖 kernel），部署不单列 compose 服务。
 
 ---
 
@@ -197,7 +203,7 @@ docs/<service-name>/               # 域二：AI 分析文档（分开管理）
 
 ### 6.5 OpenAPI 多版本兼容（摄入边界策略）
 
-- **摄入**：真实世界 spec 是 2.0 / 3.0 / 3.1 混杂（框架导出、存量文件、Postman/Swagger 导入）。摄取层用 `swagger-parser` 三版本自动探测解析，统一升级映射到内部 OpenAPI 3.1 模型；**原始文件原样保留在 `gitsource`，绝不回写重写**——转换只在内存/索引层一次性完成，避免"转换→再存→再转"的信息磨损。
+- **摄入**：真实世界 spec 是 2.0 / 3.0 / 3.1 混杂（框架导出、存量文件、Postman/Swagger 导入）。摄取层用**自研解析器**（Jackson 3 / tools.jackson 直读 JSON/YAML，内核零第三方解析依赖）：3.0 / 3.1 全量支持并按语义升级映射到内部 OpenAPI 3.1 模型；2.0 的结构化升级（definitions→components、host/basePath→servers、consumes→content）推迟到 P2 导入件 J2 落地。**原始文件原样保留在 `gitsource`，绝不回写重写**——转换只在内存/索引层一次性完成，避免"转换→再存→再转"的信息磨损。
 - **转换留痕**：归一化时输出一份**升级变更日志**（`nullable: true` → `type: [..., null]`、2.0 `definitions` → `components/schemas` 等），标注"自动转换 / 需人工复核"，摄入状态走现有"写操作皆审"评审流——让"转换做了什么"可审计，落在可信度叙事上。
 - **失真源头监控**（最易丢语义的三点）：可空写法（2.0/3.0 `nullable` → 3.1 `type: [..., null]`）、数值边界（`exclusiveMinimum/Maximum` 由布尔变数字）、示例与 `$defs`。自动升级约 90% 正确，10% 需人工复核——由升级日志与"自动转换 / 待确认"状态兜住。
 - **导出**：标准导出输出 3.1；对旧工具链（老网关导入、旧测试框架要求 3.0）提供**只降能力**的 3.0 导出开关；2.0 导出不做（有损降级、无生态需求）。
@@ -212,12 +218,13 @@ docs/<service-name>/               # 域二：AI 分析文档（分开管理）
 | 层 | 选型 | 理由 |
 |---|---|---|
 | 后端 | **Java 25（最新 LTS）· Spring Boot 4（当前 GA，Framework 7）** | Spring Boot 4 一等支持 Java 25（保留 17 基线），LTS 支持至 2033；构建时锁定当前 GA 小版本 |
-| 后端打包 | **JVM fatjar 默认 + 分层镜像 + CDS；native-image 为可选演进** | 长驻服务不依赖冷启动收益；swagger-parser / SQLite JDBC 等反射重链路在 native 下的 metadata 是工期黑洞。分层镜像 + CDS(AppCDS) 把部署体感与启动压到可接受档，并保留完整 JVM 诊断工具链；真正要单二进制 / 超低内存的场景由 CLI(Go) 承担，故不默认 native |
+| 后端打包 | **JVM fatjar 默认 + 分层镜像 + CDS；native-image 为可选演进** | 长驻服务不依赖冷启动收益；SQLite JDBC / Jackson 3 等反射重链路在 native 下的 metadata 是工期黑洞。分层镜像 + CDS(AppCDS) 把部署体感与启动压到可接受档，并保留完整 JVM 诊断工具链；真正要单二进制 / 超低内存的场景由 CLI(Go) 承担，故不默认 native |
+| 解析/序列化 | **自研 OpenAPI 解析器；Jackson 3（tools.jackson，≥3.1.4）** | Jackson 2/3 的注解共包 `com.fasterxml.jackson.annotation`，同一类路径不可共存，双栈必在序列化边界踩坑；统一 Jackson 3 单运行时，与 Spring Boot 4 web 层默认运行时对齐（≥3.1.4 规避 CVE-2026-68494 / 19032）。swagger-parser 对 OpenAPI 3.1（`type` 数组等原生能力）支持弱且锁死 Jackson 2，撤用。3.0/3.1 自研直读升级，2.0 结构化升级推迟 P2 J2（§6.5） |
 | 文档存储 | **文件系统(git) 真源 + SQLite(sqlite-jdbc) 索引** | 两层分工：文件=真相（AI 直接读写、diff/回滚/评审），SQLite=可重建投影（查询/检索/发布快照/订阅）；git 操作统一走镜像内嵌的**系统 git CLI 子进程**（debug 直观、diff/merge 与团队本地行为一致；JGit 仅在批量化高频读取需要时二选一并封装为同一接口，不作主力） |
 | Claude Code 接入 | **remote MCP(HTTP) 优先 + CLI；stdio 仅单机/调试** | 本地代码仓 spec 由 Claude 原生文件工具直接读写（零 MCP）；聚合层经 remote MCP(HTTP) 访问，CLI 兼 push/pull 同步与 CI 校验。语言见下行"单列" |
 | MCP/CLI 单列 | ✅ **语言自由；当前推荐 MCP=TS(Node)、CLI=Go 各自取最优** | 独立组件、不受 Java 约束。**MCP 选 TS(Node)**：贴 MCP 官方 SDK 生态、新能力先落地，remote HTTP 优先。**CLI 选 Go**：单二进制、零依赖进 CI 与任何基础镜像、启动毫秒级，本职 = 文件 + git 子进程 + HTTP、无需内核。二者连接的是 server API 生成的**薄 `spec-client`**（TS/Go 各一份，OpenAPI 生成近零维护）。仍单列可换：CLI 可换 TS(Node SEA / Bun)，MCP 可换 Go / Kotlin。对外接口（MCP 工具集 / CLI 命令）稳定，切换实现不影响后端主体 |
 | Web UI | **React + Vite + Monaco 双栏** | 前后端语言解耦、走 REST JSON，不随后端切换 |
-| Mock | Spring Boot/WebFlux 读 spec 生成 + 规则引擎 | 高并发能力强，未来无需像 Node 那样"局部换 Go" |
+| Mock | **Spring MVC（阻塞 + Java 25 虚拟线程）读 spec 生成 + 规则引擎**；代码独立于 `modules/mock`（依赖 kernel），部署并入 backend | mock 是"查询+生成"型服务、无阻塞 IO 可异步化，WebFlux 只买复杂度；Java 25 虚拟线程在短请求路径无并发短板，规则引擎 / 脚本保持同步代码与同步调试 |
 | 导出 | md 模板 / docx(pandoc) / pdf(子进程) / html 静态生成 | 语言无关，免受 POI/Aspose 授权费用 |
 | IDE 插件 | **JetBrains 用 Kotlin 复用后端解析器；VSCode 走 TS** | 解析器单份，JetBrains 插件直调后端库，白捡复用红利 |
 
@@ -226,7 +233,7 @@ docs/<service-name>/               # 域二：AI 分析文档（分开管理）
 ### 7.1 部署：Docker Compose 一键拉起
 
 - **形态**：自托管最小部署面 = 单个 `docker-compose.yml`，`docker compose up -d --build` 一键拉起；后端（Java 25）持 fatjar，镜像内嵌 git CLI 以操作真源仓库。
-- **服务**：`gitea`（**默认内置的文档仓托管**，本地卷持久化；切换外部托管时可停用）、`backend`（Spring Boot：HTTP API / remote MCP / 导出子进程）、`web`（nginx 伺服静态 UI + 反代 `/api`）、`mock`（WebFlux 读 spec 生成；小团队可先合并进 backend 减部署面）。
+- **服务**：`gitea`（**默认内置的文档仓托管**，本地卷持久化；切换外部托管时可停用）、`backend`（Spring Boot：HTTP API / remote MCP / 导出子进程 / 内置 **mock**（MVC + 虚拟线程，读 spec 生成，见 §7.4））、`web`（nginx 伺服静态 UI + 反代 `/api`）。mock **不单列 compose 服务**：无阻塞 IO 可异步化，独立端口/健康检查/运维面只有成本，合并进 backend 减部署面。
 - **数据持久化命名卷**：`gitsource`（真源文档仓）、`gitea-data`（内置 Gitea 的仓库数据）、`sqlite`（索引 DB）、`artifacts`（导出/门户产物）；容器可重建，数据不丢。
 - **配置**：`SPECHUB_*` 环境变量（外部 URL、仓库路径、管理员初始化）；首次启动自动建库、初始化目录与 admin，开箱即用。
 - **开发叠加**：开发阶段同一 compose 挂代码目录热更 backend，与线上拓扑一致。
@@ -259,11 +266,11 @@ docs/<service-name>/               # 域二：AI 分析文档（分开管理）
   ├── modules/                        # ── JVM 侧 ──
   │   ├── kernel/                     # ★ 零框架依赖纯库，IDE 插件可直接依赖 jar
   │   │   ├── spec-model/             # OpenAPI 3.1 内部模型（Kotlin data class）
-  │   │   ├── spec-parser/            # swagger-parser 包装 + 2.0/3.0/3.1→3.1 归一化（§6.5）
+  │   │   ├── spec-parser/            # 自研解析（Jackson 3 / tools.jackson）：3.0/3.1→3.1 归一化（§6.5；2.0 导入 P2 J2）
   │   │   ├── git-store/              # 系统 git CLI 子进程封装：clone/fetch/commit/push/diff
   │   │   └── spec-index/             # SQLite(sqlite-jdbc) 索引 DAO
-  │   ├── server/                     # Spring Boot 4：REST API / remote MCP / webhook 摄取 / 导出子进程
-  │   └── mock/                       # WebFlux mock（P0 可先并入 server，目录保留）
+  │   ├── server/                     # Spring Boot 4：REST API / remote MCP / webhook 摄取 / 导出子进程 / mock 入口
+  │   └── mock/                       # Mock 规则引擎（MVC + 虚拟线程；依赖 kernel，部署并入 backend）
   ├── apps/                           # ── 端侧（TS npm workspace + Go module）──
   │   ├── web/                        # React + Vite + Monaco（TS）
   │   ├── mcp/                        # MCP server——当前推荐 TS(Node)，remote HTTP 优先（语言单列可换）

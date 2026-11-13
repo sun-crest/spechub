@@ -1,36 +1,36 @@
 rootProject.name = "spechub"
 
-// 说明：当前部署网络环境对 Maven Central (repo.maven.apache.org) 直接访问被 Sonatype 403 封禁，
-// 因此依赖与插件仓库统一走同步镜像（阿里云公共 + 华为云兜底），不配置 mavenCentral()。
+// ── 仓库策略 ──────────────────────────────────────────────
+// Maven Central / Gradle Plugin Portal 2026-11-14 实测可达，为主仓库；
+// 阿里云 / 华为云镜像作兜底——旧代码曾记录「直连被 Sonatype 403」（见 git 历史 settings），
+// 若环境再次生效，镜像仍可服务（Gradle 按顺序回退）。
 pluginManagement {
     repositories {
+        gradlePluginPortal()
+        mavenCentral()
         maven(url = uri("https://maven.aliyun.com/repository/gradle-plugin"))
-        maven(url = uri("https://maven.aliyun.com/repository/public"))
     }
 }
 
 dependencyResolutionManagement {
     repositories {
+        mavenCentral()
         maven(url = uri("https://maven.aliyun.com/repository/public"))
-        maven(url = uri("https://maven.aliyun.com/repository/central"))
         maven(url = uri("https://repo.huaweicloud.com/repository/maven"))
     }
 }
 
-// ── JVM 侧（依赖方向：一切只朝 kernel 依赖，见 §7.4）──
-// 路径约定：JVM 模块一律放 modules/ 下；projectDir 映射使 include 路径与目录一致。
+// ── JVM 侧（依赖方向：一切只朝 kernel，见 §7.4 硬约束）──
+// include 简写路径，projectDir 重映射到 modules/ 目录；JVM 模块一律放 modules/ 下。
+// 说明：包含嵌套路径（:kernel:spec-model）时，父级 :kernel 也须显式映射目录（Gradle 9 要求实际目录存在）。
 include(":kernel")
 project(":kernel").projectDir = file("modules/kernel")
 
-val jvmModules = listOf(
-    "kernel:spec-model" to "modules/kernel/spec-model",
-    "kernel:spec-parser" to "modules/kernel/spec-parser",
-    "kernel:git-store" to "modules/kernel/git-store",
-    "kernel:spec-index" to "modules/kernel/spec-index",
-    "server" to "modules/server",
-)
+include(":kernel:spec-model", ":kernel:spec-parser", ":kernel:git-store", ":kernel:spec-index")
+include(":server")
 
-jvmModules.forEach { (path, dir) ->
-    include(":$path")
-    project(":$path").projectDir = file(dir)
-}
+project(":kernel:spec-model").projectDir = file("modules/kernel/spec-model")
+project(":kernel:spec-parser").projectDir = file("modules/kernel/spec-parser")
+project(":kernel:git-store").projectDir = file("modules/kernel/git-store")
+project(":kernel:spec-index").projectDir = file("modules/kernel/spec-index")
+project(":server").projectDir = file("modules/server")
