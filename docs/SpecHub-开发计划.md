@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-14　**状态**：P0 按新规范重建中——**A 骨架 + B 模型 + C 解析 + D git 封装（D1–D4）已完成并实证**（`./gradlew build` 全绿，spec-model 11 + spec-parser 9 + git-store 7 测试全过；compose 双服务 healthy）；E 组摄取链路待办（2026-11-13 四项技术决策定案，见产品方案 §0）
+> **日期**：2026-11-14　**状态**：P0 按新规范重建中——**A–E 六组全部完成并实证**（`./gradlew build` 全绿，40 测试全过；compose 双服务 healthy）；E2/E6 已有 REST 集成验收（IngestorE2E + WebApi，真仓→摄取→查询→webhook）；剩 P0 验收部署实测（2026-11-13 四项技术决策定案，见产品方案 §0）
 
 ---
 
@@ -49,14 +49,14 @@
 
 ### E 摄取链路 + 索引（P0 核心） [modules/kernel/spec-index + modules/server]
 
-- [ ] E1Spring Boot 4 应用骨架（引导类、`SPECHUB_*` 配置绑定、单测基建）[modules/server] → A2 A4
-- [ ] E2 Repo 注册 REST：添加仓地址 / 分支 / 凭据注入（`POST /api/repos` + 可选 token 注入 origin URL，不落库）[modules/server]
-- [ ] E3摄取器主线：`git-store → spec-parser → 索引`（增量 + 幂等续跑）[modules/server] → C D
-- [ ] E4SQLite 表：`project / repo / api / schema / doc / version` + 唯一键 + api↔schema 引用 [modules/kernel/spec-index]
-- [ ] E5全量重扫命令 `reindex`（验证"索引可重建"纪律，§6.4 决策 7）[modules/server]
-- [ ] E6webhook 接收端点（内容变更触发增量摄取）[modules/server]
-- [ ] E7 轮询兜底（未配 webhook 的仓定时 fetch + diff；`PollingIngestor` 复用 Ingestor 幂等，间隔可配）[modules/server]
-- [ ] E8首次启动初始化：目录、DB、admin 种子命令（UI 化在 P1 H6）
+- [x] E1Spring Boot 4 应用骨架（引导类、`SPECHUB_*` 配置绑定、单测基建）[modules/server] → A2 A4 ✅ 2026-11-14：SpecHubProperties（@ConfigurationProperties）+ KernelConfig bean 装配（含启动目录/DB 初始化）+ @EnableScheduling；@SpringBootTest 集成测试
+- [x] E2 Repo 注册 REST：添加仓地址 / 分支 / 凭据注入（`POST /api/repos` + 可选 token 注入 origin URL，不落库）[modules/server] ✅ 2026-11-14：RepoController（register/list/get/apis）+ UrlTokenStore 内存 registry；git 命令参数传 token、clone 后 remote url 已清洗；测试实证 repo.url 无 token
+- [x] E3摄取器主线：`git-store → spec-parser → 索引`（增量 + 幂等续跑）[modules/server] → C D ✅ 2026-11-14：Ingestor（ensureMirror 增量 → findSpecFiles(§6.2 specs/) → parse → index.replace 全量重建）；specHash 幂等续跑测试（同内容不增 version / 新 push 增 version）
+- [x] E4SQLite 表：`project / repo / api / schema / doc / version` + 唯一键 + api↔schema 引用 [modules/kernel/spec-index] ✅ 2026-11-14：IndexDb（WAL/foreign_keys 事务外 PRAGMA）+ IndexSchema 7 表 + SpecIndexStore DAO（幂等键：repo(url)/version(hash)/api(method+path)/schema(name)；ON DELETE CASCADE；sqlite-jdbc INTEGER→Long 转换）
+- [x] E5全量重扫命令 `reindex`（验证"索引可重建"纪律，§6.4 决策 7）[modules/server] ✅ 2026-11-14：ReindexRunner `--reindex` ApplicationRunner，逐仓全量重扫并计数失败
+- [x] E6webhook 接收端点（内容变更触发增量摄取）[modules/server] ✅ 2026-11-14：POST /api/webhooks/{id} 触发 ingest；集成测试实证 apiCount 稳定
+- [x] E7 轮询兜底（未配 webhook 的仓定时 fetch + diff；`PollingIngestor` 复用 Ingestor 幂等，间隔可配）[modules/server] ✅ 2026-11-14：@Scheduled(spechub.polling-interval-ms) 遍历注册仓摄取，失败仅告警不中断
+- [x] E8首次启动初始化：目录、DB、admin 种子命令（UI 化在 P1 H6）✅ 2026-11-14：KernelConfig 启动建目录+迁移；ApplicationInit 保证 default project + 环境/`--seed-admin` 生成 admin 令牌
 
 **P0 验收**：对一个小 git 仓触发 push → SQLite 查到归一化的 api 记录；`docker compose up -d --build` 起 gitea+backend；`reindex` 可整体重建。
 

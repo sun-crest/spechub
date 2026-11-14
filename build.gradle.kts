@@ -18,4 +18,8 @@ subprojects {
             jvmToolchain(25)
         }
     }
+    // 测试 JVM 释放 native access（sqlite-jdbc 在 JDK 25 的 restricted 加载警告消隐）
+    tasks.withType<Test>().configureEach {
+        jvmArgs("--enable-native-access=ALL-UNNAMED")
+    }
 }

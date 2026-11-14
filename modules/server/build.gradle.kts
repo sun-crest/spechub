@@ -21,6 +21,9 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter) // 版本由 BOM（6.0.3）管
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // Boot 4 / Spring 7：starter-test 把 spring-test 与 json-path 按 runtime 传递，编译端须显式声明才可见
+    testImplementation("org.springframework:spring-test")
+    testImplementation("com.jayway.jsonpath:json-path")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

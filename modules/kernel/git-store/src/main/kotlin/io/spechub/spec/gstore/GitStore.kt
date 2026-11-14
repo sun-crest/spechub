@@ -1,5 +1,6 @@
 package io.spechub.spec.gstore
 
+import java.nio.file.Files
 import java.nio.file.Path
 
 /*
@@ -61,15 +62,25 @@ class GitStore(private val cli: GitCli = GitCli()) {
     // ── D2 · clone / fetch 镜像远程仓 ─────────────────────────────────────
 
     /** 镜像 clone（bare）；target 已存在且为 git 仓则跳过（调用方走 [mirrorFetch] 增量） */
-    fun mirrorClone(url: String, target: Path): GitResult =
-        cli.run(target.parent, listOf("clone", "--mirror", "--", url, target.toString()))
+    fun mirrorClone(url: String, target: Path): GitResult {
+        Files.createDirectories(target.parent)
+        return cli.run(target.parent, listOf("clone", "--mirror", "--", url, target.toString()))
+    }
 
-    /** 镜像仓增量更新（--mirror 的 fetch 是全 refs 镜像，见 git clone --mirror 语义） */
-    fun mirrorFetch(target: Path): GitResult =
-        cli.run(null, listOf("--git-dir=${target.toString()}", "fetch", "--prune"))
+    /**
+     * 镜像仓增量更新：显式 URL fetch（不依赖 remote 配置），
+     * 全 refs 镜像（heads + tags 全量映射，避开注释里的斜星号序列），满足 --mirror 语义。
+     * 凭据只出现在命令参数中、永不落盘（见 §0 E2 决策：token 不落库）。
+     */
+    fun mirrorFetch(target: Path, url: String): GitResult =
+        cli.run(null, listOf(
+            "--git-dir=${target.toString()}", "fetch", "--prune", url,
+            "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*",
+        ))
 
     /** 工作树 clone（写回 / 平台直改用） */
     fun cloneInto(url: String, target: Path, branch: String? = null): GitResult {
+        Files.createDirectories(target.parent)
         val args = buildList {
             add("clone")
             if (branch != null) { add("--branch"); add(branch) }
@@ -78,11 +89,16 @@ class GitStore(private val cli: GitCli = GitCli()) {
         return cli.run(target.parent, args)
     }
 
-    /** ensureMirror：幂等镜像——已存在则增量 fetch，否则 clone；是 E3 摄取器幂等续跑的底座 */
+    /**
+     * ensureMirror：幂等镜像——已存在则增量 fetch（用传入 url，透明凭据），否则 clone。
+     * clone 后把 remote.origin.url 清洗为无凭据 URL（token 不落盘）；fetch 从不用 remote 配置。
+     * 是 E3 摄取器幂等续跑的底座。
+     */
     fun ensureMirror(url: String, target: Path): CloneOutcome =
-        if (isGitRepo(target)) CloneOutcome.Updated(mirrorFetch(target))
+        if (isGitRepo(target)) CloneOutcome.Updated(mirrorFetch(target, url))
         else {
             mirrorClone(url, target).require("镜像 clone $url → $target")
+            cli.run(null, listOf("--git-dir=${target.toString()}", "remote", "set-url", "origin", stripCredentials(url)))
             CloneOutcome.Cloned(target)
         }
 
@@ -102,10 +118,25 @@ class GitStore(private val cli: GitCli = GitCli()) {
     fun headRevision(repo: Path, rev: String = "HEAD"): GitResult =
         cli.run(repo, listOf("rev-parse", rev))
 
+    /** 列出某修订的全部文件相对路径（镜像仓物化发现 spec 文件用，E3 摄取器） */
+    fun listFiles(repo: Path, revision: String = "HEAD"): List<String> {
+        val r = cli.run(null, listOf("--git-dir=${repo.toString()}", "ls-tree", "-r", "--name-only", revision))
+        if (!r.success) return emptyList()
+        return r.stdout.lineSequence().filter { it.isNotBlank() }.toList()
+    }
+
     fun isGitRepo(dir: Path): Boolean = cli.run(dir, listOf("rev-parse", "--git-dir")).success
 
     private fun currentBranch(repo: Path): String =
         cli.run(repo, listOf("rev-parse", "--abbrev-ref", "HEAD")).output.ifEmpty { "main" }
+
+    /** 剥离 URL 内嵌凭据（如 `https://oauth2:TOKEN@host/path` → `https://host/path`），token 不落盘 */
+    private fun stripCredentials(url: String): String =
+        if (url.contains("://") && url.contains("@")) {
+            "${url.substringBefore("://")}://${url.substringAfter('@')}"
+        } else {
+            url
+        }
 
     // ── D3 · commit / push 写回真源仓 ───────────────────────────────────────
 
