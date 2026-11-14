@@ -1,0 +1,47 @@
+# SpecHub 解析器黄金用例 —— OpenAPI 3.0（C2 语义升级输入）
+# 覆盖：nullable / exclusiveMinimum 布尔 / type 单字符串 / 嵌套（properties、components.schemas、additionalProperties）
+openapi: 3.0.3
+info:
+  title: Pet Store 3.0
+  version: 1.0.0
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            nullable: true
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, count]
+                properties:
+                  id:
+                    type: integer
+                    nullable: true
+                  count:
+                    type: number
+                    minimum: 0
+                    exclusiveMinimum: true
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        name:
+          type: string
+        age:
+          type: integer
+          nullable: true
+        tag:
+          type: string
+          nullable: false
+      additionalProperties:
+        type: string

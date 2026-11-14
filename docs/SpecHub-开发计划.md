@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-14　**状态**：P0 按新规范重建中——**A 组骨架 + B 组（B1–B3）已完成并实证**（`./gradlew build` 全绿 + compose 双服务 healthy + spec-model 11 测试全过）；C 组解析归一化待办（2026-11-13 四项技术决策定案，见产品方案 §0）
+> **日期**：2026-11-14　**状态**：P0 按新规范重建中——**A 骨架 + B 模型 + C 解析归一化（C1–C4）已完成并实证**（`./gradlew build` 全绿，spec-model 11 + spec-parser 9 测试全过；compose 双服务 healthy）；D 组 git 封装待办（2026-11-13 四项技术决策定案，见产品方案 §0）
 
 ---
 
@@ -35,10 +35,10 @@
 
 ### C 多版本归一化 [modules/kernel/spec-parser] → B
 
-- [ ] C1自研解析器（Jackson 3 / tools.jackson 直读 JSON/YAML），自动探测 `swagger: "2.0"` / `openapi: "3.0"` / `"3.1"`；**撤 swagger-parser**（其 3.1 支持弱且锁死 Jackson 2，见产品方案 §7）
-- [ ] C2升级映射（P0 覆盖 **3.0→3.1 语义升级**）：`nullable → type:[...,null]`、`exclusiveMin/Max` 布尔→数值；2.0 的结构升级（`definitions → components/schemas`、`host/basePath → servers`、`consumes/produces → requestBody`）**推迟到 P2 J2**
-- [ ] C3升级变更日志输出（"自动转换 / 待人工复核"标注，对接评审流状态）
-- [ ] C4解析失败容错与错误收集（坏 spec 隔离，不拖垮整次摄取）
+- [x] C1自研解析器（Jackson 3 / tools.jackson 直读 JSON/YAML），自动探测 `swagger: "2.0"` / `openapi: "3.0"` / `"3.1"`；**撤 swagger-parser**（其 3.1 支持弱且锁死 Jackson 2，见产品方案 §7）✅ 2026-11-14：SpecParser.parse/detect；3.1 直通、3.0 升级、2.0 拒绝（明确指出推迟 P2 J2）
+- [x] C2升级映射（P0 覆盖 **3.0→3.1 语义升级**）：`nullable → type:[...,null]`、`exclusiveMin/Max` 布尔→数值；2.0 的结构升级（`definitions → components/schemas`、`host/basePath → servers`、`consumes/produces → requestBody`）**推迟到 P2 J2** ✅ 2026-11-14：OpenApiUpgrader 在 tree 层升级（源文件从不回写，§6.5）；含 type 单字符串→数组、嵌套 Schema 递归；exclusive 数值化并移除原 bound 防叠加
+- [x] C3升级变更日志输出（"自动转换 / 待人工复核"标注，对接评审流状态）✅ 2026-11-14：UpgradeRecord（kind/path/summary + ReviewFlag.AUTOMATIC|NEEDS_REVIEW，如 nullable 无 type 标复核）
+- [x] C4解析失败容错与错误收集（坏 spec 隔离，不拖垮整次摄取）✅ 2026-11-14：ParseResult（Success/Failure）+ ParseIssue（syntax/model-conversion/unknown-version/not-openapi 等结构化收集），坏文档不 throw；黄金用例 PetStore-3.0/3.1.yaml 落地
 
 ### D git 化读写 [modules/kernel/git-store]
 
