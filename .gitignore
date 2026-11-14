@@ -32,3 +32,5 @@ pnpm-debug.log*
 # --- 操作系统 ---
 .DS_Store
 Thumbs.db
+# --- Claude Code 本地环境 ---
+.claude/

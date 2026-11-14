@@ -89,6 +89,8 @@
 
 **P1 验收**：人用 Web、Claude 用 MCP 读同一份 spec，双写无冲突；CI 里 `spechub check` 可跑通。
 
+> **UI 设计对照**：本组与 P2 I 组的界面决策见 [SpecHub-UI方案.md](SpecHub-UI方案.md)（三区壳 + 双入口、详情三段式、Monaco 双栏语义、H 组范围清单）
+
 ---
 
 ## P2 · 平台化（目标：团队日常愿意用）

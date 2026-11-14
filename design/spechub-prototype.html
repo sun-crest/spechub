@@ -1,0 +1,975 @@
+<title>SpecHub 契书 · 接口工作台</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Layout 概念：顶栏 + 左侧接口导航树 + 右侧「单接口工作台」。
+   骨架参考 Knife4j（Java 团队熟悉的操作模式），但反一眼认出：
+   白顶栏（非深蓝 header）、深靛蓝主色、无 Authorize/全局设置/离线
+   文档按钮、树增加「服务」聚合层（多仓两端模型），溯源行是真源叙事。
+   方法色仍是唯一彩色来源；紧凑、一像素边框、无堆叠阴影。
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --font-sans: "Inter", -apple-system, "PingFang SC", "Hiragino Sans GB",
+               "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --brand: #3454D1;
+  --brand-ink: #FFFFFF;
+  --brand-soft: #E7EBFB;
+
+  --app-bg: #F4F5F7;
+  --surface: #FFFFFF;
+  --sunken: #EDEFF3;
+  --border: #E3E6EC;
+  --border-strong: #CBD2DE;
+
+  --text: #1B2027;
+  --text-2: #556071;
+  --text-3: #8C94A5;
+  --hash: #556071;
+
+  --mget-fg:#1E7A44;  --mget-bg:#E1F1E8;
+  --mpost-fg:#2757B8; --mpost-bg:#E3EDFC;
+  --mput-fg:#9A6206;  --mput-bg:#F9ECD8;
+  --mdelete-fg:#C4371F;--mdelete-bg:#FBE6E0;
+  --mpatch-fg:#7A3DA0;--mpatch-bg:#F1E8F8;
+
+  --ok-fg:#1E7A44;  --ok-bg:#E1F1E8;
+  --warn-fg:#9A6206;--warn-bg:#F9ECD8;
+  --err-fg:#C4371F; --err-bg:#FBE6E0;
+
+  --radius: 4px;
+  --topbar-h: 46px;
+  --nav-w: 272px;
+  --nav-collapse: 900px;
+
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --brand: #5E7CF0;
+    --brand-ink: #0E1014;
+    --brand-soft: #232C4C;
+
+    --app-bg: #0E1014;
+    --surface: #161A21;
+    --sunken: #1C212A;
+    --border: #252B36;
+    --border-strong: #38404F;
+
+    --text: #E9EBF0;
+    --text-2: #9BA4B2;
+    --text-3: #6E7888;
+    --hash: #9BA4B2;
+
+    --mget-fg:#5FC48B;  --mget-bg:rgba(46,158,91,.16);
+    --mpost-fg:#7BA0F0; --mpost-bg:rgba(59,105,218,.16);
+    --mput-fg:#E2B25F;  --mput-bg:rgba(192,134,36,.16);
+    --mdelete-fg:#F0877E;--mdelete-bg:rgba(217,70,55,.16);
+    --mpatch-fg:#C99AED;--mpatch-bg:rgba(146,94,190,.16);
+
+    --ok-fg:#5FC48B;  --ok-bg:rgba(46,158,91,.16);
+    --warn-fg:#E2B25F;--warn-bg:rgba(192,134,36,.16);
+    --err-fg:#F0877E; --err-bg:rgba(217,70,55,.16);
+
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --brand: #5E7CF0;
+  --brand-ink: #0E1014;
+  --brand-soft: #232C4C;
+
+  --app-bg: #0E1014;
+  --surface: #161A21;
+  --sunken: #1C212A;
+  --border: #252B36;
+  --border-strong: #38404F;
+
+  --text: #E9EBF0;
+  --text-2: #9BA4B2;
+  --text-3: #6E7888;
+  --hash: #9BA4B2;
+
+  --mget-fg:#5FC48B;  --mget-bg:rgba(46,158,91,.16);
+  --mpost-fg:#7BA0F0; --mpost-bg:rgba(59,105,218,.16);
+  --mput-fg:#E2B25F;  --mput-bg:rgba(192,134,36,.16);
+  --mdelete-fg:#F0877E;--mdelete-bg:rgba(217,70,55,.16);
+  --mpatch-fg:#C99AED;--mpatch-bg:rgba(146,94,190,.16);
+
+  --ok-fg:#5FC48B;  --ok-bg:rgba(46,158,91,.16);
+  --warn-fg:#E2B25F;--warn-bg:rgba(192,134,36,.16);
+  --err-fg:#F0877E; --err-bg:rgba(217,70,55,.16);
+
+  color-scheme: dark;
+}
+
+*{box-sizing:border-box}
+html{height:100%}
+body{
+  margin:0;min-height:100%;
+  padding:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));
+  padding-block:max(14px,env(safe-area-inset-top,0px)) max(60px,calc(env(safe-area-inset-bottom,0px) + 60px));
+  background:var(--app-bg);color:var(--text);
+  font-family:var(--font-sans);font-size:14px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+[hidden]{display:none!important}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:var(--radius)}
+code,.mono{font-family:var(--font-mono)}
+.num{font-variant-numeric:tabular-nums}
+
+.app{
+  max-width:1520px;margin:0 auto;
+  display:flex;flex-direction:column;
+  min-height:calc(100dvh - 76px);
+  background:var(--surface);
+  border:1px solid var(--border-strong);
+  border-radius:10px;
+  overflow:hidden;
+  box-shadow:0 1px 0 var(--border), 0 8px 24px rgba(20,26,40,.06);
+}
+
+/* ── 顶栏 ── */
+.topbar{
+  display:flex;align-items:center;gap:12px;height:var(--topbar-h);padding:0 14px;
+  background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;position:relative;z-index:5;
+}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;flex:none}
+.brand-mark{width:22px;height:22px;border-radius:5px;background:var(--brand);color:var(--brand-ink);display:grid;place-items:center;font-size:12px;font-weight:700;letter-spacing:-.5px}
+.brand-sub{color:var(--text-3);font-weight:500;font-size:12px}
+.space{display:flex;align-items:center;gap:6px;color:var(--text-2);font-size:13px;flex:none}
+.space b{color:var(--text);font-weight:600}
+.search{
+  flex:1 1 180px;max-width:340px;min-width:120px;display:flex;align-items:center;gap:8px;
+  background:var(--sunken);border:1px solid transparent;border-radius:var(--radius);padding:5px 10px;color:var(--text-2);
+}
+.search input{flex:1;background:none;border:none;outline:none;color:var(--text);font:inherit;font-size:13px}
+.seg{display:flex;align-items:center;background:var(--sunken);border:1px solid var(--border);border-radius:var(--radius);padding:2px;gap:2px;flex:none}
+.seg button{padding:3px 10px;font-size:12px;border-radius:3px;color:var(--text-2);font-weight:500}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(20,26,40,.08);border:1px solid var(--border)}
+.user-chip{display:flex;align-items:center;gap:7px;flex:none;color:var(--text-2);font-size:12.5px}
+.avatar{width:24px;height:24px;border-radius:50%;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center;font-size:11px;font-weight:700}
+
+.shell{display:flex;align-items:stretch;flex:1;min-height:0}
+
+/* ── 左侧导航树 ── */
+.nav{
+  width:var(--nav-w);flex:none;display:flex;flex-direction:column;
+  border-right:1px solid var(--border);background:var(--sunken);
+}
+.nav-inner{overflow-y:auto;padding:10px 8px 12px;display:flex;flex-direction:column;gap:2px;flex:1}
+.nav-search{
+  margin:8px 10px 4px;display:flex;align-items:center;gap:7px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:5px 9px;color:var(--text-3);
+}
+.nav-search input{flex:1;background:none;border:none;outline:none;color:var(--text);font:inherit;font-size:12.5px}
+.tree{display:flex;flex-direction:column;gap:1px;font-size:12.5px}
+.tree-group{margin-bottom:4px}
+.tree-group-h{
+  display:flex;align-items:center;gap:6px;padding:6px 8px;margin-top:6px;cursor:pointer;
+  font-weight:700;font-size:12px;color:var(--text-2);user-select:none;border-radius:var(--radius);
+}
+.tree-group-h:hover{background:var(--surface)}
+.tree-group-h .sw{width:10px;height:10px;flex:none;display:grid;place-items:center;color:var(--text-3);font-size:8px}
+.tree-group-h .gname{flex:1}
+.tree-group-h .gmeta{font-size:10.5px;color:var(--text-3);font-family:var(--font-mono);font-weight:500}
+.tree-group.err .gname{color:var(--err-fg)}
+.tree-tag{padding:5px 8px 3px 14px;font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--text-3);display:flex;align-items:center;gap:5px}
+.tree-tag .cnt{font-family:var(--font-mono);font-size:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 5px}
+.tree-op{
+  display:flex;align-items:center;gap:7px;padding:4px 8px 4px 20px;border-radius:var(--radius);
+  color:var(--text);cursor:pointer;user-select:none;
+}
+.tree-op:hover{background:var(--surface)}
+.tree-op.active{background:var(--brand-soft);color:var(--brand);font-weight:600}
+.tree-op .od{width:7px;height:7px;border-radius:50%;flex:none}
+.od.get{background:var(--mget-fg)} .od.post{background:var(--mpost-fg)} .od.put{background:var(--mput-fg)}
+.od.delete{background:var(--mdelete-fg)} .od.patch{background:var(--mpatch-fg)}
+.tree-op code{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tree-op .draft-flag{width:6px;height:6px;border-radius:1px;background:var(--warn-fg);flex:none}
+.nav-foot{border-top:1px solid var(--border);background:var(--sunken);padding:6px 8px;display:flex;flex-direction:column;gap:1px}
+.nav-foot button{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--radius);color:var(--text-2);font-size:12.5px;text-align:left}
+.nav-foot button:hover{background:var(--surface)}
+.nav-foot .badge{margin-left:auto;font-size:11px;font-weight:600;color:var(--brand);background:var(--brand-soft);border-radius:10px;padding:0 6px}
+
+/* ── 主区 ── */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.pane{padding:14px 18px 22px;display:none}
+.pane.on{display:block}
+
+/* 工作台头 */
+.wb-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.wb-head .path-big{font-family:var(--font-mono);font-size:16px;font-weight:600;word-break:break-all}
+.wb-head .sum{color:var(--text-2);margin-top:2px}
+.wb-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.wb-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--text-3);font-size:12px;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:10px}
+.wb-meta .hash-mono{font-family:var(--font-mono);font-size:11.5px;color:var(--hash)}
+/* 方法徽标 */
+.method{
+  font-family:var(--font-mono);font-weight:600;font-size:10.5px;letter-spacing:.02em;line-height:1.6;
+  border-radius:3px;padding:1px 6px;flex:none;white-space:nowrap;
+}
+.method.get{color:var(--mget-fg);background:var(--mget-bg)}
+.method.post{color:var(--mpost-fg);background:var(--mpost-bg)}
+.method.put{color:var(--mput-fg);background:var(--mput-bg)}
+.method.delete{color:var(--mdelete-fg);background:var(--mdelete-bg)}
+.method.patch{color:var(--mpatch-fg);background:var(--mpatch-bg)}
+.method.method-lg{font-size:12px;padding:3px 8px}
+.chip{font-size:11px;color:var(--text-2);background:var(--sunken);border:1px solid var(--border);border-radius:3px;padding:1px 6px;white-space:nowrap}
+.chip.draft{color:var(--warn-fg);background:var(--warn-bg);border-color:transparent}
+.chip.release{color:var(--ok-fg);background:var(--ok-bg);border-color:transparent}
+.branch-chip{font-family:var(--font-mono);font-size:10.5px;color:var(--text-3);border:1px solid var(--border);border-radius:3px;padding:0 4px;flex:none}
+
+/* 按钮 */
+.btn{
+  display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;border-radius:var(--radius);
+  padding:5px 12px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);
+}
+.btn:hover{border-color:var(--border-strong);color:var(--text)}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+
+/* 工作台 tabs */
+.wtabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.wtabs button{padding:7px 14px;font-size:13px;font-weight:600;color:var(--text-2);border-bottom:2px solid transparent;margin-bottom:-1px}
+.wtabs button[aria-selected="true"]{color:var(--text);border-bottom-color:var(--brand)}
+.win{display:none}
+.win.on{display:block}
+
+/* 分区卡片（一像素边框，无阴影） */
+.wk-sec{border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;overflow:hidden}
+.wk-sec-h{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--sunken);font-size:12.5px;font-weight:700}
+.wk-sec-h .cnt{font-family:var(--font-mono);font-size:10.5px;color:var(--text-3);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0 5px}
+.wk-sec-h .hint{margin-left:auto;font-size:11.5px;color:var(--text-3);font-weight:500}
+.wk-sec-b{padding:6px 0}
+
+/* 参数表 */
+.ptbl{width:100%;border-collapse:collapse}
+.ptbl th{font-size:11px;color:var(--text-3);font-weight:600;text-align:left;padding:5px 12px;border-bottom:1px solid var(--border);white-space:nowrap;letter-spacing:.02em}
+.ptbl td{padding:6px 12px;border-bottom:1px solid var(--border);font-size:12.5px;vertical-align:middle}
+.ptbl tbody tr:last-child td{border-bottom:none}
+.ptbl tbody tr:hover{background:var(--sunken)}
+.ptbl .n{font-family:var(--font-mono);font-size:12px}
+.type-tag{color:var(--text-3);font-family:var(--font-mono);font-size:11.5px}
+.req-badge{font-size:10.5px;color:var(--err-fg);border:1px solid var(--err-fg);border-radius:3px;padding:0 4px;font-weight:600}
+.opt-badge{font-size:10.5px;color:var(--text-3);border:1px solid var(--border);border-radius:3px;padding:0 4px}
+.kv{font-size:12px;color:var(--text-2)}
+.dflt{font-family:var(--font-mono);font-size:11.5px;color:var(--text-2)}
+.notice{font-size:12px;color:var(--text-3);padding:10px 12px}
+
+/* Schema 树 */
+.sch-rows{padding:4px 10px;display:flex;flex-direction:column;gap:1px}
+.sch-line{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px;font-family:var(--font-mono)}
+.sch-line .fname{font-weight:500}
+.sch-group{padding:2px 10px 6px}
+.enum-tag{color:var(--text-3);font-size:11px;font-family:var(--font-sans)}
+.ref-link{color:var(--brand);font-family:var(--font-mono);font-size:11.5px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.ref-link.flash{background:var(--brand-soft)}
+
+/* 响应状态码 */
+.resp-row{display:flex;align-items:center;gap:10px;padding:7px 12px;border-top:1px solid var(--border)}
+.resp-row:first-of-type{border-top:none}
+.resp-row .code{font-family:var(--font-mono);font-weight:600;font-size:12px;min-width:36px;padding:1px 7px;border-radius:3px;text-align:center}
+.code-2x{color:var(--ok-fg);background:var(--ok-bg)}
+.code-4x{color:var(--err-fg);background:var(--err-bg)}
+.resp-row .desc{color:var(--text-2);font-size:12.5px}
+.resp-row .schema{margin-left:auto}
+.resp-body{padding:0 12px 8px;display:none}
+.resp-row.open .resp-body{display:block}
+
+/* JSON / curl 示例 */
+.two-sample{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:1000px){.two-sample{grid-template-columns:1fr}}
+.sample{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.sample-h{display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--sunken);font-size:11px;font-weight:700;color:var(--text-3);border-bottom:1px solid var(--border)}
+.sample pre{margin:0;padding:12px;font-family:var(--font-mono);font-size:12px;line-height:1.7;overflow-x:auto;background:var(--surface);white-space:pre}
+.s-host{color:var(--text-3)}
+
+/* 调试面板（P2 灰标） */
+.coming{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px dashed var(--border-strong);border-radius:var(--radius);color:var(--text-3);font-size:12.5px;margin-bottom:12px}
+.dbg-url{display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:10px}
+.dbg-url .mth{padding:7px 12px;font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--mget-fg);background:var(--mget-bg);border-right:1px solid var(--border)}
+.dbg-url .u{padding:7px 12px;font-family:var(--font-mono);font-size:12px;color:var(--text-2);overflow-x:auto;white-space:nowrap}
+.dbg-form{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:10px}
+.dbg-form .row{display:flex;align-items:center;gap:10px;padding:6px 12px;border-top:1px solid var(--border);flex-wrap:wrap}
+.dbg-form .row:first-of-type{border-top:none}
+.dbg-form .lbl{color:var(--text-3);font-size:11px;width:52px;flex:none}
+.dbg-form .nm{font-family:var(--font-mono);font-size:12px;width:120px;flex:none}
+.dbg-form input[type="text"]{flex:1;min-width:140px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius);color:var(--text);font:inherit;font-size:12.5px;padding:5px 9px}
+.dbg-form input[type="text"]:focus{outline:2px solid var(--brand);outline-offset:-1px}
+.dbg-form .bool{display:flex;align-items:center;gap:6px;color:var(--text-2);font-size:12.5px}
+.dbg-resp{border:1px dashed var(--border-strong);border-radius:var(--radius);min-height:150px;display:grid;place-items:center;color:var(--text-3);font-size:12.5px}
+
+/* ── 列表视图（聚合）── */
+.pane-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 10px}
+.pane-title{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pane-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.row-stats{display:flex;align-items:baseline;gap:22px;flex-wrap:wrap;padding:9px 12px;border-bottom:1px solid var(--border);margin-bottom:4px}
+.row-stats .st{display:flex;align-items:baseline;gap:6px}
+.row-stats .st .n{font-family:var(--font-mono);font-weight:600;font-size:13px;color:var(--text);font-variant-numeric:tabular-nums}
+.row-stats .st .l{font-size:11.5px;color:var(--text-3)}
+.row-stats .st.err .n{color:var(--err-fg)}
+.banner{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:var(--radius);font-size:12.5px;color:var(--text-2);background:var(--sunken);border:1px solid var(--border);margin-bottom:10px;flex-wrap:wrap}
+.banner b{color:var(--text)}
+.filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.field{display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);font-size:12.5px;color:var(--text-2);cursor:pointer}
+.field:hover{border-color:var(--border-strong)}
+.tags{display:flex;gap:6px;flex-wrap:wrap}
+.tag{font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:12px;padding:2px 9px;cursor:pointer}
+.tag[aria-pressed="true"]{color:var(--brand);border-color:var(--brand);background:var(--brand-soft)}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{font-size:11px;color:var(--text-3);font-weight:600;letter-spacing:.05em;text-transform:uppercase;text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+.tbl td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
+.tbl tbody tr:last-child td{border-bottom:none}
+.tbl tbody tr{cursor:pointer}
+.tbl tbody tr:hover{background:var(--sunken)}
+.tbl .path{font-family:var(--font-mono);font-size:12.5px;color:var(--text);white-space:nowrap}
+.tbl .summary{color:var(--text-2)}
+.tbl .repo-cell{color:var(--text-3);font-size:12px;white-space:nowrap}
+.sync-cell{display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap}
+.sync-cell .lb-ok{color:var(--ok-fg)} .sync-cell .lb-warn{color:var(--warn-fg)} .sync-cell .lb-err{color:var(--err-fg)}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot.ok{background:var(--ok-fg)} .dot.warn{background:var(--warn-fg)} .dot.err{background:var(--err-fg)}
+.group-title{display:flex;align-items:center;gap:8px;padding:10px 10px 4px;font-size:12px;font-weight:600;color:var(--text-2)}
+.group-title::after{content:"";flex:1;height:1px;background:var(--border)}
+.tbl .more{padding:2px 6px;color:var(--text-3);border-radius:var(--radius)}
+.tbl .more:hover{background:var(--surface);color:var(--text)}
+.empty{border:1px dashed var(--border-strong);border-radius:var(--radius);padding:22px;text-align:center;color:var(--text-2);margin-top:14px}
+.empty .ttl{font-weight:600;color:var(--text);margin-bottom:2px}
+.empty .btn{margin-top:8px}
+
+/* ── AI 文档 ── */
+.doc-layout{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:20px}
+@media(max-width:1080px){.doc-layout{grid-template-columns:1fr}}
+.crumb{color:var(--text-3);font-size:12px;margin-bottom:10px}
+.article{max-width:720px;font-size:14px}
+.article h1{font-size:20px;margin:0 0 4px;letter-spacing:-.01em}
+.article .lede{color:var(--text-2);font-size:13px;margin-bottom:14px}
+.article h2{font-size:15px;margin:20px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border)}
+.article h3{font-size:13.5px;margin:14px 0 6px}
+.article p{margin:6px 0}
+.article ul{padding-left:20px;margin:6px 0}
+.article li{margin:3px 0}
+.article code.s{font-family:var(--font-mono);font-size:12px;background:var(--sunken);border:1px solid var(--border);border-radius:3px;padding:0 4px;color:var(--text)}
+.article pre.ablk{background:var(--sunken);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-family:var(--font-mono);font-size:12px;overflow-x:auto;line-height:1.6;color:var(--text-2)}
+.toc{font-size:12px;color:var(--text-3)}
+.toc .t{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px}
+.toc a{display:block;padding:3px 0;border-left:2px solid var(--border);padding-left:10px}
+.toc a.on,.toc a:hover{color:var(--text);border-left-color:var(--brand)}
+.rel-apis{border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin-top:18px;background:var(--surface)}
+.rel-apis .t{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);margin-bottom:6px}
+.rel-apis .row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12.5px}
+.rel-apis .row .path{font-family:var(--font-mono);font-size:12px;color:var(--brand)}
+
+/* 提交面板（编辑=commit+push） */
+.modal-wrap{position:fixed;inset:0;background:rgba(10,12,16,.45);display:none;place-items:center;z-index:40;padding:24px}
+.modal-wrap.open{display:grid}
+.modal{width:min(720px,96vw);max-height:86vh;overflow:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 20px 50px rgba(10,12,16,.35)}
+.modal-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.modal-head .t{font-weight:700;font-size:14px}
+.modal-head .sub{color:var(--text-3);font-size:12px}
+.modal-head .close{margin-left:auto;color:var(--text-3);font-size:18px;line-height:1}
+.diff{font-family:var(--font-mono);font-size:12px;line-height:1.6;padding:10px 0;overflow-x:auto}
+.diff-line{display:flex;white-space:pre}
+.diff-line .ad{width:24px;color:var(--text-3);text-align:right;flex:none;padding-right:8px;user-select:none}
+.diff-line.add{background:var(--mget-bg)} .diff-line.add .ad{color:var(--mget-fg)}
+.diff-line.del{background:var(--mdelete-bg)} .diff-line.del .ad{color:var(--mdelete-fg)}
+.diff-line.ctx .ad{color:var(--text-3)}
+.modal-body{padding:12px 16px}
+.form-row{margin-bottom:12px}
+.form-row label{display:block;font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:5px}
+.form-row input[type="text"]{width:100%;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius);color:var(--text);font:inherit;font-size:12.5px;padding:7px 10px}
+.form-row input[type="text"]:focus{outline:2px solid var(--brand);outline-offset:-1px}
+.form-hint{font-size:11.5px;color:var(--text-3);margin-top:4px}
+.modal-foot{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--border);justify-content:flex-end}
+.toast{position:fixed;bottom:72px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--app-bg);font-size:12.5px;font-weight:500;padding:8px 16px;border-radius:20px;z-index:60;display:none;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.toast.show{display:block}
+
+/* 设计注记 */
+.notes{display:none}
+body.notes-on .notes{display:block}
+.notes-bar{margin-bottom:12px;border:1px solid var(--border-strong);border-left:3px solid var(--brand);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.notes-bar .nt-head{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--sunken);font-weight:700;font-size:12.5px}
+.notes-bar .nt-head .tag{font-family:var(--font-mono);font-size:10.5px;color:var(--brand);background:var(--brand-soft);border-radius:3px;padding:0 5px}
+.notes-bar ul{margin:8px 0 10px;padding:0 12px 0 26px;font-size:12.5px;color:var(--text-2)}
+.notes-bar li{margin:4px 0}
+.notes-bar li b{color:var(--text)}
+
+/* 底部评审工具条 */
+.protobar{
+  position:fixed;left:50%;transform:translateX(-50%);bottom:max(12px,env(safe-area-inset-bottom,0px));
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
+  background:var(--text);color:var(--app-bg);border-radius:24px;padding:7px 14px;z-index:50;
+  box-shadow:0 10px 30px rgba(0,0,0,.28);font-size:12.5px;max-width:calc(100vw - 24px);
+}
+.protobar .pb-lbl{font-weight:600;opacity:.85}
+.protobar .pb-sep{width:1px;height:14px;background:rgba(128,128,128,.4)}
+.protobar .pb-pages{display:flex;gap:3px}
+.protobar button.pb{border-radius:14px;padding:4px 10px;color:inherit;font-size:12px;font-weight:500;opacity:.75}
+.protobar button.pb:hover{background:rgba(255,255,255,.14);opacity:1}
+.protobar button.pb[aria-pressed="true"]{background:rgba(255,255,255,.22);opacity:1;font-weight:600}
+.protobar button.pb-t{border-radius:14px;padding:4px 9px;color:inherit;font-size:11px;opacity:.75}
+.protobar button.pb-t[aria-pressed="true"]{background:rgba(255,255,255,.22);opacity:1;font-weight:600}
+.protobar .pb-demo{margin-left:2px;font-size:11px;opacity:.55;font-style:italic}
+
+@media(max-width:var(--nav-collapse)){
+  .nav{display:none}
+  .shell{min-height:0}
+}
+@media(max-width:680px){
+  .search{max-width:none;order:9;flex-basis:100%}
+  .protobar{gap:6px;padding:6px 10px}
+}
+</style>
+</head>
+<body>
+
+<!-- ════ 底部评审工具条 ════ -->
+<div class="protobar" role="toolbar" aria-label="原型评审工具条">
+  <span class="pb-lbl">SpecHub 原型</span>
+  <span class="pb-sep"></span>
+  <span class="pb-pages" id="pageSwitch">
+    <button class="pb" data-page="workbench" aria-pressed="true">接口工作台</button>
+    <button class="pb" data-page="list" aria-pressed="false">接口列表</button>
+    <button class="pb" data-page="doc" aria-pressed="false">AI 文档</button>
+  </span>
+  <span class="pb-sep"></span>
+  <span>
+    <button class="pb-t" data-theme-pick="system" aria-pressed="true">跟随系统</button>
+    <button class="pb-t" data-theme-pick="light" aria-pressed="false">亮</button>
+    <button class="pb-t" data-theme-pick="dark" aria-pressed="false">暗</button>
+  </span>
+  <span class="pb-sep"></span>
+  <button class="pb-t" id="notesToggle" aria-pressed="false">◎ 设计注记</button>
+  <span class="pb-demo">示例数据</span>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<!-- ════ 应用外壳 ════ -->
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">S</span>SpecHub <span class="brand-sub">契书</span></div>
+    <div class="space">文档分组：<b>petstore 聚合</b> ▾</div>
+    <label class="search">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input placeholder="搜索接口路径 / 名称 / tag…" aria-label="搜索接口">
+    </label>
+    <div class="seg" role="group" aria-label="版本视图">
+      <button aria-pressed="false" id="viewDraft">draft</button>
+      <button aria-pressed="true" id="viewRelease">release</button>
+    </div>
+    <div class="user-chip"><span class="avatar">林</span> 林工 <span>▾</span></div>
+  </header>
+
+  <div class="shell">
+
+    <!-- ── 左侧导航树（接口态）── -->
+    <aside class="nav" id="nav-api" hidden>
+      <div class="nav-inner">
+        <div class="nav-search">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input placeholder="过滤接口…" aria-label="过滤接口">
+        </div>
+        <div class="tree">
+          <div class="tree-group">
+            <div class="tree-group-h"><span class="sw">▾</span><span class="gname">petstore 服务</span><span class="gmeta">main</span></div>
+            <div class="tree-tag">petstore <span class="cnt">6</span></div>
+            <a class="tree-op" data-op data-method="GET" data-path="/api/v1/pets" data-sum="列出所有宠物"><span class="od get"></span><code>/api/v1/pets</code></a>
+            <a class="tree-op" data-op data-method="POST" data-path="/api/v1/pets" data-sum="创建新宠物"><span class="od post"></span><code>/api/v1/pets</code></a>
+            <a class="tree-op active" data-op data-method="GET" data-path="/api/v1/pets/{petId}" data-sum="按 ID 查找宠物"><span class="od get"></span><code>/api/v1/pets/{petId}</code><span class="draft-flag" title="draft 有待审变更"></span></a>
+            <a class="tree-op" data-op data-method="PUT" data-path="/api/v1/pets/{petId}" data-sum="更新宠物信息"><span class="od put"></span><code>/api/v1/pets/{petId}</code></a>
+            <a class="tree-op" data-op data-method="PATCH" data-path="/api/v1/pets/{petId}" data-sum="更新宠物部分字段"><span class="od patch"></span><code>/api/v1/pets/{petId}</code><span class="draft-flag" title="draft 有待审变更"></span></a>
+            <a class="tree-op" data-op data-method="GET" data-path="/api/v1/pets/search" data-sum="按关键词搜索宠物"><span class="od get"></span><code>/api/v1/pets/search</code></a>
+            <div class="tree-tag">payments <span class="cnt">1</span></div>
+            <a class="tree-op" data-op data-method="POST" data-path="/api/v1/pets/{petId}/pay" data-sum="宠物订单收款"><span class="od post"></span><code>/api/v1/pets/{petId}/pay</code></a>
+          </div>
+          <div class="tree-group">
+            <div class="tree-group-h"><span class="sw">▾</span><span class="gname">order 服务</span><span class="gmeta">main</span></div>
+            <div class="tree-tag">payments <span class="cnt">3</span></div>
+            <a class="tree-op" data-op data-method="POST" data-path="/api/v1/payments/{orderId}/charge" data-sum="发起收款"><span class="od post"></span><code>/api/v1/payments/{orderId}/charge</code></a>
+            <a class="tree-op" data-op data-method="GET" data-path="/api/v1/payments/{orderId}" data-sum="查询收款状态"><span class="od get"></span><code>/api/v1/payments/{orderId}</code></a>
+            <a class="tree-op" data-op data-method="POST" data-path="/api/v1/payments/refund" data-sum="发起退款"><span class="od post"></span><code>/api/v1/payments/refund</code><span class="draft-flag" title="draft 有待审变更"></span></a>
+          </div>
+          <div class="tree-group err">
+            <div class="tree-group-h" title="lastError: fetch 失败，token 过期"><span class="sw">▾</span><span class="gname">inventory 服务</span><span class="gmeta">⚠ error</span></div>
+            <div class="tree-tag">inventory <span class="cnt">1</span></div>
+            <a class="tree-op" data-op data-method="GET" data-path="/api/v1/inventory/items" data-sum="库存 items 查询"><span class="od get"></span><code>/api/v1/inventory/items</code></a>
+          </div>
+        </div>
+      </div>
+      <div class="nav-foot">
+        <button data-go=doc><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>AI 文档 <span class="badge">4</span></button>
+        <button><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="6" r="2"/><circle cx="16" cy="8" r="2"/><path d="M10 6h4a4 4 0 0 1 4 4v3"/><circle cx="8" cy="18" r="2"/><path d="M14 18H6a2 2 0 0 1-2-2v-8"/></svg>变更记录</button>
+        <button><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2v20M2 12h20"/></svg>订阅的接口 <span class="badge">3</span></button>
+      </div>
+    </aside>
+
+    <!-- ── 左侧导航树（文档态）── -->
+    <aside class="nav" id="nav-doc" hidden>
+      <div class="nav-inner">
+        <div class="nav-search">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input placeholder="全文检索文档…" aria-label="检索文档">
+        </div>
+        <div class="tree">
+          <div class="tree-group">
+            <div class="tree-group-h"><span class="sw">▾</span><span class="gname">docs / petstore</span></div>
+            <a class="tree-op active"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><code style="font-family:var(--font-sans)">接手代码分析</code></a>
+            <a class="tree-op"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><code style="font-family:var(--font-sans)">需求分析</code></a>
+            <a class="tree-op"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><code style="font-family:var(--font-sans)">变更记录</code></a>
+          </div>
+          <div class="tree-group">
+            <div class="tree-group-h"><span class="sw">▾</span><span class="gname">docs / order</span></div>
+            <a class="tree-op"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><code style="font-family:var(--font-sans)">收款链路梳理</code></a>
+          </div>
+        </div>
+      </div>
+      <div class="nav-foot">
+        <button data-go=list><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M9 7h8M9 11h8M9 15h5"/></svg>返回接口</button>
+      </div>
+    </aside>
+
+    <!-- ── 主区 ── -->
+    <main class="main">
+
+      <!-- ───── 页面 1 · 接口工作台 ───── -->
+      <section class="pane on" id="main-workbench" data-notes="workbench">
+        <div class="notes">
+          <div class="notes-bar">
+            <div class="nt-head"><span class="tag">DEC 1</span> 骨架参考 Knife4j，反一眼认出</div>
+            <ul>
+              <li>左树导航 + 右侧<b>单接口工作台</b>（文档 / 调试双层）——Java 团队熟悉的操作模式。</li>
+              <li>反一眼认出：<b>白顶栏</b>（非 Knife4j 深蓝 header）、<b>深靛蓝主色</b>、去掉 Authorize / 全局设置 / 离线文档按钮。</li>
+              <li>树多了「服务」聚合层（多仓两端模型），Knife4j 只有 tag 层。</li>
+              <li><b>溯源一行</b>（归属仓 · 版本 · specHash · draft）是 Knife4j 没有的可信入口。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="wb-head">
+          <div>
+            <div class="path-big" id="wbPath"><span class="method get" style="vertical-align:3px;margin-right:8px">GET</span>/api/v1/pets/{petId}</div>
+            <div class="sum" id="wbSum">按 ID 查找宠物（含体检状态）</div>
+          </div>
+          <div class="wb-actions">
+            <button class="btn" id="openDiff">编辑 YAML</button>
+            <button class="btn" id="copyCurl">复制 cURL</button>
+          </div>
+        </div>
+
+        <div class="wb-meta">
+          <span class="branch-chip">petstore-api · main</span>
+          <span class="chip">tag · petstore</span>
+          <span class="chip release">release v4</span>
+          <span class="chip draft">draft 有变更</span>
+          <span class="hash-mono">specHash 9f4a2c61e8d07b3a</span>
+          <span style="margin-left:auto">
+            <button class="btn ghost" style="padding:1px 6px;font-size:12px;color:var(--brand)">查看变更历史</button>
+          </span>
+        </div>
+
+        <div class="wtabs" role="tablist">
+          <button role="tab" aria-selected="true" data-wtab="doc">接口文档</button>
+          <button role="tab" aria-selected="false" data-wtab="debug"><span style="opacity:.55">调试 · P2</span></button>
+        </div>
+
+        <!-- 文档工作台 -->
+        <div class="win on" data-win="doc">
+          <div class="wk-sec">
+            <div class="wk-sec-h">请求参数 <span class="cnt">3</span><span class="hint">Path · Query</span></div>
+            <table class="ptbl">
+              <thead><tr><th>名称</th><th>位置</th><th>类型</th><th>必填</th><th>默认值</th><th>说明</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td class="n">petId</td><td><span class="type-tag">path</span></td><td><span class="type-tag">integer · int64</span></td>
+                  <td><span class="req-badge">必填</span></td><td class="dflt">—</td><td class="kv">宠物 ID</td>
+                </tr>
+                <tr>
+                  <td class="n">limit</td><td><span class="type-tag">query</span></td><td><span class="type-tag">integer · int32</span></td>
+                  <td><span class="opt-badge">可选</span></td><td class="dflt">20</td><td class="kv">每页数量，最大 100</td>
+                </tr>
+                <tr>
+                  <td class="n">verbose</td><td><span class="type-tag">query</span></td><td><span class="type-tag">boolean</span></td>
+                  <td><span class="opt-badge">可选</span></td><td class="dflt">false</td><td class="kv">返回详细字段</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="wk-sec">
+            <div class="wk-sec-h">请求体 Request Body <span class="hint">GET 无请求体 —— 一分钱不秀</span></div>
+            <div class="notice">该接口无请求体（Knife4j 家常便饭，这里直接不渲染表单）。<span style="opacity:.6">从 openapi.yaml 契约实时渲染。</span></div>
+          </div>
+
+          <div class="wk-sec">
+            <div class="wk-sec-h">响应状态 <span class="cnt">2</span></div>
+            <div class="resp-row open"><span class="code code-2x">200</span><span class="desc">成功，返回宠物详情</span><span class="schema"><span class="ref-link" data-ref="Pet">Pet →</span></span>
+              <div class="resp-body">
+                <div class="sch-rows">
+                  <div class="sch-line"><span class="type-tag" style="width:56px">int64</span><span class="fname">id</span></div>
+                  <div class="sch-line"><span class="type-tag" style="width:56px">string</span><span class="fname">name</span></div>
+                  <div class="sch-line"><span class="type-tag" style="width:56px">string?</span><span class="fname">tag</span></div>
+                  <div class="sch-line"><span class="type-tag" style="width:56px">string[]</span><span class="fname">photoUrls</span></div>
+                  <div class="sch-line"><span class="type-tag" style="width:56px">enum</span><span class="fname">status</span><span class="enum-tag" style="margin-left:auto">available · pending · sold</span></div>
+                  <div class="sch-line"><span class="type-tag" style="width:56px">object</span><span class="fname">category</span><span style="margin-left:auto"><span class="ref-link" data-ref="Category">Category →</span></span></div>
+                </div>
+              </div>
+            </div>
+            <div class="resp-row"><span class="code code-4x">404</span><span class="desc">宠物不存在</span><span class="schema"><span class="ref-link" data-ref="Error">Error →</span></span>
+              <div class="resp-body">
+                <div class="sch-rows">
+                  <div class="sch-line"><span class="type-tag" style="width:56px">int</span><span class="fname">code</span></div>
+                  <div class="sch-line"><span class="type-tag" style="width:56px">string</span><span class="fname">message</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 嵌套 Schema 集合 -->
+          <div class="wk-sec">
+            <div class="wk-sec-h">数据类型（本接口引用） <span class="cnt">3</span></div>
+            <div class="wk-sec-b">
+              <details class="sch-group" id="schemaPet" open>
+                <summary style="cursor:pointer;font-weight:600;padding:6px 12px;list-style:none;display:flex;gap:8px;align-items:center"><span class="type-tag inline-badge">object</span>Pet</summary>
+                <div class="sch-rows">
+                  <div class="sch-line"><span class="type-tag" style="width:56px">int64</span><span class="fname">id</span></div>
+                  <div class="sch-line"><span class="type-tag" style="width:56px">string</span><span class="fname">name</span></div>
+                  <div class="sch-line"><span class="type-tag" style="width:56px">enum</span><span class="fname">status</span></div>
+                  <div class="sch-line"><span class="type-tag" style="width:56px">object</span><span class="fname">category</span></div>
+                </div>
+              </details>
+              <details class="sch-group" id="schemaCategory">
+                <summary style="cursor:pointer;font-weight:600;padding:6px 12px;list-style:none;display:flex;gap:8px;align-items:center"><span class="type-tag">object</span>Category</summary>
+                <div class="sch-rows"><div class="sch-line"><span class="type-tag" style="width:56px">int64</span><span class="fname">id</span></div><div class="sch-line"><span class="type-tag" style="width:56px">string</span><span class="fname">name</span></div></div>
+              </details>
+              <details class="sch-group" id="schemaError">
+                <summary style="cursor:pointer;font-weight:600;padding:6px 12px;list-style:none;display:flex;gap:8px;align-items:center"><span class="type-tag">object</span>Error</summary>
+                <div class="sch-rows"><div class="sch-line"><span class="type-tag" style="width:56px">int</span><span class="fname">code</span></div><div class="sch-line"><span class="type-tag" style="width:56px">string</span><span class="fname">message</span></div></div>
+              </details>
+            </div>
+          </div>
+
+          <div class="two-sample">
+            <div class="sample">
+              <div class="sample-h">请求示例 · cURL</div>
+              <pre><span class="s-host">curl -X GET</span> 'https://api.petstore.dev/api/v1/pets/12?verbose=false' \
+  -H 'Authorization: Bearer &lt;token&gt;' \
+  -H 'Accept: application/json'</pre>
+            </div>
+            <div class="sample">
+              <div class="sample-h">响应示例 · 200</div>
+              <pre>{<span class="s-host">
+  "id": 12,</span>
+  "name": "阿黄",
+  "status": "available",
+  "category": { "id": 2, "name": "犬类" },
+  "photoUrls": []</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- 调试工作台（P2 灰标） -->
+        <div class="win" data-win="debug">
+          <div class="coming">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            <span><b>在线调试</b> 将在 P2 I1 落地：参数表单 → 发真实请求 → 按契约校验响应。形态先立。</span>
+          </div>
+          <div class="dbg-url"><span class="mth">GET</span><span class="u">https://api.petstore.dev/api/v1/pets/{petId}?verbose=false</span></div>
+          <div class="dbg-form">
+            <div class="row"><span class="lbl">Path</span><span class="nm">petId</span><input type="text" value="12" aria-label="petId"><span class="type-tag" style="margin-left:auto">integer · int64</span></div>
+            <div class="row"><span class="lbl">Query</span><span class="nm">verbose</span><label class="bool"><input type="checkbox" checked> false</label><span class="type-tag" style="margin-left:auto">boolean</span></div>
+            <div class="row"><span class="lbl">Query</span><span class="nm">limit</span><input type="text" value="20" aria-label="limit"><span class="type-tag" style="margin-left:auto">integer · int32</span></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <button class="btn primary" disabled>发送请求（P2）</button>
+            <button class="btn" disabled>加入 Mock 集合</button>
+          </div>
+          <div class="dbg-resp">响应将按契约在这里展示（P2）</div>
+        </div>
+      </section>
+
+      <!-- ───── 页面 2 · 接口列表（聚合视图） ───── -->
+      <section class="pane" id="main-list" data-notes="list">
+        <div class="notes">
+          <div class="notes-bar">
+            <div class="nt-head"><span class="tag">DEC 2</span> 列表 = 聚合发布视图（消费者不看树）</div>
+            <ul>
+              <li>树是<b>生产者/浏览者的导航</b>；列表是<b>消费者（前端 / QA / 下游）聚合视图</b>——多仓汇入，方法与归属仓一目了然。</li>
+              <li>概览统计条 + 按 tag 分组的紧凑表格；红/黄点同步状态、draft 待发布徽标。</li>
+              <li>「draft / release 全局开关在顶栏」：消费者默认读 release，结构变更可见。</li>
+            </ul>
+          </div>
+        </div>
+
+        <nav class="crumb">petstore 项目 / 聚合接口（3 个关联仓）</nav>
+        <div class="pane-head">
+          <div class="pane-title">接口 <span class="branch-chip">聚合 · 只读</span></div>
+          <div class="pane-actions">
+            <button class="btn" data-go-list-add>＋ 新建接口</button>
+            <button class="btn" title="导入 OpenAPI / Postman 文件">导入</button>
+          </div>
+        </div>
+
+        <div class="row-stats">
+          <span class="st"><span class="n">12</span><span class="l">接口</span></span>
+          <span class="st"><span class="n">3</span><span class="l">Schema</span></span>
+          <span class="st"><span class="n">3</span><span class="l">关联代码仓</span></span>
+          <span class="st"><span class="n">release v4</span><span class="l">当前快照 · 3 项 draft 待审</span></span>
+          <span class="st err"><span class="n">1</span><span class="l">仓摄取错误（legacy-inventory）</span></span>
+        </div>
+
+        <div class="banner">
+          <span>你正在查看 <b>release v4</b> 聚合快照 —— 已发布给消费者。draft 里的结构变更需评审后发布。</span>
+        </div>
+
+        <div class="filters">
+          <button class="field" aria-haspopup="listbox">Method ▾</button>
+          <button class="field" aria-haspopup="listbox">全部分组 ▾</button>
+          <div class="tags" role="group" aria-label="tag 过滤">
+            <button class="tag" aria-pressed="true">petstore</button>
+            <button class="tag" aria-pressed="false">payments</button>
+          </div>
+        </div>
+
+        <div class="group-title">tag · petstore</div>
+        <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr><th>Method</th><th>Path</th><th>Summary</th><th>Tag</th><th>归属仓</th><th>状态</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><span class="method get">GET</span></td><td class="path">/api/v1/pets</td><td class="summary">列出所有宠物</td><td><span class="chip">petstore</span></td><td class="repo-cell">petstore-api</td><td><span class="sync-cell"><span class="dot ok"></span><span class="lb-ok">ok</span></span></td><td><button class="more" aria-label="更多">⋯</button></td></tr>
+            <tr><td><span class="method post">POST</span></td><td class="path">/api/v1/pets</td><td class="summary">创建新宠物</td><td><span class="chip">petstore</span></td><td class="repo-cell">petstore-api</td><td><span class="sync-cell"><span class="dot ok"></span><span class="lb-ok">ok</span></span></td><td><button class="more" aria-label="更多">⋯</button></td></tr>
+            <tr><td><span class="method get">GET</span></td><td class="path">/api/v1/pets/{petId}</td><td class="summary">按 ID 查找宠物 <span class="chip draft">draft 待发布</span></td><td><span class="chip">petstore</span></td><td class="repo-cell">petstore-api</td><td><span class="sync-cell"><span class="dot ok"></span><span class="lb-ok">ok</span></span></td><td><button class="more" aria-label="更多">⋯</button></td></tr>
+            <tr><td><span class="method put">PUT</span></td><td class="path">/api/v1/pets/{petId}</td><td class="summary">更新宠物信息</td><td><span class="chip">petstore</span></td><td class="repo-cell">petstore-api</td><td><span class="sync-cell"><span class="dot ok"></span><span class="lb-ok">ok</span></span></td><td><button class="more" aria-label="更多">⋯</button></td></tr>
+            <tr><td><span class="method patch">PATCH</span></td><td class="path">/api/v1/pets/{petId}</td><td class="summary">更新宠物部分字段 <span class="chip draft">draft 待发布</span></td><td><span class="chip">petstore</span></td><td class="repo-cell">petstore-api</td><td><span class="sync-cell"><span class="dot ok"></span><span class="lb-ok">ok</span></span></td><td><button class="more" aria-label="更多">⋯</button></td></tr>
+            <tr><td><span class="method delete">DELETE</span></td><td class="path">/api/v1/pets/{petId}</td><td class="summary">删除宠物</td><td><span class="chip">petstore</span></td><td class="repo-cell">petstore-api</td><td><span class="sync-cell"><span class="dot ok"></span><span class="lb-ok">ok</span></span></td><td><button class="more" aria-label="更多">⋯</button></td></tr>
+            <tr><td><span class="method get">GET</span></td><td class="path">/api/v1/pets/search</td><td class="summary">按关键词搜索宠物</td><td><span class="chip">petstore</span></td><td class="repo-cell">petstore-api</td><td><span class="sync-cell"><span class="dot ok"></span><span class="lb-ok">ok</span></span></td><td><button class="more" aria-label="更多">⋯</button></td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <div class="group-title">tag · payments</div>
+        <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr><th>Method</th><th>Path</th><th>Summary</th><th>Tag</th><th>归属仓</th><th>状态</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><span class="method post">POST</span></td><td class="path">/api/v1/payments/{orderId}/charge</td><td class="summary">发起收款</td><td><span class="chip">payments</span></td><td class="repo-cell">order-service</td><td><span class="sync-cell"><span class="dot ok"></span><span class="lb-ok">ok</span></span></td><td><button class="more" aria-label="更多">⋯</button></td></tr>
+            <tr><td><span class="method get">GET</span></td><td class="path">/api/v1/payments/{orderId}</td><td class="summary">查询收款状态</td><td><span class="chip">payments</span></td><td class="repo-cell">order-service</td><td><span class="sync-cell"><span class="dot warn"></span><span class="lb-warn">syncing</span></span></td><td><button class="more" aria-label="更多">⋯</button></td></tr>
+            <tr><td><span class="method post">POST</span></td><td class="path">/api/v1/payments/refund</td><td class="summary">发起退款 <span class="chip draft">draft 待发布</span></td><td><span class="chip">payments</span></td><td class="repo-cell">order-service</td><td><span class="sync-cell"><span class="dot ok"></span><span class="lb-ok">ok</span></span></td><td><button class="more" aria-label="更多">⋯</button></td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <div class="group-title">tag · inventory</div>
+        <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr><th>Method</th><th>Path</th><th>Summary</th><th>Tag</th><th>归属仓</th><th>状态</th><th></th></tr></thead>
+          <tbody>
+            <tr title="lastError: fetch 失败，token 过期"><td><span class="method get">GET</span></td><td class="path">/api/v1/inventory/items</td><td class="summary">库存 items 查询</td><td><span class="chip">inventory</span></td><td class="repo-cell">legacy-inventory</td><td><span class="sync-cell"><span class="dot err"></span><span class="lb-err">error</span></span></td><td><button class="more" aria-label="更多">⋯</button></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <!-- ───── 页面 3 · AI 文档 ───── -->
+      <section class="pane" id="main-doc" data-notes="doc">
+        <div class="notes">
+          <div class="notes-bar">
+            <div class="nt-head"><span class="tag">DEC 4</span> 双域分离 ≠ 两个产品：同壳不同节奏</div>
+            <ul>
+              <li>接口是<b>工具型紧凑节奏</b>，AI 文档是<b>阅读型节奏</b>——同一套壳与树，切到文档域换目录树。</li>
+              <li>文档底部「关联接口」= <code>Doc.relatedApis[]</code> 的 UI 位；接口详情反向「相关文档」（P2 K）。</li>
+              <li>只收 AI 产出的研发知识（§5.7 范围克制），不收会议纪要。</li>
+            </ul>
+          </div>
+        </div>
+
+        <nav class="crumb">docs/petstore / handover-code-analysis.md</nav>
+        <div class="doc-layout">
+          <article class="article">
+            <h1>接手代码分析：petstore 服务</h1>
+            <div class="lede">Claude 生成 · 2026-11-10 · 接手价格服务时复用，勿重复分析</div>
+            <h2>1 · 服务定位</h2>
+            <p>Petstore 是店铺侧的宠物档案与订单核心服务，承接 web、app 与对账系统。契约真源在 <code class="s">specs/petstore/openapi.yaml</code>。</p>
+            <h2>2 · 模块划分</h2>
+            <ul>
+              <li><code class="s">pet-core</code> —— 领域模型与校验（Pet / Category / Order）</li>
+              <li><code class="s">pet-web</code> —— REST 控制器，对应 <code class="s">/api/v1/pets**</code></li>
+              <li><code class="s">pet-store-adapter</code> —— 数据访问 + 缓存（Redis）</li>
+              <li><code class="s">payment-adapter</code> —— 调下游收款服务（dubbo）</li>
+            </ul>
+            <h2>3 · 依赖与风险</h2>
+            <h3>外部依赖</h3>
+            <p>用户服务（owner 元数据，<b>不可靠，需熔断</b>）、收款服务（dubbo，契约在 order-service 仓）。</p>
+            <h3>已知风险点</h3>
+            <pre class="ablk"># 2026-11 排查记录
+1. GET /{petId} 无缓存——高流量路径建议加 CacheAside
+2. status 字段 pending→sold 无状态机，对账脚本容错靠重试
+3. legacy-inventory 仓 token 已过期，摄取持续 error（见树中 error）</pre>
+            <h2>4 · 上手路径</h2>
+            <ul>
+              <li>改接口：进 <span class="mono" style="font-size:12px">specs/petstore/openapi.yaml</span>，编辑即 commit + push，随后 webhook 自动摄取</li>
+              <li>联调：前端按契约看 PATH 与 Schema，mock 数据由 spec + 规则生成（P2 I2）</li>
+              <li>加文档：AI 分析结果以 Markdown 落 <span class="mono" style="font-size:12px">docs/</span> 独立域，链回关联接口</li>
+            </ul>
+            <div class="rel-apis">
+              <div class="t">关联接口</div>
+              <div class="row"><span class="method get">GET</span><span class="path">/api/v1/pets</span><span class="sum" style="margin-left:auto;color:var(--text-2);font-size:12px">列出所有宠物</span></div>
+              <div class="row"><span class="method post">POST</span><span class="path">/api/v1/pets/{petId}/pay</span><span class="sum" style="margin-left:auto;color:var(--text-2);font-size:12px">宠物订单收款</span></div>
+            </div>
+          </article>
+          <nav class="toc" aria-label="目录">
+            <div class="t">本页目录</div>
+            <a class="on" href="#s1">服务定位</a>
+            <a href="#s2">模块划分</a>
+            <a href="#s3">依赖与风险</a>
+            <a href="#s4">上手路径</a>
+            <a href="#s5">关联接口</a>
+          </nav>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ── 编辑 = 审核更改（commit + push） ── -->
+<div class="modal-wrap" id="commitModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="审核更改并提交">
+    <div class="modal-head">
+      <span class="t">编辑 specs/petstore/openapi.yaml</span>
+      <span class="sub">保存 = commit + push 回真源仓</span>
+      <button class="close" id="closeCommit" aria-label="关闭">×</button>
+    </div>
+    <div class="diff" id="diffBody"></div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label for="commitMsg">提交信息</label>
+        <input type="text" id="commitMsg" value="chore(spechub): update specs/petstore/openapi.yaml">
+        <div class="form-hint">默认对齐 SpecWriter 线上提交文案；平台身份 specbot 署名推送。</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="cancelCommit">取消</button>
+      <button class="btn primary" id="doCommit">commit & push</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── 原型交互（仅评审用） ──────────────────────────────
+const $ = s => document.querySelector(s);
+const root = document.documentElement;
+
+/* 页面切换 */
+const pages = ['workbench','list','doc'];
+function show(page){
+  pages.forEach(p=>{
+    $('#main-'+p).classList.toggle('on', p===page);
+    $('#main-'+p).hidden = p!==page;
+  });
+  $('#nav-api').hidden = (page==='doc');
+  $('#nav-doc').hidden = (page!=='doc');
+  $('#pageSwitch').querySelectorAll('button').forEach(b=>{
+    b.setAttribute('aria-pressed', b.dataset.page===page ? 'true':'false');
+  });
+  window.scrollTo({top:0});
+}
+document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.page)));
+document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>show(b.getAttribute('data-go'))));
+document.querySelectorAll('.tree-op[data-op="list"], .tree-op button').forEach(()=>{});
+/* 树中接口点击 → 工作台 + 切到文档 tab + 更新 header */
+document.querySelectorAll('.tree-op[data-op]').forEach(op=>{
+  op.addEventListener('click',()=>{
+    document.querySelectorAll('.tree-op[data-op]').forEach(x=>x.classList.remove('active'));
+    op.classList.add('active');
+    show('workbench');
+    // 更新工作台头
+    const m=op.dataset.method, p=op.dataset.path, s=op.dataset.sum;
+    $('#wbPath').innerHTML='<span class="method '+(m.toLowerCase()==='delete'?'delete':m.toLowerCase())+'" style="vertical-align:3px;margin-right:8px">'+m+'</span>'+p;
+    $('#wbSum').textContent=s;
+    // 文档 tab
+    document.querySelectorAll('[data-wtab]').forEach(x=>x.setAttribute('aria-selected', x.dataset.wtab==='doc'?'true':'false'));
+    document.querySelectorAll('[data-win]').forEach(w=>w.classList.toggle('on', w.dataset.win==='doc'));
+  });
+});
+
+/* 工作台 tab */
+document.querySelectorAll('[data-wtab]').forEach(b=>b.addEventListener('click',()=>{
+  const t=b.dataset.wtab;
+  document.querySelectorAll('[data-wtab]').forEach(x=>x.setAttribute('aria-selected', x===b?'true':'false'));
+  document.querySelectorAll('[data-win]').forEach(w=>w.classList.toggle('on', w.dataset.win===t));
+}));
+
+/* 响应行展开（schema 内联） */
+document.querySelectorAll('.resp-row').forEach(r=>r.addEventListener('click',()=>r.classList.toggle('open')));
+
+/* Schema ref 跳转 */
+document.querySelectorAll('.ref-link[data-ref]').forEach(r=>{
+  r.addEventListener('click',e=>{
+    e.stopPropagation();
+    const t=document.getElementById('schema'+r.dataset.ref);
+    if(t){
+      t.open=true;
+      document.querySelectorAll('.ref-link.flash').forEach(x=>x.classList.remove('flash'));
+      r.classList.add('flash');
+      setTimeout(()=>r.classList.remove('flash'),900);
+    } else {
+      document.querySelectorAll('.resp-row.open').forEach(x=>x.classList.remove('open'));
+      const src = $('#schemaPet');
+      if(src){ src.open=true; }
+    }
+  });
+});
+
+/* 主题 */
+document.querySelectorAll('[data-theme-pick]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    const m=b.dataset.themePick;
+    if(m==='system'){ delete root.dataset.theme } else { root.dataset.theme=m }
+    document.querySelectorAll('[data-theme-pick]').forEach(x=>x.setAttribute('aria-pressed', x===b?'true':'false'));
+  });
+});
+
+/* 注记 */
+$('#notesToggle').addEventListener('click',()=>{
+  const on=document.body.classList.toggle('notes-on');
+  $('#notesToggle').setAttribute('aria-pressed', on?'true':'false');
+  if(on) window.scrollTo({top:0});
+});
+
+/* draft/release */
+$('#viewDraft').addEventListener('click',()=>{ flashToast('draft 视图：3 项待审变更待评审发布'); $('#viewDraft').setAttribute('aria-pressed','true'); $('#viewRelease').setAttribute('aria-pressed','false'); });
+$('#viewRelease').addEventListener('click',()=>{ $('#viewDraft').setAttribute('aria-pressed','false'); $('#viewRelease').setAttribute('aria-pressed','true'); });
+
+/* toast */
+const toast=$('#toast'); let tt;
+function flashToast(m){ toast.textContent='原型：'+m; toast.classList.add('show'); clearTimeout(tt); tt=setTimeout(()=>toast.classList.remove('show'),2200); }
+$('#copyCurl').addEventListener('click',()=>flashToast('将复制 GET curl 命令'));
+
+/* 编辑 = commit modal */
+function openCommit(){ $('#commitModal').classList.add('open'); renderDiff(); }
+function closeCommit(){ $('#commitModal').classList.remove('open'); }
+$('#openDiff').addEventListener('click',openCommit);
+$('#closeCommit').addEventListener('click',closeCommit);
+$('#cancelCommit').addEventListener('click',closeCommit);
+$('#commitModal').addEventListener('click',e=>{ if(e.target.id==='commitModal') closeCommit(); });
+$('#doCommit').addEventListener('click',()=>{ closeCommit(); flashToast('已 commit & push：chore(spechub): update specs/petstore/openapi.yaml（原型）'); });
+function renderDiff(){
+  const old=[['ctx','  openapi: 3.1.0'],['ctx','  info:'],['del','    version: 1.4.0'],['add','    version: 1.5.0'],['ctx','  paths:'],['del','        summary: 按 ID 查找宠物'],['add','        summary: 按 ID 查找宠物（含体检状态）'],['del','    property: verbose'],['add','    property: healthReports: []'],['ctx','  # 其余内容保持不变']];
+  $('#diffBody').innerHTML = old.map(([t,x])=>
+    '<div class="diff-line '+t+'"><span class="ad">'+(t==='add'?'+':t==='del'?'−':'')+'</span><span>'+x.replace(/ /g,'&nbsp;')+'</span></div>'
+  ).join('');
+}
+renderDiff();
+</script>
+</body>
+</html>
