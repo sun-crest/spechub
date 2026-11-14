@@ -88,13 +88,14 @@ class ModelRoundTripTest {
         val petRef = listPets.responses.getValue("200").content.getValue("application/json").schema
         assertEquals("#/components/schemas/Pet", petRef?.items?.ref)
 
-        val pet = doc.components!!.schemas.getValue("Pet")
+        val components = checkNotNull(doc.components) { "黄金样例应含 components 结构定义" }
+        val pet = components.schemas.getValue("Pet")
         assertNotNull(pet)
         assertEquals(listOf("integer", "null"), pet.properties.getValue("id").typeNames())
         assertEquals(AdditionalPropertiesValue.Allowed(false), SpecModelIO.additionalPropertiesOf(pet.additionalProperties))
         assertEquals("petType", pet.discriminator?.propertyName)
 
-        val security = doc.components!!.securitySchemes.getValue("bearerAuth")
+        val security = components.securitySchemes.getValue("bearerAuth")
         assertNotNull(security)
         assertEquals("http", security.type)
         assertEquals("JWT", security.bearerFormat)
