@@ -58,7 +58,9 @@
 - [x] E7 轮询兜底（未配 webhook 的仓定时 fetch + diff；`PollingIngestor` 复用 Ingestor 幂等，间隔可配）[modules/server] ✅ 2026-11-14：@Scheduled(spechub.polling-interval-ms) 遍历注册仓摄取，失败仅告警不中断
 - [x] E8首次启动初始化：目录、DB、admin 种子命令（UI 化在 P1 H6）✅ 2026-11-14：KernelConfig 启动建目录+迁移；ApplicationInit 保证 default project + 环境/`--seed-admin` 生成 admin 令牌
 
-**P0 验收**：对一个小 git 仓触发 push → SQLite 查到归一化的 api 记录；`docker compose up -d --build` 起 gitea+backend；`reindex` 可整体重建。✅ 2026-11-14 部署实测（本地目录档，§7.3）：注册 `/fixtures/origin` → 返回 api=2/schema=1/version=1、sync=ok → `/api/repos/1/apis` 查到 GET/POST /pets（中文 summary 保真）→ push 变更 → webhook → api=3 且无旧残留、removePet 可检索；SQLite `spechub-index.db` 落盘。Gitea 档额外需实例 admin 引导（P1 H6 UI 化前可用 install/API 初始化）
+**P0 验收**：对一个小 git 仓触发 push → SQLite 查到归一化的 api 记录；`docker compose up -d --build` 起 gitea+backend；`reindex` 可整体重建。✅ 2026-11-14 部署实测（两档均过）：
+- **本地目录档**（§7.3）：注册 `/fixtures/origin` → api=2/schema=1/version=1、sync=ok → 查到 GET/POST /pets（中文 summary 保真）→ push → webhook → api=3 无残留；SQLite `spechub-index.db` 落盘。
+- **Gitea 档**：`gitea admin user create` 引导 admin → API 建 repo → host 以 token push（HTTP 认证）→ backend 注册 `http://gitea:3000/...git`（token 注入不落库）→ 摄取 api=2 → **gitea webhook 自动增量**（修复 SSRF 防护：compose 增 `GITEA__webhook__ALLOWED_HOST_LIST=private`）→ 改 spec push 后**零手动调用**投影即更新 v4；轮询兜底（E7）同时生效。
 
 ---
 

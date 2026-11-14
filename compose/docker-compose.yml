@@ -26,6 +26,9 @@ services:
       # 跳过首启安装向导：INSTALL_LOCK 属 [security] 段（Gitea 实测，误写 [install] 会仍进安装页）；
       # 锁定后首次启动自动初始化 sqlite DB。admin 由后端 E8 用户引导种子
       GITEA__security__INSTALL_LOCK: "true"
+      # webhook 只能投递到允许的 HTTP 服务（SSRF 防护）；默认 deny 非本机 → backend 收不到推送事件
+      # 自托管场景放开私网（compose 服务名 backend + 172.x 网桥）投递
+      GITEA__webhook__ALLOWED_HOST_LIST: ${GITEA_WEBHOOK_ALLOWED_HOSTS:-private}
     ports:
       - "${SPECHUB_GITEA_HTTP_PORT:-3000}:3000"
       - "${SPECHUB_GITEA_SSH_PORT:-2222}:22"
