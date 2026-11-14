@@ -74,9 +74,9 @@
 
 ### G CLI（Go） [apps/cli] → E
 
-- [ ] G1 cobra 命令 `pull / push / status / diff / commit` v1 [apps/cli]
-- [ ] G2 与 server HTTP 同步（token 配置、push 前校验走 server API）
-- [ ] G3 交叉编译发布脚本（linux/darwin, amd64/arm64 → 单二进制）
+- [x] G1 cobra 命令 `pull / push / status / diff / commit` v1 [apps/cli] ✅ 2026-11-14：Go 1.26 + cobra；命令齐全且真实冒烟（pull 拉取 gitea spec → 本地改动 → diff 出差异 → push 写回 commit）
+- [x] G2 与 server HTTP 同步（token 配置、push 前校验走 server API）✅ 2026-11-14：`~/.spechub.json`（0600）+ 环境变量优先；client 层 Bearer 注入；push 由后端校验并执行写回（R1-C）
+- [x] G3 交叉编译发布脚本（linux/darwin, amd64/arm64 → 单二进制）✅ 2026-11-14：scripts/build-release.sh → dist/spechub-{linux,darwin}-{amd64,arm64}（实测产出四平台）
 
 ### H 最小 Web UI [apps/web] → E
 
