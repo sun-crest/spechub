@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-14　**状态**：P0 按新规范重建中——**A–E 六组全部完成并实证**（`./gradlew build` 全绿，40 测试全过；compose 双服务 healthy）；E2/E6 已有 REST 集成验收（IngestorE2E + WebApi，真仓→摄取→查询→webhook）；剩 P0 验收部署实测（2026-11-13 四项技术决策定案，见产品方案 §0）
+> **日期**：2026-11-14　**状态**：**P0 完成——A–E 六组代码实证（40 测试全绿）+ 部署实测通过**（compose 双服务 healthy；本地目录仓注册 → 摄取 → SQLite 查到归一化 api；push 变更 → webhook 增量 → 新 api + 新版本）。P1 起 F 组（MCP）待办（2026-11-13 四项技术决策定案，见产品方案 §0）
 
 ---
 
@@ -58,7 +58,7 @@
 - [x] E7 轮询兜底（未配 webhook 的仓定时 fetch + diff；`PollingIngestor` 复用 Ingestor 幂等，间隔可配）[modules/server] ✅ 2026-11-14：@Scheduled(spechub.polling-interval-ms) 遍历注册仓摄取，失败仅告警不中断
 - [x] E8首次启动初始化：目录、DB、admin 种子命令（UI 化在 P1 H6）✅ 2026-11-14：KernelConfig 启动建目录+迁移；ApplicationInit 保证 default project + 环境/`--seed-admin` 生成 admin 令牌
 
-**P0 验收**：对一个小 git 仓触发 push → SQLite 查到归一化的 api 记录；`docker compose up -d --build` 起 gitea+backend；`reindex` 可整体重建。
+**P0 验收**：对一个小 git 仓触发 push → SQLite 查到归一化的 api 记录；`docker compose up -d --build` 起 gitea+backend；`reindex` 可整体重建。✅ 2026-11-14 部署实测（本地目录档，§7.3）：注册 `/fixtures/origin` → 返回 api=2/schema=1/version=1、sync=ok → `/api/repos/1/apis` 查到 GET/POST /pets（中文 summary 保真）→ push 变更 → webhook → api=3 且无旧残留、removePet 可检索；SQLite `spechub-index.db` 落盘。Gitea 档额外需实例 admin 引导（P1 H6 UI 化前可用 install/API 初始化）
 
 ---
 
