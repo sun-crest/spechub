@@ -213,16 +213,16 @@ docs/<service-name>/               # 域二：AI 分析文档（分开管理）
 
 ## 7. 技术选型
 
-> 后端基准语言改为 **Java（团队 Java 主力）**；版本基准 = **Java 25（最新 LTS）+ Spring Boot 4 当前 GA 线**，随官方 GA/LTS 路线锁定小版本；前端 React 不受影响、通过 REST JSON 解耦；MCP/CLI 组件**单列评估、语言不限**。服务端主力 Java；**内核模型/解析器用 Kotlin**（data class + 空安全契合 spec 解析），构建统一 **Gradle（Kotlin DSL）**（见 §7.4）。
+> 后端基准语言 = **JVM 侧统一 Kotlin**（2026-11-15 追认：kernel / server / mock / intellij 插件全部 Kotlin，代码已实证）；版本基线 = **JVM 25（最新 LTS，编译目标）+ Spring Boot 4 当前 GA 线**，随官方 GA/LTS 路线锁定小版本；前端 React 不受影响、通过 REST JSON 解耦；MCP/CLI 组件**单列评估、语言不限**。Kotlin 契合点：data class + 声明式空安全解读 spec 解析、Spring Boot 4 一等支持；JVM 侧统一语言消除 Java↔Kotlin 互操作接缝（构建统一 **Gradle（Kotlin DSL）**，见 §7.4；早期「服务端主力 Java」表述按现状修齐）。
 
 | 层 | 选型 | 理由 |
 |---|---|---|
-| 后端 | **Java 25（最新 LTS）· Spring Boot 4（当前 GA，Framework 7）** | Spring Boot 4 一等支持 Java 25（保留 17 基线），LTS 支持至 2033；构建时锁定当前 GA 小版本 |
+| 后端 | **Kotlin（JVM 25 编译目标，最新 LTS）· Spring Boot 4（当前 GA，Framework 7）** | JVM 侧统一 Kotlin（kernel/server/mock/intellij 同语言，消除互操作接缝）；Spring Boot 4 一等支持 JVM 25（保留 17 基线），LTS 支持至 2033；构建时锁定当前 GA 小版本 |
 | 后端打包 | **JVM fatjar 默认 + 分层镜像 + CDS；native-image 为可选演进** | 长驻服务不依赖冷启动收益；SQLite JDBC / Jackson 3 等反射重链路在 native 下的 metadata 是工期黑洞。分层镜像 + CDS(AppCDS) 把部署体感与启动压到可接受档，并保留完整 JVM 诊断工具链；真正要单二进制 / 超低内存的场景由 CLI(Go) 承担，故不默认 native |
 | 解析/序列化 | **自研 OpenAPI 解析器；Jackson 3（tools.jackson，≥3.1.4）** | Jackson 2/3 的注解共包 `com.fasterxml.jackson.annotation`，同一类路径不可共存，双栈必在序列化边界踩坑；统一 Jackson 3 单运行时，与 Spring Boot 4 web 层默认运行时对齐（≥3.1.4 规避 CVE-2026-68494 / 19032）。swagger-parser 对 OpenAPI 3.1（`type` 数组等原生能力）支持弱且锁死 Jackson 2，撤用。3.0/3.1 自研直读升级，2.0 结构化升级推迟 P2 J2（§6.5） |
 | 文档存储 | **文件系统(git) 真源 + SQLite(sqlite-jdbc) 索引** | 两层分工：文件=真相（AI 直接读写、diff/回滚/评审），SQLite=可重建投影（查询/检索/发布快照/订阅）；git 操作统一走镜像内嵌的**系统 git CLI 子进程**（debug 直观、diff/merge 与团队本地行为一致；JGit 仅在批量化高频读取需要时二选一并封装为同一接口，不作主力） |
 | Claude Code 接入 | **remote MCP(HTTP) 优先 + CLI；stdio 仅单机/调试** | 本地代码仓 spec 由 Claude 原生文件工具直接读写（零 MCP）；聚合层经 remote MCP(HTTP) 访问，CLI 兼 push/pull 同步与 CI 校验。语言见下行"单列" |
-| MCP/CLI 单列 | ✅ **语言自由；当前推荐 MCP=TS(Node)、CLI=Go 各自取最优** | 独立组件、不受 Java 约束。**MCP 选 TS(Node)**：贴 MCP 官方 SDK 生态、新能力先落地，remote HTTP 优先。**CLI 选 Go**：单二进制、零依赖进 CI 与任何基础镜像、启动毫秒级，本职 = 文件 + git 子进程 + HTTP、无需内核。二者连接的是 server API 生成的**薄 `spec-client`**（TS/Go 各一份，OpenAPI 生成近零维护）。仍单列可换：CLI 可换 TS(Node SEA / Bun)，MCP 可换 Go / Kotlin。对外接口（MCP 工具集 / CLI 命令）稳定，切换实现不影响后端主体 |
+| MCP/CLI 单列 | ✅ **语言自由；当前推荐 MCP=TS(Node)、CLI=Go 各自取最优** | 独立组件、不受 JVM 约束。**MCP 选 TS(Node)**：贴 MCP 官方 SDK 生态、新能力先落地，remote HTTP 优先。**CLI 选 Go**：单二进制、零依赖进 CI 与任何基础镜像、启动毫秒级，本职 = 文件 + git 子进程 + HTTP、无需内核。二者连接的是 server API 生成的**薄 `spec-client`**（TS/Go 各一份，OpenAPI 生成近零维护）。仍单列可换：CLI 可换 TS(Node SEA / Bun)，MCP 可换 Go / Kotlin。对外接口（MCP 工具集 / CLI 命令）稳定，切换实现不影响后端主体 |
 | Web UI | **React + Vite + Monaco 双栏** | 前后端语言解耦、走 REST JSON，不随后端切换 |
 | Mock | **Spring MVC（阻塞 + Java 25 虚拟线程）读 spec 生成 + 规则引擎**；代码独立于 `modules/mock`（依赖 kernel），部署并入 backend | mock 是"查询+生成"型服务、无阻塞 IO 可异步化，WebFlux 只买复杂度；Java 25 虚拟线程在短请求路径无并发短板，规则引擎 / 脚本保持同步代码与同步调试 |
 | 导出 | md 模板 / docx(pandoc) / pdf(子进程) / html 静态生成 | 语言无关，免受 POI/Aspose 授权费用 |
@@ -232,7 +232,7 @@ docs/<service-name>/               # 域二：AI 分析文档（分开管理）
 
 ### 7.1 部署：Docker Compose 一键拉起
 
-- **形态**：自托管最小部署面 = 单个 `docker-compose.yml`，`docker compose up -d --build` 一键拉起；后端（Java 25）持 fatjar，镜像内嵌 git CLI 以操作真源仓库。
+- **形态**：自托管最小部署面 = 单个 `docker-compose.yml`，`docker compose up -d --build` 一键拉起；后端（Kotlin，运行于 JVM 25）持 fatjar，镜像内嵌 git CLI 以操作真源仓库。
 - **服务**：`gitea`（**默认内置的文档仓托管**，本地卷持久化；切换外部托管时可停用）、`backend`（Spring Boot：HTTP API / remote MCP / 导出子进程 / 内置 **mock**（MVC + 虚拟线程，读 spec 生成，见 §7.4））、`web`（nginx 伺服静态 UI + 反代 `/api`）。mock **不单列 compose 服务**：无阻塞 IO 可异步化，独立端口/健康检查/运维面只有成本，合并进 backend 减部署面。
 - **数据持久化命名卷**：`gitsource`（真源文档仓）、`gitea-data`（内置 Gitea 的仓库数据）、`sqlite`（索引 DB）、`artifacts`（导出/门户产物）；容器可重建，数据不丢。
 - **配置**：`SPECHUB_*` 环境变量（外部 URL、仓库路径、管理员初始化）；首次启动自动建库、初始化目录与 admin，开箱即用。
@@ -255,7 +255,7 @@ docs/<service-name>/               # 域二：AI 分析文档（分开管理）
 - **切换能力**：通过**托管适配器**切换接入外部既有托管（GitHub / GitHub Enterprise、GitLab 自托管、Gitee），适配两点——`webhook 内容变更通知`（触发摄取）与 `写入回程`（push 分支 / 建 PR）；未列托管用"轮询 + git CLI"降级。切换 = 配置级动作：真源仓指向外部仓、停用 compose 里的 gitea 服务，后端逻辑不变。
 - **定位不变**：平台仍是 git 的**消费者**——`clone / fetch` 镜像远程仓到 `gitsource/repos/<org>/<repo>/` 做物化与索引；Web 直改后 `push` 回真源仓分支提 PR。评审、SSO 等协作职责落在所用托管（Gitea 或外部），聚合层只做摄取 / 索引 / 发布视图。
 
-### 7.4 工程结构（monorepo + Gradle + Kotlin 内核）
+### 7.4 工程结构（monorepo + Gradle + Kotlin 统一）
 
 - **仓库形态**：单仓 **monorepo**。理由：解析器跨端复用（JetBrains 插件直接依赖内核产物）、内核与服务器与插件版本**同 PR 对齐**、发布版本单一真源；TS 与 JVM 两种语言**物理分目录、各自独立构建**，避免混仓混乱。
 - **硬约束**：内核是**零框架依赖的纯库**、可单独打 jar——这是"JetBrains 插件复用后端解析器"的前置（Spring fatjar 无法被插件依赖）。它是工程结构的第一决定，其余都是它的推论。
@@ -283,7 +283,7 @@ docs/<service-name>/               # 域二：AI 分析文档（分开管理）
   └── e2e/                            # 端到端：真 git 仓 → 摄取 → 查询 → mock
   ```
 - **依赖方向（唯一规则）**：`server / mock / intellij-plugin` 只允许依赖 `kernel`，**不允许依赖 server**；`mcp` 当前推荐 TS、`cli` 当前推荐 Go（各取最优，仍可单列换实现）——两者都通过 HTTP 与 server 通信、不依赖 kernel，仅连接 `spec-client`（server API 生成的薄 client，TS/Go 各一份）；TS 侧与 Go 侧永不 import 任何 JVM 产物，只走 HTTP / CLI 子进程。这条规则落实两处可替换：MCP/CLI 换语言实现 = 对外接口（MCP 工具集 / CLI 命令）不变；解析器换实现只改 kernel 内部。
-- **构建工具与内核语言**：JVM 侧 **Gradle（Kotlin DSL）**，root 统一管理版本号 = 发布版本单一真源；内核用 **Kotlin**（data class + 空安全契合 spec 解析）。端侧：TS 用 npm workspace（`apps/` 内 web / mcp / spec-client-ts），CLI 用 Go module（`apps/cli`）。仅当团队坚定纯 Java 时才退到 Maven 全 Java——本方案默认 Gradle + Kotlin。
+- **构建工具与统一语言**：JVM 侧 **Gradle（Kotlin DSL）** + **Kotlin 统一**（kernel/server/mock/intellij 插件同语言），root 统一管理版本号 = 发布版本单一真源。端侧：TS 用 npm workspace（`apps/` 内 web / mcp / spec-client-ts），CLI 用 Go module（`apps/cli`）。2026-11-15 已追认 Kotlin 为 JVM 侧默认，不再保留「团队坚定纯 Java 时退到 Maven 全 Java」的假设。
 - **后端打包**：默认 JVM fatjar + 分层镜像 + CDS（见选型表）；backend **不做 native-image 默认编译**（反射重链路的 metadata 工期黑洞），留作可选演进项。真正需要单二进制/超低内存的路径（CLI）已由 Go 承担。
 - **P0 最小骨架**：只落地 `kernel/spec-model`、`kernel/spec-parser`、`kernel/git-store`、`server`（轮询/webhook → 解析 → 索引）+ compose 骨架；**构建工具与目录结构从第一天定死**，避免返工。验收标准：对一个 git 仓触发 push 后，SQLite 能查到归一化的 api 记录。
 
