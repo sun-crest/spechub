@@ -1,6 +1,11 @@
 package io.spechub.spec.index
 
 /** 行模型（数据实体真源见 §6.3）；时间均为 ISO-8601 文本 */
+data class ProjectRecord(
+    val id: Long,
+    val name: String,
+)
+
 data class RepoRecord(
     val id: Long,
     val projectId: Long,

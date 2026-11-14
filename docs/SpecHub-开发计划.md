@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-14　**状态**：**P0 完成——A–E 六组代码实证（40 测试全绿）+ 部署实测通过**（compose 双服务 healthy；本地目录仓注册 → 摄取 → SQLite 查到归一化 api；push 变更 → webhook 增量 → 新 api + 新版本）。P1 起 F 组（MCP）待办（2026-11-13 四项技术决策定案，见产品方案 §0）
+> **日期**：2026-11-14　**状态**：**P0 完成 + P1 F 组（MCP server）完成**——A–E 六组 40 测试全绿、部署实测两档通过；F 组 MCP（TS + streamable HTTP/stdio + 读默认写需开 + 写回 REST）e2e 实证（create_api 写回 gitea → 摄取 → 可检索）。Horizontal 下一个：G 组 CLI / H 组 Web（2026-11-13 四项技术决策定案）
 
 ---
 
@@ -68,9 +68,9 @@
 
 ### F MCP server（TS，当前推荐） [apps/mcp] → E
 
-- [ ] F1 脚手架 + MCP TS SDK（streamable HTTP，remote 优先；stdio 调试用）[apps/mcp]
-- [ ] F2 工具集 v1：`list_projects / search_api / get_api / create_api / update_api / doc_sync_status` [apps/mcp]
-- [ ] F3 权限分层：默认只读、写操作需确认（对接 server 审批开关，§6.4 决策 3）
+- [x] F1 脚手架 + MCP TS SDK（streamable HTTP，remote 优先；stdio 调试用）[apps/mcp] ✅ 2026-11-14：@modelcontextprotocol/sdk 1.32；stdio（默认）+ `--http` streamable HTTP（/mcp 会话 + /health；SDK onsessioninitialized 签名适配）；HTTP initialize 握手 200 冒烟
+- [x] F2 工具集 v1：`list_projects / search_api / get_api / create_api / update_api / doc_sync_status` [apps/mcp] ✅ 2026-11-14：5 读 + 2 写工具全部实连 backend；写回走新增 PUT /api/repos/{id}/spec（SpecWriter R1-C：工作树 clone→平台 commit→push→自动摄取）；e2e：create_api 写 gitea 仓提交 0fb6e560 → search 命中 listWidgets
+- [x] F3 权限分层：默认只读、写操作需确认（对接 server 审批开关，§6.4 决策 3）✅ 2026-11-14：默认只注册读工具（实证工具列表仅 5 读）；`SPECHUB_ALLOW_WRITE=1` 才注册写工具；backend 侧 TokenAuthFilter（配 spechub.admin-token 后 Bearer 校验）/actuator 放行
 
 ### G CLI（Go） [apps/cli] → E
 

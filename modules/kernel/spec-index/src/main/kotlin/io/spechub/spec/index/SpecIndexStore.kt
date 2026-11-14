@@ -23,6 +23,23 @@ class SpecIndexStore(private val db: IndexDb) {
         (conn.queryObj("SELECT id FROM project WHERE name=?", name) as? Number)?.toLong()
     }
 
+    fun listProjects(): List<ProjectRecord> = db.transaction { conn ->
+        conn.select("SELECT * FROM project ORDER BY id") { r ->
+            ProjectRecord((r["id"] as Number).toLong(), r["name"] as String)
+        }
+    }
+
+    fun getApiById(id: Long): ApiRecord? = db.transaction { conn ->
+        conn.select("SELECT * FROM api WHERE id=?", id) { r ->
+            ApiRecord(
+                (r["id"] as Number).toLong(), r.long("repo_id"), r.longOrNull("version_id"),
+                r["method"] as String, r["path"] as String,
+                r["operation_id"] as? String, r["tag"] as? String, r["summary"] as? String,
+                r["spec_json"] as String,
+            )
+        }.firstOrNull()
+    }
+
     // ── repo ─────────────────────────────────────────────────────────────
 
     fun insertRepo(projectName: String, url: String, branch: String = "main"): RepoRecord =

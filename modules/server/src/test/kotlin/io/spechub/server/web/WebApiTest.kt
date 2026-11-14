@@ -114,6 +114,57 @@ class WebApiTest {
         return found.get("id").asLong()
     }
 
+    private fun put(path: String, body: String): HttpResponse<String> =
+        client.send(
+            HttpRequest.newBuilder(URI("http://localhost:$port$path"))
+                .PUT(HttpRequest.BodyPublishers.ofString(body))
+                .header("Content-Type", "application/json")
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+
+    @Test
+    @Order(6)
+    fun `写回 spec - PUT 平台提交并摄取`() {
+        val repoId = findOriginRepoId()
+
+        // 读当前 spec（工作树）
+        val read = get("/api/repos/$repoId/spec?path=specs%2Fpet%2Fopenapi.yaml")
+        assertEquals(200, read.statusCode(), read.body())
+
+        // 写回：追加一个 DELETE operation 的新版本文档
+        val newSpec = """
+            openapi: 3.1.0
+            info: { title: Pet Store, version: "1.1.0" }
+            paths:
+              /pets:
+                get:
+                  operationId: listPets
+                  responses:
+                    "200": { description: ok }
+              /pets/{petId}:
+                delete:
+                  operationId: removePet
+                  parameters: [{ name: petId, in: path, required: true, schema: { type: integer } }]
+                  responses:
+                    "204": { description: removed }
+            components:
+              schemas:
+                Pet: { type: object, properties: { name: { type: string } } }
+        """.trimIndent()
+        val body = """{"path":"specs/pet/openapi.yaml","content":"${newSpec.replace("\n", "\\n").replace("\"", "\\\"")}"}"""
+        val resp = put("/api/repos/$repoId/spec", body)
+        assertEquals(200, resp.statusCode(), resp.body())
+        val r = json.readTree(resp.body())
+        assertEquals("specs/pet/openapi.yaml", r.at("/path").asString())
+        assertTrue(r.at("/commit").asString().length >= 40, "应有完整 commit hash")
+
+        // 写回后摄取 → 投影含 removePet
+        val apis = json.readTree(get("/api/repos/$repoId/apis").body())
+        val ops = buildList { for (a in apis) { add(a.at("/operationId").asString()) } }
+        assertTrue("removePet" in ops, "写回后应能查到 removePet：$ops")
+    }
+
     @Test
     @Order(1)
     fun `注册仓并即摄取 - 返回 apiCount`() {
