@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-14　**状态**：P0 按新规范重建中——**A 骨架 + B 模型 + C 解析归一化（C1–C4）已完成并实证**（`./gradlew build` 全绿，spec-model 11 + spec-parser 9 测试全过；compose 双服务 healthy）；D 组 git 封装待办（2026-11-13 四项技术决策定案，见产品方案 §0）
+> **日期**：2026-11-14　**状态**：P0 按新规范重建中——**A 骨架 + B 模型 + C 解析 + D git 封装（D1–D4）已完成并实证**（`./gradlew build` 全绿，spec-model 11 + spec-parser 9 + git-store 7 测试全过；compose 双服务 healthy）；E 组摄取链路待办（2026-11-13 四项技术决策定案，见产品方案 §0）
 
 ---
 
@@ -42,10 +42,10 @@
 
 ### D git 化读写 [modules/kernel/git-store]
 
-- [ ] D1系统 git CLI 子进程封装（参数化安全、超时、`--no-pager`）
-- [ ] D2`clone / fetch` 镜像远程仓到 `gitsource/repos/<org>/<repo>`（§7.3）
-- [ ] D3`commit / push` 写回真源仓（Web 直改与平台提交，R1-C 兜底形态）
-- [ ] D4`diff / status` 提取 spec 变更（喂给 ChangeLog）
+- [x] D1系统 git CLI 子进程封装（参数化安全、超时、`--no-pager`）✅ 2026-11-14：GitCli 参数列表化（绝无 shell 拼接）+ waitFor 限时 destroyForcibly + GIT_TERMINAL_PROMPT=0 + 双流并发读；`-c core.quotepath=false` 中文路径不转义
+- [x] D2`clone / fetch` 镜像远程仓到 `gitsource/repos/<org>/<repo>`（§7.3）✅ 2026-11-14：mirrorClone/-Fetch（bare 镜像全文对象）+ ensureMirror 幂等 + cloneInto + readFile(show) + headRevision；工作树 syncWorkingToRemote
+- [x] D3`commit / push` 写回真源仓（Web 直改与平台提交，R1-C 兜底形态）✅ 2026-11-14：stage/commit/commitAllTracked（显式 -c user.name/email 平台身份，不依赖全局配置）/push；测试验证真源收到 specbot 身份提交
+- [x] D4`diff / status` 提取 spec 变更（喂给 ChangeLog）✅ 2026-11-14：status porcelain 解析（含 R/C rename 旧路径）、diffStat numstat、diff 文本、log 摘要（ChangeLog 供数）
 
 ### E 摄取链路 + 索引（P0 核心） [modules/kernel/spec-index + modules/server]
 
