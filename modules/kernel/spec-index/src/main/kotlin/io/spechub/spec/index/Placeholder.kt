@@ -1,6 +1,6 @@
 package io.spechub.spec.index
 
-import io.spechub.spec.model.SpecModel
+import io.spechub.spec.model.OpenApiDoc
 
 /*
  * SpecHub kernel · spec-index —— SQLite 索引 DAO
@@ -10,5 +10,5 @@ import io.spechub.spec.model.SpecModel
  */
 object SpecIndex {
     const val namespace = "io.spechub.spec.index"
-    val consumesModel = SpecModel.namespace // 依赖方向自证：index → spec-model
+    val consumesModel = OpenApiDoc::class.java.name // 依赖方向自证：index → spec-model
 }

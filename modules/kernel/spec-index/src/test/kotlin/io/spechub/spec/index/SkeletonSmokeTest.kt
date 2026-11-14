@@ -10,6 +10,6 @@ class SkeletonSmokeTest {
 
     @Test
     fun `index depends on spec-model`() {
-        assertEquals("io.spechub.spec.model", SpecIndex.consumesModel)
+        assertEquals("io.spechub.spec.model.OpenApiDoc", SpecIndex.consumesModel)
     }
 }

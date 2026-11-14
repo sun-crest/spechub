@@ -10,6 +10,6 @@ class SkeletonSmokeTest {
 
     @Test
     fun `parser depends on spec-model`() {
-        assertEquals("io.spechub.spec.model", SpecParser.consumesModel)
+        assertEquals("io.spechub.spec.model.OpenApiDoc", SpecParser.consumesModel)
     }
 }

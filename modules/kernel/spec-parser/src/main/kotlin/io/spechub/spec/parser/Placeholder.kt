@@ -1,6 +1,6 @@
 package io.spechub.spec.parser
 
-import io.spechub.spec.model.SpecModel
+import io.spechub.spec.model.OpenApiDoc
 
 /*
  * SpecHub kernel · spec-parser —— 自研 OpenAPI 解析（3.0/3.1 → 内部 3.1 归一化）
@@ -11,5 +11,5 @@ import io.spechub.spec.model.SpecModel
  */
 object SpecParser {
     const val namespace = "io.spechub.spec.parser"
-    val consumesModel = SpecModel.namespace // 依赖方向自证：parser → spec-model
+    val consumesModel = OpenApiDoc::class.java.name // 依赖方向自证：parser → spec-model
 }

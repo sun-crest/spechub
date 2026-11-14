@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-14　**状态**：P0 按新规范重建中——**A 组骨架（A1–A4）已完成并实证**（`./gradlew build` 全绿 + compose 双服务 healthy）；B 组起待办（2026-11-13 四项技术决策定案，见产品方案 §0）
+> **日期**：2026-11-14　**状态**：P0 按新规范重建中——**A 组骨架 + B 组（B1–B3）已完成并实证**（`./gradlew build` 全绿 + compose 双服务 healthy + spec-model 11 测试全过）；C 组解析归一化待办（2026-11-13 四项技术决策定案，见产品方案 §0）
 
 ---
 
@@ -29,9 +29,9 @@
 
 ### B OpenAPI 3.1 内部模型 [modules/kernel/spec-model]
 
-- [ ] B1核心模型类：`OpenApiDoc / Operation / PathItem / Schema / Component / Server`（Kotlin data class，空安全）
-- [ ] B2JSON / YAML 序列化（Jackson + jackson-dataformat-yaml，支持单/多文档）
-- [ ] B3归一化模型指纹 `specHash`（作为 Version 发布快照的主键，见 P2 I6）
+- [x] B1核心模型类：`OpenApiDoc / Operation / PathItem / Schema / Component / Server`（Kotlin data class，空安全）✅ 2026-11-14：8 模型文件全部落地（含 PathItem/Parameter/RequestBody/Response/Components/SecurityScheme 等）；`type`/`additionalProperties` 用 JsonNode 保真 + 访问器；空安全全字段
+- [x] B2JSON / YAML 序列化（Jackson + jackson-dataformat-yaml，支持单/多文档）✅ 2026-11-14：SpecModelIO（detectFormat/readDocument/多文档流 write/read + tree↔model）；黄金样例 PetStore-3.1.yaml；round-trip 幂等
+- [x] B3归一化模型指纹 `specHash`（作为 Version 发布快照的主键，见 P2 I6）✅ 2026-11-14：SpecHash（键排序/数值规范/删空容器）；顺序与数字笔法不敏感、语义变化敏感，64 位小写 hex
 
 ### C 多版本归一化 [modules/kernel/spec-parser] → B
 

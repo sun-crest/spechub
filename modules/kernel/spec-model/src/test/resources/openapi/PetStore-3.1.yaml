@@ -1,0 +1,88 @@
+# SpecHub 黄金样例 —— OpenAPI 3.1（开发计划 B2/B3 与解析器用例集的输入）
+# 覆盖：type 数组 / additionalProperties / discriminator / 组件引用 / x- 扩展容错 / 多文档
+openapi: 3.1.0
+info:
+  title: Pet Store
+  version: 1.0.0
+  description: 示例宠物店 API（中文描述保真校验）
+  license:
+    name: MIT
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      tags: [pets]
+      summary: List all pets
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: [integer, "null"]
+            format: int32
+      responses:
+        "200":
+          description: A paged array of pets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pet"
+    post:
+      operationId: createPet
+      tags: [pets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Pet"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+  /pets/{petId}:
+    parameters:
+      - name: petId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getPet
+      tags: [pets]
+      responses:
+        "200":
+          description: Pet found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+components:
+  schemas:
+    Pet:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: [integer, "null"]
+          format: int64
+        name:
+          type: string
+        tag:
+          type: string
+      additionalProperties: false
+      discriminator:
+        propertyName: petType
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+# 未知/自定义字段：摄入端应忽略不崩溃（C4 容错）
+x-custom-note: SpecHub golden fixture
