@@ -34,4 +34,6 @@ pnpm-debug.log*
 Thumbs.db
 # --- Claude Code 本地环境 ---
 .claude/
-# --- TS build cache ---\n*.tsbuildinfo
+# --- TS build cache ---
+*.tsbuildinfo
+**/tsconfig.tsbuildinfo

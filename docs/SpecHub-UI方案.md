@@ -179,4 +179,4 @@ H5 的 Monaco 双栏方向对，语义明确为：**编辑 `specs/xxx/openapi.ya
 ## 附录 B · 界面原型（评审素材）
 
 - **静态原型** [design/spechub-prototype.html](../design/spechub-prototype.html)（浏览器直接打开，无外部依赖）：三区壳 + 侧栏顶部分段控件换域；接口列表 / 详情三段式 / YAML 编辑器 / AI 文档阅读（右列标题索引）；侧栏折叠（≤1024 自动收起）；亮暗双主题 + 设计注记。视觉基准 = 现代清爽 V2（[design/spechub-design-tokens.md](../design/spechub-design-tokens.md) §1–§6）。仅评审用，不随 H 组进入代码。
-- **真码试桩** `apps/web-spike`：Vite + React + Tailwind v4 + shadcn/ui。接口列表（tag 过滤 / 搜索 / 统计带）、详情三段契约、AI 文档阅读（目录树 + 右列索引 + 关联接口）已用真实组件拼出，`design-tokens.md` §8 OKLCH 映射与 `--color-method-*` 验证通过。可收编为 H1 起点或删。
+- **H 组正式目录** `apps/web`（由 `web-spike` 转正，2026-11-14）：Vite + React + Tailwind v4 + shadcn（Base UI），`tokens §8` OKLCH 映射与 `--color-method-*` 已跑通。**H1–H3 读链路已接后端**：projects / repos / apis 列表、specJson 前端渲染契约（Parameters + Responses + schema 递归）、tag/repo 过滤与搜索；dev 时 `/api` 代理到 backend。H4 编辑写回占位、H5/H6 未做。

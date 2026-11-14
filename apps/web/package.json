@@ -1,9 +1,9 @@
 {
-  "name": "@spechub/web-spike",
+  "name": "@spechub/web",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
-  "description": "H 组 Web 试桩（收编）：Vite + React + Tailwind v4 + shadcn/ui，验证 design-tokens §8 OKLCH 映射与组件质感；可作为 H1 脚手架起点",
+  "description": "H 组 Web：Vite 6 + React 19 + Tailwind v4 + shadcn/ui（由 web-spike 转正）。H1–H3 读链路接后端 REST（projects/repos/apis），specJson 前端渲染契约",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
