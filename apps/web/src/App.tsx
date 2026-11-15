@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, ChevronsUpDown, Moon, PanelLeftClose, Search, Shield, Sun } from "lucide-react";
+import { Boxes, ChevronsUpDown, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,10 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ApiList, type Filter } from "./demo/ApiList";
 import { ApiDetail } from "./demo/ApiDetail";
+import { EditorView, type EditingEntry } from "./demo/EditorView";
 import { DocPanel } from "./demo/DocPanel";
 import { DOCS } from "./demo/data";
-import { listApis, listProjects, listRepos, repoDisplay, type Api, type Project, type Repo } from "@/lib/api";
+import { listApis, listProjects, listRepos, repoDisplay, type Api, type Project, type Repo, type WriteSpecResp } from "@/lib/api";
 
 export default function App() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -28,6 +29,8 @@ export default function App() {
   const [filter, setFilter] = useState<Filter>({});
   const [selected, setSelected] = useState<number | null>(null);
   const [selectedDoc, setSelectedDoc] = useState("overview");
+  const [editing, setEditing] = useState<EditingEntry | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
 
@@ -168,8 +171,20 @@ export default function App() {
 
         <main className="min-h-0 flex-1">
           {domain === "api" ? (
-            selected && !loading && !error ? (
-              <ApiDetail id={selected} onBack={() => setSelected(null)} repos={repos} />
+            editing ? (
+              <EditorView
+                entry={editing}
+                repos={repos}
+                onBack={() => { setEditing(null); setSelected(null); void load(); }}
+                onSaved={(r: WriteSpecResp) => {
+                  setToast(`已提交 ${r.commit.slice(0, 8)} · ${r.path}（${r.apiCount} 个接口）`);
+                  setEditing(null);
+                  setSelected(null);
+                  void load();
+                }}
+              />
+            ) : selected && !loading && !error ? (
+              <ApiDetail id={selected} onBack={() => setSelected(null)} repos={repos} onEdit={(a) => setEditing({ repoId: a.repoId, path: a.specPath ?? null })} />
             ) : (
               <ApiList
                 apis={apis}
@@ -177,6 +192,7 @@ export default function App() {
                 filter={filter}
                 onFilter={setFilter}
                 onSelect={setSelected}
+                onEdit={() => setEditing({ repoId: repos[0]?.id, path: null })}
                 loading={loading}
                 error={error}
                 onRetry={load}
@@ -187,6 +203,15 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* 保存成功 toast */}
+      {toast && (
+        <div className="fixed right-6 bottom-6 z-50 flex items-center gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-[13px] text-emerald-700 shadow-lg dark:text-emerald-400">
+          <CheckCircle2 className="size-4 shrink-0" />
+          <span>{toast}</span>
+          <button className="ml-2 text-muted-foreground hover:text-foreground" onClick={() => setToast(null)} aria-label="关闭">✕</button>
+        </div>
+      )}
     </div>
   );
 }

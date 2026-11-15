@@ -30,12 +30,16 @@ class SpecIndexStore(private val db: IndexDb) {
     }
 
     fun getApiById(id: Long): ApiRecord? = db.transaction { conn ->
-        conn.select("SELECT * FROM api WHERE id=?", id) { r ->
+        conn.select(
+            """SELECT a.*, v.path AS spec_path FROM api a LEFT JOIN version v ON v.id = a.version_id WHERE a.id=?""",
+            id,
+        ) { r ->
             ApiRecord(
                 (r["id"] as Number).toLong(), r.long("repo_id"), r.longOrNull("version_id"),
                 r["method"] as String, r["path"] as String,
                 r["operation_id"] as? String, r["tag"] as? String, r["summary"] as? String,
                 r["spec_json"] as String,
+                specPath = r["spec_path"] as? String,
             )
         }.firstOrNull()
     }

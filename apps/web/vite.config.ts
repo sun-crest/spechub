@@ -16,4 +16,14 @@ export default defineConfig({
       "/api": { target: BACKEND, changeOrigin: true },
     },
   },
+  build: {
+    // Monaco 体积大：单独拆 chunk，避免阻塞首屏
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          monaco: ["monaco-editor", "@monaco-editor/react"],
+        },
+      },
+    },
+  },
 });

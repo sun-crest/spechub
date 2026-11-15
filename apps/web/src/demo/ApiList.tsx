@@ -17,13 +17,14 @@ export interface Filter {
 const ALL = "全部";
 
 export function ApiList({
-  apis, repos, filter, onFilter, onSelect, loading, error, onRetry,
+  apis, repos, filter, onFilter, onSelect, onEdit, loading, error, onRetry,
 }: {
   apis: Api[];
   repos: Repo[];
   filter: Filter;
   onFilter: (f: Filter) => void;
   onSelect: (id: number) => void;
+  onEdit: () => void;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -53,7 +54,7 @@ export function ApiList({
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">接口</h1>
         <Badge variant="outline" className="text-muted-foreground">{rows.length} 命中</Badge>
-        <Button size="sm" className="ml-auto">
+        <Button size="sm" className="ml-auto" onClick={onEdit}>
           <span className="text-base leading-none">＋</span>
           新建 / 编辑 spec
         </Button>

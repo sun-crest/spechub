@@ -33,6 +33,8 @@ data class ApiRecord(
     val tag: String? = null,
     val summary: String? = null,
     val specJson: String,
+    /** 来源 spec 文件路径（`version.path`，H4「编辑此文件」直达用；列表查询不填充） */
+    val specPath: String? = null,
 )
 
 data class SchemaRecord(

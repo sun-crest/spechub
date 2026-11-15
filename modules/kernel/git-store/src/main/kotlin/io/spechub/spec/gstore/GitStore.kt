@@ -112,7 +112,7 @@ class GitStore(private val cli: GitCli = GitCli()) {
 
     /** 从任意仓读取某修订的单个文件内容（mirror 仓用 `show`，无需工作树） */
     fun readFile(repo: Path, revision: String, path: String): GitResult =
-        cli.run(null, listOf("--git-dir=${repo.toString()}", "show", "$revision:$path"))
+        cli.run(null, listOf("--git-dir=${gitDirArg(repo)}", "show", "$revision:$path"))
 
     /** headRevision：仓 HEAD / 镜像仓分支头的 commit hash（feed 摄取幂等续跑） */
     fun headRevision(repo: Path, rev: String = "HEAD"): GitResult =
@@ -120,10 +120,17 @@ class GitStore(private val cli: GitCli = GitCli()) {
 
     /** 列出某修订的全部文件相对路径（镜像仓物化发现 spec 文件用，E3 摄取器） */
     fun listFiles(repo: Path, revision: String = "HEAD"): List<String> {
-        val r = cli.run(null, listOf("--git-dir=${repo.toString()}", "ls-tree", "-r", "--name-only", revision))
+        val r = cli.run(null, listOf("--git-dir=${gitDirArg(repo)}", "ls-tree", "-r", "--name-only", revision))
         if (!r.success) return emptyList()
         return r.stdout.lineSequence().filter { it.isNotBlank() }.toList()
     }
+
+    /**
+     * 解析 git 目录参数：bare mirror（`<gitSource>/repos/...`）目录本身即 git 仓库；
+     * 工作树仓（`<gitSource>/repos-work/...`）的 `.git` 在子目录，须显式指到 `.git`。
+     */
+    private fun gitDirArg(repo: Path): String =
+        if (Files.isDirectory(repo.resolve(".git"))) repo.toAbsolutePath().resolve(".git").toString() else repo.toString()
 
     fun isGitRepo(dir: Path): Boolean = cli.run(dir, listOf("rev-parse", "--git-dir")).success
 

@@ -74,6 +74,19 @@ class GitStoreTest {
         assertTrue(store.headRevision(mirror, "main").output.matches(Regex("[0-9a-f]{40}")))
     }
 
+    @Test
+    fun `listFiles 同时支持 bare 镜像与工作树仓`() {
+        val remote = bareRemote("origin")
+        val seed = seededWorkRepo("seed-ls").also { pushSeedTo(it, remote) }
+        val mirror = temp.resolve("mirror-ls")
+        store.ensureMirror(remote.toString(), mirror)
+
+        // bare 镜像（gitSource/repos 形态）
+        assertEquals(listOf("specs/pet.yaml"), store.listFiles(mirror, "main"))
+        // 工作树仓（gitSource/repos-work 形态，.git 在子目录）
+        assertEquals(listOf("specs/pet.yaml"), store.listFiles(seed, "HEAD"))
+    }
+
     // ── D3 · commit / push 写回真源仓 ──────────────────────────────────────
 
     @Test

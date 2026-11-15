@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-14　**状态**：**P0 完成 + P1 F 组（MCP server）完成**——A–E 六组 40 测试全绿、部署实测两档通过；F 组 MCP（TS + streamable HTTP/stdio + 读默认写需开 + 写回 REST）e2e 实证（create_api 写回 gitea → 摄取 → 可检索）。Horizontal 下一个：G 组 CLI / H 组 Web（2026-11-13 四项技术决策定案）
+> **日期**：2026-11-15　**状态**：**P0 完成 + P1 F·G 组 + H1–H5 完成**——A–E 六组 40 测试全绿、部署实测两档通过；F 组 MCP（TS + streamable HTTP/stdio + 读默认写需开 + 写回 REST）e2e 实证；G 组 CLI（pull/push/status/diff/commit）四平台交叉编译；H 组 Web：H1–H2（详情见 H 组勾选）+ H3–H5（Markdown 渲染、编辑即提交、Monaco 双栏实时预览）2026-11-15 完成。Horizontal 下一个：H6 登录 / P2 组
 
 ---
 
@@ -82,9 +82,9 @@
 
 - [x] H1 脚手架 + 布局（**双入口**：接口主 / 文档辅，§5.3）✅ 2026-11-15：apps/web 转正（Vite 6 + React 19 + TS + Tailwind v4 + shadcn/Base UI）；三区壳 + 侧栏 Tabs 分段控件双入口；dev `/api` 代理到 backend；`tsc -b && vite build` 通过
 - [x] H2 项目列表 / 接口列表（读）✅ 2026-11-15：接真后端 `GET /api/projects|repos|apis`（ApiQueryController + SpecIndexStore，`syncStatus`/`specJson` 字段对齐）；接口列表 tag/repo 过滤 + 关键词搜索 + 命中计数，侧栏仓库树带 sync 状态；顶栏项目下拉切换暂为空操作占位（当前仅 default project）
-- [ ] H3 接口详情 + Markdown 渲染（Doc 域预览）
-- [ ] H4 编辑即提交：改 spec 文件 → commit → push（走 git-store）[apps/web]
-- [ ] H5 Monaco 双栏编辑器（YAML / JSON + schema 表单雏形）
+- [x] H3 接口详情 + Markdown 渲染（Doc 域预览）✅ 2026-11-15：接口详情三段式接真后端 `GET /apis/{id}`（specJson 前端渲染 Parameters/Responses/schema 递归，溯源区新增 spec 文件路径）；Doc 域真 Markdown（react-markdown + remark-gfm，标题索引与 table 支持，沿用内置样例待 P2 K 切后端）
+- [x] H4 编辑即提交：改 spec 文件 → commit → push（走 git-store）✅ 2026-11-15：双栏编辑器保存走「强制 diff 确认」（Monaco DiffEditor + commit message，O1 拍板）→ `PUT /repos/{id}/spec` 写回真源（platform commit → 自动摄取）；`GET /apis/{id}` 后端 join version 带出 `specPath`（H4 直达用）；e2e：本地 bare origin 注册 → 改 title → PUT → 真源 `spechub-bot` 提交 → version 投影 +1 → 详情带 specPath；修复 `GitStore.listFiles/readFile` 对工作树仓（`repos-work/`，`.git` 在子目录）的 `--git-dir` 解析（此前仅支持 bare mirror 返回空）
+- [x] H5 Monaco 双栏编辑器（YAML / JSON 编辑 + 实时渲染预览，不做 YAML↔JSON 互转）✅ 2026-11-15：左 Monaco YAML/JSON（本地打包 + `?worker`，离线可用；构建 monaco 独立 chunk 4MB 不阻塞首屏）；右 `yaml` 解析 → 操作列表 + 复用契约渲染引擎实时预览；构建/typecheck 全绿
 - [ ] H6 登录 + admin 初始化（对接 E8）
 
 **P1 验收**：人用 Web、Claude 用 MCP 读同一份 spec，双写无冲突；CI 里 `spechub check` 可跑通。

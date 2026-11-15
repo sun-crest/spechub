@@ -24,6 +24,8 @@ export interface Api {
   tag?: string | null;
   summary?: string | null;
   specJson: string;
+  /** 来源 spec 文件路径（仅 GET /apis/{id} 填充），H4「编辑此文件」直达用 */
+  specPath?: string | null;
 }
 
 export interface WriteSpecResp {
@@ -54,6 +56,10 @@ export const listApis = (q?: string, method?: string) => {
   return j<Api[]>(`/apis${s ? `?${s}` : ""}`);
 };
 export const getApi = (id: number) => j<Api>(`/apis/${id}`);
+/** 仓内全部 spec 文件相对路径 */
+export const listSpecs = (repoId: number) => j<string[]>(`/repos/${repoId}/specs`);
+/** 读取单个 spec 文件内容 */
+export const readSpec = (repoId: number, path: string) => j<string>(`/repos/${repoId}/spec?path=${encodeURIComponent(path)}`);
 export const writeSpec = (repoId: number, path: string, content: string) =>
   j<WriteSpecResp>(`/repos/${repoId}/spec`, { method: "PUT", body: JSON.stringify({ path, content }) });
 
