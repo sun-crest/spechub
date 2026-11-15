@@ -194,6 +194,40 @@ class ImportExportApiTest : TestDbIsolation() {
     }
 
     @Test
+    fun `J4 导出 markdown 与 html 门户`() {
+        val repoId = seedAndRegister()
+
+        val md = req("GET", "/api/repos/$repoId/export/markdown")
+        assertEquals(200, md.statusCode())
+        assertTrue(md.body().contains("## /pets"), "path 锚")
+        assertTrue(md.body().contains("listPets"), "接口摘要")
+        assertTrue(md.body().contains("**响应**"), "响应章节")
+
+        val html = req("GET", "/api/repos/$repoId/export/html")
+        assertEquals(200, html.statusCode())
+        assertTrue(html.body().contains("<!doctype html>"), "HTML doctype")
+        assertTrue(html.body().contains("<details class=\"api"), "接口折叠块")
+        assertTrue(html.body().contains("function filter()"), "内嵌搜索 JS（离线可用）")
+        assertTrue(!html.body().contains("<script src"), "无外部脚本依赖")
+    }
+
+    @Test
+    fun `J4 docx pdf 软依赖 - pandoc 缺失友好报错`() {
+        val repoId = seedAndRegister()
+        val pandoc = try {
+            ProcessBuilder("sh", "-c", "command -v pandoc").start().let { it.waitFor() == 0 }
+        } catch (e: Exception) {
+            false
+        }
+        val status = req("POST", "/api/repos/$repoId/document/pdf").statusCode()
+        if (pandoc) {
+            assertEquals(200, status, "装了 pandoc 时应生成 pdf")
+        } else {
+            assertTrue(status == 503, "pandoc 未装应 503（软依赖提示），实际 $status")
+        }
+    }
+
+    @Test
     fun `导出未知 format 400 且 stage 参数生效`() {
         val repoId = seedAndRegister()
         assertEquals(400, req("GET", "/api/repos/$repoId/export/nope").statusCode())

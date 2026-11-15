@@ -127,4 +127,34 @@ class ImportExportUpgradeTest {
         val weird = SpecParser.parse("""{"swagger":"2.0","info":{"title":"x","version":"1"},"host":123,"paths":{}}""")
         assertTrue(weird is ParseResult.Success, "host 非字符串不抛错：$weird")
     }
+
+    // ── J4 文档导出（Markdown 手册 / 静态 HTML 门户）────────────────────────
+
+    @Test
+    fun `J4 Markdown 导出 - 手册结构与 schema 摘要`() {
+        val doc = (SpecParser.parse(swagger20) as ParseResult.Success).doc
+        val md = io.spechub.spec.parser.export.MarkdownExporter.export(doc)
+        assertTrue(md.contains("# Pet Store 2.0"), "标题")
+        assertTrue(md.contains("## /pets"), "path 锚")
+        assertTrue(md.contains("GET"), "method 展开")
+        assertTrue(md.contains("POST"), "post 方法")
+        assertTrue(md.contains("| 名称 | 位置 | 类型 | 必需 | 说明 |"), "参数表头")
+        assertTrue(md.contains("`limit`"), "参数名")
+        assertTrue(md.contains("**请求体**"), "请求体章节（in:body → requestBody）")
+        assertTrue(md.contains("**响应**"), "响应章节")
+        assertTrue(md.contains("components/schemas/Pet"), "响应 schema \$ref 摘要")
+    }
+
+    @Test
+    fun `J4 HTML 门户导出 - 自包含单页可离线`() {
+        val doc = (SpecParser.parse(swagger20) as ParseResult.Success).doc
+        val html = io.spechub.spec.parser.export.HtmlPortalExporter.export(doc)
+        assertTrue(html.startsWith("<!doctype html>"), "根 doctype")
+        assertTrue(html.contains("<details class=\"api"), "接口折叠块")
+        assertTrue(html.contains("class=\"pill m-get\""), "方法色 pill")
+        assertTrue(html.contains("function filter()"), "内嵌搜索 JS")
+        assertTrue(html.contains("oninput=\"filter()\""), "搜索框绑定")
+        assertTrue(!html.contains("<script src"), "不引用外部脚本（离线可用）")
+        assertTrue(html.contains("</html>"), "完整闭合")
+    }
 }
