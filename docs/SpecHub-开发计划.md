@@ -80,8 +80,8 @@
 
 ### H 最小 Web UI [apps/web] → E
 
-- [ ] H1 脚手架 + 布局（**双入口**：接口主 / 文档辅，§5.3）
-- [ ] H2 项目列表 / 接口列表（读）
+- [x] H1 脚手架 + 布局（**双入口**：接口主 / 文档辅，§5.3）✅ 2026-11-15：apps/web 转正（Vite 6 + React 19 + TS + Tailwind v4 + shadcn/Base UI）；三区壳 + 侧栏 Tabs 分段控件双入口；dev `/api` 代理到 backend；`tsc -b && vite build` 通过
+- [x] H2 项目列表 / 接口列表（读）✅ 2026-11-15：接真后端 `GET /api/projects|repos|apis`（ApiQueryController + SpecIndexStore，`syncStatus`/`specJson` 字段对齐）；接口列表 tag/repo 过滤 + 关键词搜索 + 命中计数，侧栏仓库树带 sync 状态；顶栏项目下拉切换暂为空操作占位（当前仅 default project）
 - [ ] H3 接口详情 + Markdown 渲染（Doc 域预览）
 - [ ] H4 编辑即提交：改 spec 文件 → commit → push（走 git-store）[apps/web]
 - [ ] H5 Monaco 双栏编辑器（YAML / JSON + schema 表单雏形）
