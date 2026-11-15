@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, ChevronsUpDown, LogOut, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2 } from "lucide-react";
+import { Boxes, ChevronsUpDown, LogOut, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2, Users } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,10 @@ import { ApiList, type Filter } from "./demo/ApiList";
 import { ApiDetail } from "./demo/ApiDetail";
 import { EditorView, type EditingEntry } from "./demo/EditorView";
 import { LoginDialog } from "./demo/LoginDialog";
+import { MembersDialog } from "./demo/MembersDialog";
 import { DocPanel } from "./demo/DocPanel";
 import { DOCS } from "./demo/data";
-import { getAuthStatus, getAdminToken, setAdminToken, listApis, listProjects, listRepos, repoDisplay, type Api, type Project, type Repo, type WriteSpecResp, type AuthStatus } from "@/lib/api";
+import { getAuthStatus, getAdminToken, setAdminToken, getMe, listApis, listProjects, listRepos, repoDisplay, WRITE_ROLES, type Api, type Me, type Project, type Repo, type WriteSpecResp, type AuthStatus } from "@/lib/api";
 
 export default function App() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -38,17 +39,26 @@ export default function App() {
   // H6 登录：authStatus=null 表示尚未探测；authEnabled=false 后端未启用鉴权（免登录只读+可写）
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
+  // I4 RBAC：当前用户 + 默认项目角色（决定写入口可见性）
+  const [me, setMe] = useState<Me | null>(null);
+  const [membersOpen, setMembersOpen] = useState(false);
 
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
+
+  const loadMe = () => getMe().then(setMe).catch(() => setMe(null));
 
   useEffect(() => {
     let alive = true;
     getAuthStatus().then((s) => { if (alive) { setAuthStatus(s); if (s.authEnabled && !s.authenticated) setLoginOpen(true); } }).catch(() => {});
+    void loadMe();
     return () => { alive = false; };
   }, []);
 
-  // 编辑入口可见性（§5「H6 登录决定编辑入口」）：后端启用鉴权且未认证 → 只读
-  const canWrite = authStatus == null || !authStatus.authEnabled || authStatus.authenticated;
+  // I4 编辑入口可见性：未启用鉴权 → 可写；启用后需已认证且角色 ∈ editor/admin/owner
+  const meCanWrite = me == null
+    ? !(authStatus?.authEnabled && !authStatus.authenticated) // 尚未加载：若已探测启用且未认证 → 先按只读
+    : !me.authEnabled || (me.authenticated === true && (me.platformAdmin ?? false)) || (me.authenticated === true && WRITE_ROLES.includes(me.role ?? ""));
+  const canWrite = meCanWrite;
   // I6：release 是只读消费视图，编辑/发布只作用于 draft
   const canEdit = canWrite && stage === "draft";
 
@@ -201,29 +211,47 @@ export default function App() {
               >
                 <Avatar className="size-8">
                   <AvatarFallback className="bg-secondary text-xs font-semibold text-foreground">
-                    {canWrite ? "A" : "?"}
+                    {(me?.authenticated || !me?.authEnabled) ? (me?.username?.[0]?.toUpperCase() ?? "A") : "?"}
                   </AvatarFallback>
                 </Avatar>
-                <span className={`text-[11px] ${canWrite ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
-                  {authStatus ? (canWrite ? "已认证" : "只读") : "…"}
+                <span className="text-[11px]">
+                  {me?.authEnabled
+                    ? (canWrite ? <span className="text-emerald-600 dark:text-emerald-400">{me.username ?? (me.authenticated ? "已认证" : "只读")}</span>
+                      : <span className="text-muted-foreground">{me.username ?? "只读"}</span>)
+                    : <span className="text-muted-foreground">免登录</span>}
                 </span>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {!canWrite && authStatus?.authEnabled ? (
+                {!me?.authEnabled ? (
+                  <DropdownMenuItem disabled className="text-muted-foreground">后端未启用鉴权（免登录）</DropdownMenuItem>
+                ) : me?.authenticated ? (
                   <>
-                    <DropdownMenuItem disabled className="text-muted-foreground">未登录（只读）</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => setLoginOpen(true)}>登录…</DropdownMenuItem>
+                    <DropdownMenuItem disabled className="flex flex-col items-start gap-0.5">
+                      <span className="font-mono text-[13px]">{me.username}</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {me.platformAdmin ? "平台 admin（owner*）" : (me.role ? `角色：${me.role}` : "未分配项目角色（只读）")}
+                      </span>
+                    </DropdownMenuItem>
+                    {me.canManage && (
+                      <DropdownMenuItem onSelect={() => setMembersOpen(true)}>
+                        <Users className="size-3.5" /> 成员与角色…
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onSelect={() => {
+                      const enabled = authStatus?.authEnabled ?? false;
+                      setAdminToken(null);
+                      setAuthStatus({ authEnabled: enabled, authenticated: false, username: null });
+                      setMe(null);
+                      setEditing(null);
+                      void load();
+                    }}>
+                      <LogOut className="size-3.5" /> 退出登录
+                    </DropdownMenuItem>
                   </>
                 ) : (
                   <>
-                    <DropdownMenuItem disabled className="text-muted-foreground">
-                      {authStatus?.authEnabled ? "admin 令牌已认证" : "后端未启用鉴权（免登录）"}
-                    </DropdownMenuItem>
-                    {authStatus?.authEnabled && (
-                      <DropdownMenuItem onSelect={() => { setAdminToken(null); setAuthStatus({ ...authStatus, authenticated: false }); setEditing(null); void load(); }}>
-                        <LogOut className="size-3.5" /> 退出登录
-                      </DropdownMenuItem>
-                    )}
+                    <DropdownMenuItem disabled className="text-muted-foreground">未登录（只读）</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setLoginOpen(true)}>登录…</DropdownMenuItem>
                   </>
                 )}
               </DropdownMenuContent>
@@ -284,14 +312,17 @@ export default function App() {
         </div>
       )}
 
-      {/* H6 登录对话框 */}
+      {/* H6 登录对话框 → I4 RBAC（登录后刷新当前用户与写入口可见性） */}
       {authStatus?.authEnabled && (
         <LoginDialog
           open={loginOpen}
           onOpenChange={setLoginOpen}
-          onAuthed={(status) => { setAuthStatus(status); void load(); }}
+          onAuthed={(status) => { setAuthStatus(status); void loadMe(); void load(); }}
         />
       )}
+
+      {/* I4 成员与角色管理（admin+） */}
+      <MembersDialog open={membersOpen} onOpenChange={setMembersOpen} />
     </div>
   );
 }

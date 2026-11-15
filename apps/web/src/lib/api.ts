@@ -1,13 +1,13 @@
 /** SpecHub backend REST 客户端（对齐 modules/server Records.kt / ApiQueryController） */
 
-// ── H6 登录（admin token 占位）────────────────────────────────────────────
+// ── H6 登录（admin token 占位 → I4 升级为 RBAC 用户登录，向后兼容）────────────
 const TOKEN_KEY = "spechub.admin-token";
 
-/** 从 localStorage 读取 admin token（可被登录对话框写入） */
+/** 从 localStorage 读取令牌（I4：用户 token，或 admin-token 兼容） */
 export const getAdminToken = (): string | null => {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 };
-/** 保存 / 清除 admin token（登录成功 / 登出） */
+/** 保存 / 清除令牌（登录成功 / 登出） */
 export const setAdminToken = (t: string | null) => {
   try {
     if (t) localStorage.setItem(TOKEN_KEY, t);
@@ -18,7 +18,36 @@ export const setAdminToken = (t: string | null) => {
 export interface AuthStatus {
   authEnabled: boolean;
   authenticated: boolean;
+  username?: string | null;
 }
+
+export interface Me {
+  authenticated: boolean;
+  authEnabled: boolean;
+  username?: string | null;
+  displayName?: string | null;
+  platformAdmin?: boolean;
+  /** 对 default project 的角色（前端编辑入口可见性） */
+  role?: string | null;
+  canManage?: boolean;
+}
+
+export interface UserView {
+  id: number;
+  username: string;
+  displayName: string;
+  platformAdmin: boolean;
+  role?: string | null;
+  createdAt?: string | null;
+}
+
+export interface CreateUserResp {
+  user: UserView;
+  token: string;
+}
+
+/** 写权限角色集合（editor / admin / owner） */
+export const WRITE_ROLES = ["editor", "admin", "owner"];
 
 export interface Project {
   id: number;
@@ -134,7 +163,19 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ── H6 鉴权端点（/api/auth 已被 TokenAuthFilter 放行）────────────────────────
 export const getAuthStatus = () => j<AuthStatus>("/auth/status");
-export const login = (token: string) => j<AuthStatus>("/auth/login", { method: "POST", body: JSON.stringify({ token }) });
+/** I4 RBAC 登录：username + token；username 留空向后兼容 admin-token */
+export const login = (token: string, username?: string) =>
+  j<AuthStatus>("/auth/login", { method: "POST", body: JSON.stringify({ username, token }) });
+/** 当前用户 + 对默认项目角色（前端据此定编辑入口可见性） */
+export const getMe = () => j<Me>("/auth/me");
+/** 成员列表（需 admin+） */
+export const listUsers = () => j<UserView[]>("/auth/users");
+export const createUser = (u: { username: string; displayName?: string; role: string }) =>
+  j<CreateUserResp>("/auth/users", { method: "POST", body: JSON.stringify(u) });
+export const setUserRole = (id: number, role: string) =>
+  j<UserView>(`/auth/users/${id}/role`, { method: "POST", body: JSON.stringify({ role }) });
+export const resetUserToken = (id: number) => j<CreateUserResp>(`/auth/users/${id}/token`, { method: "POST" });
+export const deleteUser = (id: number) => j<unknown>(`/auth/users/${id}`, { method: "DELETE" });
 
 export const listProjects = () => j<Project[]>("/projects");
 export const listRepos = () => j<Repo[]>("/repos");

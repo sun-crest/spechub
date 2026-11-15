@@ -227,6 +227,29 @@ object IndexSchema {
         )
         """.trimIndent(),
 
+        // 平台用户（I4 RBAC：认证对象；token 只存 hash，平台管理员由 admin-token bootstrap）
+        """
+        CREATE TABLE IF NOT EXISTS app_user (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL DEFAULT '',
+            token_hash TEXT NOT NULL,
+            is_platform_admin INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )
+        """.trimIndent(),
+
+        // 项目成员（I4：user → project 的角色，owner/admin/editor/viewer）
+        """
+        CREATE TABLE IF NOT EXISTS membership (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+            project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+            role TEXT NOT NULL,
+            UNIQUE(user_id, project_id)
+        )
+        """.trimIndent(),
+
         // 查询索引
         "CREATE INDEX IF NOT EXISTS idx_repo_url ON repo(url)",
         "CREATE INDEX IF NOT EXISTS idx_version_spec_hash ON version(spec_hash)",
@@ -235,5 +258,7 @@ object IndexSchema {
         "CREATE INDEX IF NOT EXISTS idx_api_stage ON api(stage)",
         "CREATE INDEX IF NOT EXISTS idx_mock_rule_repo ON mock_rule(repo_id)",
         "CREATE INDEX IF NOT EXISTS idx_changelog_repo ON changelog(repo_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_app_user_username ON app_user(username)",
+        "CREATE INDEX IF NOT EXISTS idx_membership_user ON membership(user_id)",
     )
 }

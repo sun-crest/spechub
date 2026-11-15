@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-15　**状态**：**P0 完成 + P1 全组完成 + P2 核心闭环（I1 调试 / I2+I3 Mock / I6 双层版本）**——A–E 六组 40 测试全绿、部署实测两档通过；F 组 MCP（TS + streamable HTTP/stdio + 读默认写需开 + 写回 REST）e2e 实证；G 组 CLI（pull/push/status/diff/commit）四平台交叉编译；H 组 Web 全部完成（H1–H6：双入口读链路、Markdown 渲染、编辑即提交、Monaco 双栏、admin token 登录，2026-11-15）；I 组核心闭环完成（2026-11-15 实证：I1 在线调试真实 HTTP 回显、I6 draft→release 双投影查询、I2+I3 Mock 并入 backend + 三档规则覆盖），P2 剩余（I4/I5/I7/I8 + J/K）待办见下。
+> **日期**：2026-11-15　**状态**：**P0 完成 + P1 全组完成 + P2 I 组推进中（核心闭环 ✅ + RBAC ✅）**——A–E 六组 40 测试全绿、部署实测两档通过；F 组 MCP（TS + streamable HTTP/stdio + 读默认写需开 + 写回 REST）e2e 实证；G 组 CLI（pull/push/status/diff/commit）四平台交叉编译；H 组 Web 全部完成（H1–H6：双入口读链路、Markdown 渲染、编辑即提交、Monaco 双栏、admin token 登录，2026-11-15）；I 组截至 2026-11-15 已完成核心闭环（I1 在线调试 / I2+I3 Mock 并入 backend / I6 双层版本，e2e 全绿）+ **RBAC（I4：app_user+membership、admin-token→平台 admin、写端点按 editor+ 鉴权、成员管理面板，AuthApiTest 6 用例 + e2e 15 项✔）**；P2 剩余（I5 评论·变更页 / I7 订阅 / I8 评审流 + J/K）待办见下。
 
 ---
 
@@ -106,7 +106,7 @@
 - [x] I1 在线调试 Try it out（读 spec 发请求）[modules/server] ✅ 2026-11-15：`POST /api/apis/{id}/try`（TryController，JDK HttpClient 代理；任意 http(s) baseUrl 用户拍板，协议白名单 + 连接 5s/读 10s 超时 + 响应体 256KB 截断）；路径/query/header/body 按 spec 构造；只读能力不受「写操作皆审」。详情页「交互」Tab 起真表单（TryPanel）。
 - [x] I2 Mock 规则引擎（pattern / value / script）[modules/mock] → I3 ✅ 2026-11-15：`mock_rule` 表（repo/apiId/fieldPattern/type/value）；三档规则——value（glob 路径→字面 JSON）、pattern（正则路径→内置格式样例 email/uuid/uri/date… 与 schema.format 共用）、script（DSL：`RANDOM_INT/RANDOM_STR/UUID/NOW/SEQ`）；规则匹配 api 级优先于项目级；无规则按 schema 类型生成（$ref→components、enum→首项、allOf 并集、可空剥离、深度 8 防环）。单测 5 用例全绿。
 - [x] I3 Mock 并入 backend（**MVC + Java 25 虚拟线程**，不引 WebFlux）；`modules/mock` 为依赖 kernel 的独立模块、部署并入 backend 进程 [modules/mock + modules/server] → E4 I2 ✅ 2026-11-15：`modules/mock` 转正（只依赖 kernel，零 Spring）；`MockEngine` 收 method+实际路径（`{template}` 段展开）→ 挑响应（具体码>2XX>default）→ 生成样例；真实路由 `GET|POST|… /mock/{repoId}/**`（MockController，鉴权放行——只读投影联调服务，`X-Mock-Stage` 回显档位），**release 优先 / draft 回退**（I6：mock 与发布契约一致）；规则 CRUD `PUT /api/repos/{id}/mock/rules` + `DELETE`（204）+ 预览 `GET /api/apis/{id}/mock/preview`；`spring.threads.virtual.enabled=true` 已开。
-- [ ] I4 RBAC（owner / admin / editor / viewer）
+- [x] I4 RBAC（owner / admin / editor / viewer）✅ 2026-11-15：`app_user`（username+token_hash，SHA-256 落库）+ `membership`（user→project 角色，owner/admin/editor/viewer）双表；`spechub.admin-token` 启动 bootstrap 平台 admin（恒 owner，与 H6 Bearer 完全兼容）；`TokenAuthFilter` 由「bearer==adminToken」升级为「token→用户解析→request attribute」；`AuthService` 统一权限判定（未启用鉴权全放行，本地/最小部署不变）。角色判定挂在写端点：注册仓库需 editor+、写回 spec/promote/mock 规则需 editor+、成员管理需 admin+。REST：login（username+token，token-only 兼容）/ me / users CRUD / role / token 重置 / delete。前端：登录改「用户名+令牌」、账号菜单显示身份角色、admin 可开「成员与角色」面板、编辑入口按角色可见（release/只读同前）。AuthApiTest 新增 6 用例全绿；RBAC e2e 15 项✔（bootstrap/登录/401-403-200/write 分层/成员管理/mock 放行）。
 - [ ] I5 评论 / 变更记录（**底座已铺**：`changelog` 表 + spec 写回/promote/mock 规则留痕 + 详情溯源区变更列表；评论与独立变更页 UI 留本批后）
 - [x] I6 draft → release 双层版本 + 发布快照（consumer 默认读 release）→ E3 ✅ 2026-11-15：`api/schema` 表加 `stage` 维（UNIQUE 含 stage；旧库 migrate 检测缺列先 drop 重建，§6.4 决策 7 可重建纪律）；摄取只重建 draft 档、`promotePath` 把最新 draft 冻结为 release 快照（同 path 其它版本降 draft，ON CONFLICT DO UPDATE 幂等）；`POST /api/repos/{id}/promote` + 版本/变更记录查询；消费查询 `GET /apis?stage=`（默认 draft）+ release 全局视图；前端顶栏 **draft/release 全球开关**（UI 方案决策 1 top pin）、release 只读禁编辑/发布、详情溯源区发布按钮 + specHash + 版本徽标；同 hash 幂等续跑不破坏已发布 release。spec-index 新增单测 5 个全绿。
 - [ ] I7 订阅：消费团队声明依赖 → 结构变更通知 → I6（changelog 留痕已为其铺路）

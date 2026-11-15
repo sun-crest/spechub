@@ -21,7 +21,10 @@ import org.springframework.web.server.ResponseStatusException
  */
 @RestController
 @RequestMapping("/api")
-class ReleaseController(private val index: SpecIndexStore) {
+class ReleaseController(
+    private val index: SpecIndexStore,
+    private val auth: AuthService,
+) {
 
     data class PromoteRequest(val path: String)
 
@@ -35,7 +38,8 @@ class ReleaseController(private val index: SpecIndexStore) {
     )
 
     @PostMapping("/repos/{id}/promote")
-    fun promote(@PathVariable id: Long, @RequestBody req: PromoteRequest): PromoteResponse {
+    fun promote(@PathVariable id: Long, @RequestBody req: PromoteRequest, request: jakarta.servlet.http.HttpServletRequest): PromoteResponse {
+        auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "发布 release")
         if (req.path.isBlank()) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "path 不能为空")
         val promoted = index.promotePath(id, req.path.trim())
             ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo $id 的 ${req.path} 无版本可发布（先摄取）")

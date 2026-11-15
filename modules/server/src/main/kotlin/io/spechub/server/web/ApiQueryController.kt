@@ -22,6 +22,7 @@ class ApiQueryController(
     private val writer: SpecWriter,
     private val ingestor: Ingestor,
     private val urlTokens: UrlTokenStore,
+    private val auth: AuthService,
 ) {
 
     // ── 只读 · F 组 list_projects / get_api ───────────────────────────────
@@ -66,7 +67,8 @@ class ApiQueryController(
     }
 
     @PutMapping("/repos/{id}/spec")
-    fun writeSpec(@PathVariable id: Long, @RequestBody req: WriteSpecRequest): WriteSpecResponse {
+    fun writeSpec(@PathVariable id: Long, @RequestBody req: WriteSpecRequest, request: jakarta.servlet.http.HttpServletRequest): WriteSpecResponse {
+        auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "写回 spec")
         if (req.path.isBlank() || !(req.path.endsWith(".yaml") || req.path.endsWith(".yml") || req.path.endsWith(".json"))) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "path 须为 specs 下的 .yaml/.yml/.json 文件")
         }

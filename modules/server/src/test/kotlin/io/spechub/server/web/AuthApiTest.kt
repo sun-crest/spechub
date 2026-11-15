@@ -1,5 +1,8 @@
 package io.spechub.server.web
 
+import io.spechub.spec.gstore.GitCli
+import io.spechub.spec.gstore.GitStore
+import io.spechub.spec.gstore.Identity
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
@@ -10,14 +13,16 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * H6 —— admin token 登录占位（§7 O3）：
- * - 配置 `spechub.admin-token` 后，`/api/auth/status` 报告启用；未带 Bearer 访问受保护端点应 401。
- * - `POST /api/auth/login` 校验 token；错误令牌 401，正确令牌返回 authenticated=true。
- * - auth 端点自身放行（不要求登录）。
+ * I4 —— RBAC 鉴权与成员分层（由 H6 admin-token 占位升级）：
+ * - admin-token bootstrap 平台 admin（owner）；`POST /api/auth/login` 校验（用户名+令牌，token-only 兼容）。
+ * - 成员管理端点需 default project admin+；写资源（注册仓库）需 editor+。
+ * - 创建 / 改角色 / 重置令牌 / 删除用户 / 删除后令牌失效。
  */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -37,6 +42,41 @@ class AuthApiTest {
 
     companion object {
         private val json = JsonMapper.builder().build()
+        private const val ADMIN = "test-admin-token-123"
+        private lateinit var origin: String
+
+        @JvmStatic
+        @BeforeAll
+        fun seedOrigin() {
+            val root = Path.of("build/tmp/authtest-origin")
+            if (Files.exists(root)) root.toFile().deleteRecursively()
+            val bare = root.resolve("origin").also { Files.createDirectories(it) }
+            val cli = GitCli()
+            val git = GitStore()
+            cli.run(bare, listOf("init", "--bare", "-b", "main")).require("init bare")
+            val work = root.resolve("seedwork")
+            Files.createDirectories(work.resolve("specs/pet"))
+            Files.writeString(
+                work.resolve("specs/pet/openapi.yaml"),
+                """
+                openapi: 3.1.0
+                info: { title: Pet Store, version: "1.0.0" }
+                paths:
+                  /pets:
+                    get:
+                      operationId: listPets
+                      tags: [pets]
+                      responses:
+                        "200": { description: ok }
+                """.trimIndent(),
+            )
+            cli.run(work, listOf("init", "-b", "main")).require("init")
+            git.stage(work, listOf(".")).require("stage")
+            git.commit(work, "seed", Identity("tester", "t@spechub.test")).require("commit")
+            cli.run(work, listOf("remote", "add", "origin", bare.toAbsolutePath().toString())).require("add remote")
+            cli.run(work, listOf("push", "origin", "main")).require("push")
+            origin = bare.toAbsolutePath().toString()
+        }
     }
 
     private val client = HttpClient.newHttpClient()
@@ -87,10 +127,83 @@ class AuthApiTest {
 
     @Test
     fun `带正确 token 可访问受保护端点并报告已认证`() {
-        val projects = req("GET", "/api/projects", token = "test-admin-token-123")
+        val projects = req("GET", "/api/projects", token = ADMIN)
         assertEquals(200, projects.statusCode(), projects.body())
 
-        val status = req("GET", "/api/auth/status", token = "test-admin-token-123")
+        val status = req("GET", "/api/auth/status", token = ADMIN)
         assertTrue(json.readTree(status.body()).get("authenticated").asBoolean(), "带正确 token 应报告已认证")
+    }
+
+    // ── I4 RBAC ──────────────────────────────────────────────────────────
+
+    private var seq = 0
+
+    private fun createUser(adminToken: String, base: String, role: String): Triple<String, Long, String> {
+        val username = "${base}_${System.nanoTime()}"
+        val r = req("POST", "/api/auth/users", token = adminToken, body = """{"username":"$username","role":"$role"}""")
+        assertEquals(200, r.statusCode(), r.body())
+        val tree = json.readTree(r.body())
+        return Triple(tree.at("/token").asText(), tree.at("/user/id").asLong(), username)
+    }
+
+    @Test
+    fun `login 支持用户名+令牌 昵称 不匹配返回401`() {
+        val (vtoken, _, vname) = createUser(ADMIN, "login_user", "viewer")
+
+        val ok = req("POST", "/api/auth/login", body = """{"username":"$vname","token":"$vtoken"}""")
+        assertEquals(200, ok.statusCode(), ok.body())
+        assertEquals(vname, json.readTree(ok.body()).at("/username").asText())
+
+        // 用户名与令牌不匹配 → 401
+        val bad = req("POST", "/api/auth/login", body = """{"username":"someone_else","token":"$vtoken"}""")
+        assertEquals(401, bad.statusCode(), bad.body())
+    }
+
+    @Test
+    fun `成员管理分层 - viewer不可见 admin 可`() {
+        val (vtoken, _, _) = createUser(ADMIN, "hier_viewer", "viewer")
+
+        assertEquals(403, req("GET", "/api/auth/users", token = vtoken).statusCode(), "viewer 不可查看成员")
+        assertEquals(403, req("POST", "/api/auth/users", token = vtoken, body = """{"username":"x","role":"viewer"}""").statusCode(), "viewer 不可创建")
+        assertEquals(200, req("GET", "/api/auth/users", token = ADMIN).statusCode(), "admin 可管理成员")
+    }
+
+    @Test
+    fun `写资源分层 - 注册仓库 viewer403 editor200 未登录401`() {
+        val (vtoken, _, _) = createUser(ADMIN, "rbac_viewer", "viewer")
+        val (etoken, _, _) = createUser(ADMIN, "rbac_editor", "editor")
+
+        val url = """{"url":"file://$origin"}"""
+        assertEquals(401, req("POST", "/api/repos", body = url).statusCode(), "未登录 401")
+        assertEquals(403, req("POST", "/api/repos", token = vtoken, body = url).statusCode(), "viewer 403")
+        assertEquals(200, req("POST", "/api/repos", token = etoken, body = url).statusCode(), "editor 200")
+    }
+
+    @Test
+    fun `改角色与重置令牌与删除后令牌失效`() {
+        val (t1, uid, _) = createUser(ADMIN, "mutable1", "viewer")
+
+        // 改角色 editor
+        val role = req("POST", "/api/auth/users/$uid/role", token = ADMIN, body = """{"role":"editor"}""")
+        assertEquals(200, role.statusCode(), role.body())
+
+        // 重置令牌：旧失效、新有效
+        val reset = req("POST", "/api/auth/users/$uid/token", token = ADMIN)
+        assertEquals(200, reset.statusCode(), reset.body())
+        val t2 = json.readTree(reset.body()).at("/token").asText()
+        assertTrue(t1 != t2, "新令牌应不同")
+
+        assertEquals(401, req("GET", "/api/projects", token = t1).statusCode(), "旧令牌失效")
+        assertEquals(200, req("GET", "/api/projects", token = t2).statusCode(), "新令牌有效")
+
+        // 删除后全新令牌失效
+        assertEquals(204, req("DELETE", "/api/auth/users/$uid", token = ADMIN).statusCode(), "删除返回 204")
+        assertEquals(401, req("GET", "/api/projects", token = t2).statusCode(), "删除后令牌失效")
+    }
+
+    @Test
+    fun `未启用鉴权 - 无 admin-token 时全放行`() {
+        // AuthApiTest 配置启用了鉴权；此项验证在 WebApiTest（无 token 配置）里覆盖。
+        assertTrue(json.readTree(req("GET", "/api/auth/status").body()).get("authEnabled").asBoolean())
     }
 }

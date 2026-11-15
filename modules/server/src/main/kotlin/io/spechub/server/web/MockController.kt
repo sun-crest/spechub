@@ -29,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException
 class MockController(
     private val engine: MockEngine,
     private val index: SpecIndexStore,
+    private val auth: AuthService,
 ) {
 
     // ── 真实 mock 服务：/mock/{repoId}/{spec 路径} ───────────────────────────────
@@ -67,7 +68,8 @@ class MockController(
     }
 
     @PostMapping("/api/repos/{id}/mock/rules")
-    fun addRule(@PathVariable id: Long, @RequestBody req: RuleRequest): MockRuleRecord {
+    fun addRule(@PathVariable id: Long, @RequestBody req: RuleRequest, request: jakarta.servlet.http.HttpServletRequest): MockRuleRecord {
+        auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "配置 mock 规则")
         if (req.fieldPattern.isBlank() || !VALID_TYPES.contains(req.ruleType)) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "fieldPattern 非空；ruleType ∈ value/pattern/script")
         }
@@ -82,7 +84,9 @@ class MockController(
 
     @DeleteMapping("/api/mock/rules/{ruleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    fun deleteRule(@PathVariable ruleId: Long) {
+    fun deleteRule(@PathVariable ruleId: Long, request: jakarta.servlet.http.HttpServletRequest) {
+        val rule = index.getMockRule(ruleId) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "规则 $ruleId 不存在")
+        auth.requireRepoRole(request, rule.repoId, io.spechub.spec.index.Role.EDITOR, "删除 mock 规则")
         index.deleteMockRule(ruleId)
     }
 

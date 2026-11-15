@@ -24,6 +24,7 @@ class RepoController(
     private val ingestor: Ingestor,
     private val index: SpecIndexStore,
     private val urlTokens: UrlTokenStore,
+    private val auth: AuthService,
 ) {
 
     data class RegisterRepoRequest(
@@ -41,7 +42,8 @@ class RepoController(
     )
 
     @PostMapping("/repos")
-    fun register(@RequestBody req: RegisterRepoRequest): RegisterResponse {
+    fun register(@RequestBody req: RegisterRepoRequest, request: jakarta.servlet.http.HttpServletRequest): RegisterResponse {
+        auth.requireProjectRole(request, index.projectIdByName(DEFAULT_PROJECT), io.spechub.spec.index.Role.EDITOR, "注册仓库")
         if (req.url.isBlank()) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "url 不能为空")
         val repo = index.insertRepo(DEFAULT_PROJECT, req.url.trim(), req.branch?.ifEmpty { null } ?: "main")
         if (req.token != null && req.token.isNotBlank()) {

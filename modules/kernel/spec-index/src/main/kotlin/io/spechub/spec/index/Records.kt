@@ -86,6 +86,51 @@ object ChangelogAction {
     const val MOCK_RULE = "mock.rule"
 }
 
+/** 项目成员角色（I4 RBAC，§6.3 Project.members 落地；等级见 [Role.rank]） */
+object Role {
+    const val OWNER = "owner"
+    const val ADMIN = "admin"
+    const val EDITOR = "editor"
+    const val VIEWER = "viewer"
+
+    /** viewer 最低、owner 最高；判定「至少有 X 级别」用 rank(role) >= rank(min) */
+    fun rank(role: String?): Int = when (role) {
+        OWNER -> 3
+        ADMIN -> 2
+        EDITOR -> 1
+        VIEWER -> 0
+        else -> -1
+    }
+
+    val ALL: Set<String> = setOf(OWNER, ADMIN, EDITOR, VIEWER)
+}
+
+/** 平台用户（I4：认证对象；口令为平台发放 token，库中只存 hash） */
+data class UserRecord(
+    val id: Long? = null,
+    val username: String,
+    val displayName: String = "",
+    val tokenHash: String,
+    /** 平台级管理员（由 spechub.admin-token bootstrap）：对任意项目视为 owner */
+    val isPlatformAdmin: Boolean = false,
+    val createdAt: String? = null,
+)
+
+/** 项目成员关系：user → project 的角色（owner/admin/editor/viewer） */
+data class MembershipRecord(
+    val id: Long? = null,
+    val userId: Long,
+    val projectId: Long,
+    val role: String,
+)
+
+/** 用户列表视图（含角色归属，供成员管理 UI） */
+data class UserWithRoles(
+    val user: UserRecord,
+    /** projectId → role 映射；平台 admin 额外加 * 标记 */
+    val roles: Map<Long, String>,
+)
+
 /** 摄取状态（repo.sync_status） */
 object SyncStatus {
     const val NEW = "new"
