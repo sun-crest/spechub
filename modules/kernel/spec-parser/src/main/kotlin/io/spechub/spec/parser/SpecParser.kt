@@ -7,9 +7,9 @@ import tools.jackson.databind.JsonNode
 /*
  * C1 自研解析器（Jackson 3 / tools.jackson 直读 JSON/YAML）+ 版本探测。
  *
- * 版本探测：`openapi: 3.1.x` / `3.0.x` → 可解析；`swagger: "2.0"` → 结构化升级推迟 P2 J2，
- * 明确报错（§6.5）；缺版本 → 非 OpenAPI 文档。
- * 3.1 直通模型；3.0 经 tree 层语义升级后再入内部 3.1 模型（OpenApiUpgrader，C2）。
+ * 版本探测：`openapi: 3.1.x`→直通；`3.0.x`→ tree 层语义升级（C2）；`swagger: "2.0"`→
+ * 结构化升级（J2，Swagger20Upgrader）；缺版本 → 非 OpenAPI 文档。
+ * 3.1 直通模型；3.0/2.0 经 tree 层升级后再入内部 3.1 模型（源文件从不回写，§6.5）。
  */
 
 enum class DetectedVersion { OPENAPI_31, OPENAPI_30, SWAGGER_20, UNKNOWN, NONE }
@@ -28,13 +28,7 @@ object SpecParser {
         return when (detect(tree)) {
             DetectedVersion.OPENAPI_31 -> parseDirect31(tree)
             DetectedVersion.OPENAPI_30 -> OpenApiUpgrader.upgradeAndConvert(tree)
-            DetectedVersion.SWAGGER_20 -> ParseResult.Failure(
-                listOf(ParseIssue.error(
-                    "unsupported-version",
-                    "Swagger 2.0 的结构化升级（definitions→components.schemas 等）推迟到 P2 J2（产品方案 §6.5）；" +
-                        "请提供 OpenAPI 3.0/3.1 文档，或用工具先升级为 3.0 再入 SpecHub",
-                )),
-            )
+            DetectedVersion.SWAGGER_20 -> Swagger20Upgrader.upgradeAndConvert(tree)
             DetectedVersion.UNKNOWN -> ParseResult.Failure(
                 listOf(ParseIssue.error("unknown-version", "存在 openapi 字段但版本号无法识别（仅支持 3.0.x / 3.1.x）")),
             )

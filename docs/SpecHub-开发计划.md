@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-15　**状态**：**P0 完成 + P1 全组完成 + P2 I 组全部完成（8/8）**——A–E 六组 40 测试全绿、部署实测两档通过；F 组 MCP（TS + streamable HTTP/stdio + 读默认写需开 + 写回 REST）e2e 实证；G 组 CLI（pull/push/status/diff/commit）四平台交叉编译；H 组 Web 全部完成（H1–H6：双入口读链路、Markdown 渲染、编辑即提交、Monaco 双栏、admin token 登录，2026-11-15）；P2 I 组 2026-11-15 全完成：核心闭环（I1 在线调试 / I2+I3 Mock 并入 backend / I6 双层版本）+ RBAC（I4）+ 评论·变更记录（I5）+ 订阅与变更通知（I7）+ 评审审批流写操作皆审（I8，e2e 10 项✔真源 HEAD 对比）。P2 剩余 J 导入导出 / K AI 文档层。
+> **日期**：2026-11-15　**状态**：**P0 完成 + P1 全组完成 + P2 I 组全部完成 + J 导入导出（J1/J2/J3）完成**——A–E 六组 40 测试全绿、部署实测两档通过；F 组 MCP（TS + streamable HTTP/stdio + 读默认写需开 + 写回 REST）e2e 实证；G 组 CLI（pull/push/status/diff/commit）四平台交叉编译；H 组 Web 全部完成（H1–H6：双入口读链路、Markdown 渲染、编辑即提交、Monaco 双栏、admin token 登录，2026-11-15）；P2 I 组 2026-11-15 全完成（I1 调试/I2+I3 Mock/I4 RBAC/I5 评论变更/I6 双层版本/I7 订阅/I8 评审流）；J1/J2/J3 导入导出完成（2026-11-15：Swagger 2.0 自研升级 + Postman 导入写回真源 + OpenAPI 3.1/3.0 降级/Postman 导出，kernel 用例 4 + 集成用例 4 + e2e 8 项✔；测试基建 TEMPDIR 隔离根治 SQLITE_BUSY）。P2 剩余 J4 文档导出 / K AI 文档层。
 
 ---
 
@@ -114,9 +114,9 @@
 
 ### J 导入导出 [modules/kernel/spec-parser + modules/server]
 
-- [ ] J1 导入 Postman collection（验证归一化管道）→ C
-- [ ] J2 导入 Swagger 2.0 存量 → 自研实现 2.0→3.1 结构化升级（承接原 C2，产品方案 §6.5）
-- [ ] J3 导出 OpenAPI 3.1 / 3.0 降级 / Postman
+- [x] J1 导入 Postman collection（验证归一化管道）→ C ✅ 2026-11-15：`PostmanImporter`（kernel spec-parser，tree 构造）——item[] 递归展开（folder 嵌套）、`url.path` join（`{{var}}`/`:var` 段→`{var}` 模板，缺省回退 url.raw）、query/header→parameters、body raw/urlencoded/formdata→requestBody（formdata file→binary）、最小 200 响应、info.name→info.title；无 request → 结构化失败。黄金用例 + 集成 + e2e ✔。
+- [x] J2 导入 Swagger 2.0 存量 → 自研实现 2.0→3.1 结构化升级 ✅ 2026-11-15：`Swagger20Upgrader`（kernel，tree 层结构升级，源文件从不回写）：`swagger→openapi:3.1.0`、`host/basePath/schemes→servers`、`definitions→components.schemas` + `$ref` 重写、顶层 parameters/responses→components、`securityDefinitions→components.securitySchemes`（basic/apiKey/oauth2 flow）、operation 内 `in:body→requestBody`（consumes→media）、`in:formData 组→urlencoded object schema`、query/header/path 内联 type→schema、`collectionFormat multi→style=form`、响应 `schema→content.<produces>`；`SpecParser.parse` 对 SWAGGER_20 由「明确拒绝」改为结构化升级（附 STRUCTURAL 升级日志）。黄金用例 + 旧拒绝测试更新。
+- [x] J3 导出 OpenAPI 3.1 / 3.0 降级 / Postman ✅ 2026-11-15：`GET /api/repos/{id}/export/{openapi31|openapi30|postman}?stage=`（draft/release，消费默认读 release，§6.4 决策 5）；`ExportService.reconstructOpenApi` 从索引投影重建完整 OpenApiDoc（paths+operation 合并、components.schemas）；`OpenApi30Exporter` 3.1→3.0 有损降级（type 数组→nullable、exclusive* 数值→布尔近似、清 3.1 独有关键字）；`PostmanExporter` OpenApiDoc→collection v2.1。**导入落点**（用户拍板）：`POST /api/import/{postman|swagger2}` body{content, repoId?, path?}——验证归一化（返回 3.1 YAML 预览 + apiCount）+ 可选 SpecWriter 写回真源（git commit+push）再摄取，存量文档真正收编进 git；写回需 editor+。顺带 Ingestor 对多 spec 文件同 method+path 去重（先到保留）。测试：kernel ImportExportUpgradeTest 4 用例 + server ImportExportApiTest 4 用例；e2e 8 项✔；**测试基建**：6 个 web 测试类改用 companion 静态 `TEMPDIR`（createTempDirectory）+@DynamicPropertySource 每类全新投影目录，根除 SQLITE_BUSY 与跨运行残留。
 - [ ] J4 导出 Markdown / docx(pandoc 子进程) / PDF / 静态 HTML 门户 → `artifacts` 卷
 
 ### K AI 文档层（Doc 域） [modules/server + apps/web]

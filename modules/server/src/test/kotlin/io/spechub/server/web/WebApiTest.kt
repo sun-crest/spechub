@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestMethodOrder
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.boot.test.web.server.LocalServerPort
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
@@ -34,20 +36,28 @@ import kotlin.test.assertTrue
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = [
-        "spechub.git-source-dir=build/tmp/webtest/gitsource",
-        "spechub.sqlite-dir=build/tmp/webtest/sqlite",
-        "spechub.artifacts-dir=build/tmp/webtest/artifacts",
         "spechub.polling-interval-ms=3600000",
     ],
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
-class WebApiTest {
+class WebApiTest : TestDbIsolation() {
 
     @LocalServerPort
     var port: Int = 0
 
     companion object {
+
+        /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
+        private val TEMPDIR: java.nio.file.Path = kotlin.io.path.createTempDirectory("spechub-test-" + System.nanoTime())
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun registerTempDirs(registry: DynamicPropertyRegistry) {
+            registry.add("spechub.git-source-dir") { TEMPDIR.resolve("gitsource").toString() }
+            registry.add("spechub.sqlite-dir") { TEMPDIR.resolve("sqlite").toString() }
+            registry.add("spechub.artifacts-dir") { TEMPDIR.resolve("artifacts").toString() }
+        }
         private val json = JsonMapper.builder().build()
         private lateinit var origin: String
 

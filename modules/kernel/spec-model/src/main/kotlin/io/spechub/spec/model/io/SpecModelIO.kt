@@ -78,6 +78,13 @@ object SpecModelIO {
     /** 模型 → JsonNode 树（B3 指纹复用）；null 输入也会产出 NullNode，不会返回 null */
     fun valueToTree(doc: Any?): JsonNode = jsonMapper.valueToTree<JsonNode>(doc)
 
+    /** 任意 tree → 文本（导出/降级后序列化入口；YAML 用缩进，JSON 用 pretty/dense 同 writeDocument） */
+    fun writeTreeNode(node: JsonNode, format: SpecFormat, pretty: Boolean = true): String {
+        val mapper = if (format == SpecFormat.JSON) jsonMapper else yamlMapper
+        val writer = if (pretty) mapper.writerWithDefaultPrettyPrinter() else mapper.writer()
+        return writer.writeValueAsString(node)
+    }
+
     /** 任意 JsonNode → 目标模型（含 type 数组 / $ref 等注解语义） */
     fun <T> toModel(node: JsonNode, type: Class<T>): T = jsonMapper.convertValue(node, type)
 

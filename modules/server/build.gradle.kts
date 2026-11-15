@@ -31,7 +31,8 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
-    // 多 @SpringBootTest 共享 build/tmp 投影目录，单 worker 串行避免 SQLite 偶发锁（SQLITE_BUSY）
+    // @SpringBootTest 各测试类已用 @TempDir + @DynamicPropertySource 保证投影目录全新且互不共享
+    // （TestDbIsolation），兼得幂等与无 SQLite 跨 context 锁；仍单 worker 稳妥
     maxParallelForks = 1
 }
 

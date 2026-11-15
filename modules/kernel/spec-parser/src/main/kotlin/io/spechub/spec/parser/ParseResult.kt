@@ -24,8 +24,8 @@ data class ParseIssue(
     }
 }
 
-/** 3.0→3.1 升级变更种类（C3，对接评审流状态——需要人工复核的标记 REVIEW） */
-enum class UpgradeKind { NULLABLE_TO_TYPE, EXCLUSIVE_BOUND, TYPE_ARRAY }
+/** 升级变更种类（对接评审流状态——需要人工复核的标记 REVIEW）；2.0 结构升级用 STRUCTURAL */
+enum class UpgradeKind { NULLABLE_TO_TYPE, EXCLUSIVE_BOUND, TYPE_ARRAY, STRUCTURAL }
 
 /** 升级动作的复核标记：自动即予采纳 / 需人工复核（约 10% 场景，§6.5） */
 enum class ReviewFlag { AUTOMATIC, NEEDS_REVIEW }

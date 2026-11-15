@@ -4,12 +4,15 @@ import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
 import io.spechub.spec.index.IndexDb
+import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.boot.test.web.server.LocalServerPort
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
@@ -28,14 +31,11 @@ import kotlin.test.assertEquals
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = [
-        "spechub.git-source-dir=build/tmp/commenttest/gitsource",
-        "spechub.sqlite-dir=build/tmp/commenttest/sqlite",
-        "spechub.artifacts-dir=build/tmp/commenttest/artifacts",
         "spechub.polling-interval-ms=3600000",
     ],
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class CommentApiTest {
+class CommentApiTest : TestDbIsolation() {
 
     @LocalServerPort
     var port: Int = 0
@@ -56,6 +56,17 @@ class CommentApiTest {
     }
 
     companion object {
+
+        /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
+        private val TEMPDIR: java.nio.file.Path = kotlin.io.path.createTempDirectory("spechub-test-" + System.nanoTime())
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun registerTempDirs(registry: DynamicPropertyRegistry) {
+            registry.add("spechub.git-source-dir") { TEMPDIR.resolve("gitsource").toString() }
+            registry.add("spechub.sqlite-dir") { TEMPDIR.resolve("sqlite").toString() }
+            registry.add("spechub.artifacts-dir") { TEMPDIR.resolve("artifacts").toString() }
+        }
         private val json = JsonMapper.builder().build()
         private lateinit var origin: String
 

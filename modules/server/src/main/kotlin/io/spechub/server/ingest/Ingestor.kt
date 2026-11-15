@@ -45,8 +45,8 @@ class Ingestor(
             git.ensureMirror(effectiveUrl, repoDir)
             val branch = repo.branch.ifEmpty { props.defaultBranch }
 
-            val apis = mutableListOf<ApiRecord>()
-            val schemas = mutableListOf<SchemaRecord>()
+            val apis = LinkedHashMap<String, ApiRecord>()
+            val schemas = LinkedHashMap<String, SchemaRecord>()
             var versionCount = 0
 
             for (file in findSpecFiles(repoDir, branch)) {
@@ -63,8 +63,10 @@ class Ingestor(
                         val version = index.upsertVersion(repo.id, file, hash)
                         versionCount++
                         val fileApis = IndexMapper.extractApis(repo.id, version.id, parsed.doc)
-                        apis += fileApis
-                        schemas += IndexMapper.extractSchemas(repo.id, version.id, parsed.doc)
+                        // 多 spec 文件可能定义同 method+path（J 导入等）：先到保留（本次摄取内去重，匹配 UNIQUE 约束）
+                        fileApis.forEach { apis.putIfAbsent("${it.method} ${it.path}", it) }
+                        IndexMapper.extractSchemas(repo.id, version.id, parsed.doc)
+                            .forEach { schemas.putIfAbsent(it.name, it) }
                         if (parsed.issues.isNotEmpty()) messages += "$file：警告 ${parsed.issues.joinToString("; "){it.message}}"
                         if (prevHash != hash) {
                             for (a in fileApis) notifySubscribers(repo.id, a.method, a.path, hash)
@@ -76,8 +78,8 @@ class Ingestor(
                 }
             }
 
-            index.replaceApisForRepo(repo.id, apis)
-            index.replaceSchemasForRepo(repo.id, schemas)
+            index.replaceApisForRepo(repo.id, apis.values.toList())
+            index.replaceSchemasForRepo(repo.id, schemas.values.toList())
             val result = IngestResult(repo.id, apis.size, schemas.size, versionCount, messages)
             index.updateSyncStatus(repo.id, SyncStatus.OK)
             result

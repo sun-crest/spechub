@@ -3,10 +3,13 @@ package io.spechub.server.web
 import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
+import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.boot.test.web.server.LocalServerPort
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
@@ -27,20 +30,28 @@ import kotlin.test.assertTrue
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = [
-        "spechub.git-source-dir=build/tmp/authtest/gitsource",
-        "spechub.sqlite-dir=build/tmp/authtest/sqlite",
-        "spechub.artifacts-dir=build/tmp/authtest/artifacts",
         "spechub.polling-interval-ms=3600000",
         "spechub.admin-token=test-admin-token-123",
     ],
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class AuthApiTest {
+class AuthApiTest : TestDbIsolation() {
 
     @LocalServerPort
     var port: Int = 0
 
     companion object {
+
+        /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
+        private val TEMPDIR: java.nio.file.Path = kotlin.io.path.createTempDirectory("spechub-test-" + System.nanoTime())
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun registerTempDirs(registry: DynamicPropertyRegistry) {
+            registry.add("spechub.git-source-dir") { TEMPDIR.resolve("gitsource").toString() }
+            registry.add("spechub.sqlite-dir") { TEMPDIR.resolve("sqlite").toString() }
+            registry.add("spechub.artifacts-dir") { TEMPDIR.resolve("artifacts").toString() }
+        }
         private val json = JsonMapper.builder().build()
         private const val ADMIN = "test-admin-token-123"
         private lateinit var origin: String

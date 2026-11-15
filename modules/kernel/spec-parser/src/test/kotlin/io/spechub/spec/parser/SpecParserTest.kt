@@ -117,10 +117,13 @@ class SpecParserTest {
     // ── C4 · 失败容错与错误收集 ──────────────────────────────────────────
 
     @Test
-    fun `Swagger 2_0 明确拒绝且收集到错误`() {
-        val result = SpecParser.parse("swagger: \"2.0\"\ninfo: { title: t, version: \"1\" }\npaths: {}\n")
-        assertTrue(result is ParseResult.Failure)
-        assertEquals("unsupported-version", result.issues.single().kind)
+    fun `Swagger 2_0 现由 J2 结构化升级成功`() {
+        // J2：2.0 不再拒绝，升级为内部 3.1（结构化升级；详细用例见 ImportExportUpgradeTest）
+        val result = SpecParser.parse("swagger: \"2.0\"\ninfo: { title: t, version: \"1\" }\nhost: \"a.example.com\"\npaths: {}\n")
+        assertTrue(result is ParseResult.Success, "2.0 应升级成功：$result")
+        result as ParseResult.Success
+        assertEquals("3.1.0", result.doc.openapi)
+        assertEquals("a.example.com", result.doc.servers.firstOrNull()?.url?.removePrefix("https://").let { it?.substringBefore("/") })
     }
 
     @Test
