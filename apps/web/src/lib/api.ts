@@ -1,5 +1,25 @@
 /** SpecHub backend REST 客户端（对齐 modules/server Records.kt / ApiQueryController） */
 
+// ── H6 登录（admin token 占位）────────────────────────────────────────────
+const TOKEN_KEY = "spechub.admin-token";
+
+/** 从 localStorage 读取 admin token（可被登录对话框写入） */
+export const getAdminToken = (): string | null => {
+  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+};
+/** 保存 / 清除 admin token（登录成功 / 登出） */
+export const setAdminToken = (t: string | null) => {
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, t);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch { /* 隐私模式忽略 */ }
+};
+
+export interface AuthStatus {
+  authEnabled: boolean;
+  authenticated: boolean;
+}
+
 export interface Project {
   id: number;
   name: string;
@@ -37,14 +57,18 @@ export interface WriteSpecResp {
 }
 
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch("/api" + path, {
-    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
-    ...init,
-  });
+  const headers: Record<string, string> = init?.body ? { "Content-Type": "application/json" } : {};
+  const token = getAdminToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const r = await fetch("/api" + path, { headers, ...init });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   if (r.status === 204) return undefined as T;
   return r.json() as Promise<T>;
 }
+
+// ── H6 鉴权端点（/api/auth 已被 TokenAuthFilter 放行）────────────────────────
+export const getAuthStatus = () => j<AuthStatus>("/auth/status");
+export const login = (token: string) => j<AuthStatus>("/auth/login", { method: "POST", body: JSON.stringify({ token }) });
 
 export const listProjects = () => j<Project[]>("/projects");
 export const listRepos = () => j<Repo[]>("/repos");

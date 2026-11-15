@@ -24,7 +24,10 @@ class TokenAuthFilter(private val props: SpecHubProperties) : OncePerRequestFilt
         chain: FilterChain,
     ) {
         val expected = props.adminToken
-        if (expected == null || req.requestURI.startsWith("/actuator/")) {
+        // /actuator（compose healthcheck 无 token）与 /api/auth（登录/状态端点自身）放行
+        if (expected == null ||
+            req.requestURI.startsWith("/actuator/") ||
+            req.requestURI.startsWith("/api/auth/")) {
             chain.doFilter(req, res)
             return
         }

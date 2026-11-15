@@ -6,7 +6,7 @@ import { MethodBadge } from "./method";
 import { getApi, repoDisplay, type Api, type Repo } from "@/lib/api";
 import { OperationContract, type SpecOp } from "./contract";
 
-export function ApiDetail({ id, onBack, repos, onEdit }: { id: number; onBack: () => void; repos: Repo[]; onEdit: (api: Api) => void }) {
+export function ApiDetail({ id, onBack, repos, canWrite, onEdit }: { id: number; onBack: () => void; repos: Repo[]; canWrite: boolean; onEdit: (api: Api) => void }) {
   const [api, setApi] = useState<Api | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [tab, setTab] = useState("contract");
@@ -60,7 +60,9 @@ export function ApiDetail({ id, onBack, repos, onEdit }: { id: number; onBack: (
           <span>归属仓：<b className="font-mono text-foreground">{repo ? repoDisplay(repo.url) : `#${api.repoId}`}</b></span>
           {repo?.branch && <span>分支：<b className="font-mono text-foreground">{repo.branch}</b></span>}
           {repo && <span>同步：<b className={repo.syncStatus === "ok" ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}>{repo.syncStatus}</b></span>}
-          <Button size="sm" className="ml-auto" onClick={() => onEdit(api)}>编辑此文件（H4）</Button>
+          <Button size="sm" className="ml-auto" onClick={() => canWrite && onEdit(api)} disabled={!canWrite} title={canWrite ? undefined : "未登录（只读）"}>
+            {canWrite ? "编辑此文件" : "登录后可编辑"}
+          </Button>
         </div>
       </div>
 

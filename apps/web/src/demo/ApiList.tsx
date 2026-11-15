@@ -17,7 +17,7 @@ export interface Filter {
 const ALL = "全部";
 
 export function ApiList({
-  apis, repos, filter, onFilter, onSelect, onEdit, loading, error, onRetry,
+  apis, repos, filter, onFilter, onSelect, onEdit, canWrite, loading, error, onRetry,
 }: {
   apis: Api[];
   repos: Repo[];
@@ -25,6 +25,7 @@ export function ApiList({
   onFilter: (f: Filter) => void;
   onSelect: (id: number) => void;
   onEdit: () => void;
+  canWrite: boolean;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -54,9 +55,9 @@ export function ApiList({
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">接口</h1>
         <Badge variant="outline" className="text-muted-foreground">{rows.length} 命中</Badge>
-        <Button size="sm" className="ml-auto" onClick={onEdit}>
+        <Button size="sm" className="ml-auto" onClick={onEdit} disabled={!canWrite} title={canWrite ? undefined : "未登录（只读）"}>
           <span className="text-base leading-none">＋</span>
-          新建 / 编辑 spec
+          {canWrite ? "新建 / 编辑 spec" : "登录后可编辑"}
         </Button>
       </div>
 

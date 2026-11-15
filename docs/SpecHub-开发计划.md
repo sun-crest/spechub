@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-15　**状态**：**P0 完成 + P1 F·G 组 + H1–H5 完成**——A–E 六组 40 测试全绿、部署实测两档通过；F 组 MCP（TS + streamable HTTP/stdio + 读默认写需开 + 写回 REST）e2e 实证；G 组 CLI（pull/push/status/diff/commit）四平台交叉编译；H 组 Web：H1–H2（详情见 H 组勾选）+ H3–H5（Markdown 渲染、编辑即提交、Monaco 双栏实时预览）2026-11-15 完成。Horizontal 下一个：H6 登录 / P2 组
+> **日期**：2026-11-15　**状态**：**P0 完成 + P1 全组完成（F MCP / G CLI / H Web）**——A–E 六组 40 测试全绿、部署实测两档通过；F 组 MCP（TS + streamable HTTP/stdio + 读默认写需开 + 写回 REST）e2e 实证；G 组 CLI（pull/push/status/diff/commit）四平台交叉编译；H 组 Web 全部完成（H1–H6：双入口读链路、Markdown 渲染、编辑即提交、Monaco 双栏、admin token 登录，2026-11-15）。P2 待办见下。
 
 ---
 
@@ -85,9 +85,9 @@
 - [x] H3 接口详情 + Markdown 渲染（Doc 域预览）✅ 2026-11-15：接口详情三段式接真后端 `GET /apis/{id}`（specJson 前端渲染 Parameters/Responses/schema 递归，溯源区新增 spec 文件路径）；Doc 域真 Markdown（react-markdown + remark-gfm，标题索引与 table 支持，沿用内置样例待 P2 K 切后端）
 - [x] H4 编辑即提交：改 spec 文件 → commit → push（走 git-store）✅ 2026-11-15：双栏编辑器保存走「强制 diff 确认」（Monaco DiffEditor + commit message，O1 拍板）→ `PUT /repos/{id}/spec` 写回真源（platform commit → 自动摄取）；`GET /apis/{id}` 后端 join version 带出 `specPath`（H4 直达用）；e2e：本地 bare origin 注册 → 改 title → PUT → 真源 `spechub-bot` 提交 → version 投影 +1 → 详情带 specPath；修复 `GitStore.listFiles/readFile` 对工作树仓（`repos-work/`，`.git` 在子目录）的 `--git-dir` 解析（此前仅支持 bare mirror 返回空）
 - [x] H5 Monaco 双栏编辑器（YAML / JSON 编辑 + 实时渲染预览，不做 YAML↔JSON 互转）✅ 2026-11-15：左 Monaco YAML/JSON（本地打包 + `?worker`，离线可用；构建 monaco 独立 chunk 4MB 不阻塞首屏）；右 `yaml` 解析 → 操作列表 + 复用契约渲染引擎实时预览；构建/typecheck 全绿
-- [ ] H6 登录 + admin 初始化（对接 E8）
+- [x] H6 登录 + admin 初始化（对接 E8）✅ 2026-11-15：admin token 简单登录占位（§7 O3，RBAC 留 P2 I4）。后端 `AuthController`：`GET /api/auth/status`（报告 authEnabled + 当前请求 authenticated）+ `POST /api/auth/login`（校验 `spechub.admin-token`，无状态不落库）；`TokenAuthFilter` 放行 `/api/auth/*`（其余受保护端点仍全局限流）。前端：localStorage 持有 token → 全请求带 Bearer；启动探测 status，启用鉴权且未认证 → 自动弹登录框 + **只读模式**（编辑入口禁用/隐藏，§5 结论）；顶栏账号菜单登录/登出；未配 admin-token 免鉴权照常。`AuthApiTest`（真实 HTTP，配 admin-token profile）：status 报告、无 token 401、错误令牌 401、正确令牌 200 + authenticated、actuator 放行。e2e 实证：启用鉴权 backend → 登录 → 带 Bearer 访问
 
-**P1 验收**：人用 Web、Claude 用 MCP 读同一份 spec，双写无冲突；CI 里 `spechub check` 可跑通。
+**P1 验收**：人用 Web、Claude 用 MCP 读同一份 spec，双写无冲突；CI 里 `spechub check` 可跑通。✅ 2026-11-15：H 组全完成（人用 Web 读+编辑+登录，F 组 MCP 读+写、G 组 CLI 四端，双写共用 SpecWriter 写回真源链路上均已实证）。
 
 > **UI 设计对照**：本组与 P2 I 组的界面决策见 [SpecHub-UI方案.md](SpecHub-UI方案.md)（三区壳 + 双入口、详情三段式、Monaco 双栏语义、H 组范围清单）
 

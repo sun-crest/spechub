@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, ChevronsUpDown, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2 } from "lucide-react";
+import { Boxes, ChevronsUpDown, LogOut, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -11,9 +11,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ApiList, type Filter } from "./demo/ApiList";
 import { ApiDetail } from "./demo/ApiDetail";
 import { EditorView, type EditingEntry } from "./demo/EditorView";
+import { LoginDialog } from "./demo/LoginDialog";
 import { DocPanel } from "./demo/DocPanel";
 import { DOCS } from "./demo/data";
-import { listApis, listProjects, listRepos, repoDisplay, type Api, type Project, type Repo, type WriteSpecResp } from "@/lib/api";
+import { getAuthStatus, getAdminToken, setAdminToken, listApis, listProjects, listRepos, repoDisplay, type Api, type Project, type Repo, type WriteSpecResp, type AuthStatus } from "@/lib/api";
 
 export default function App() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -32,7 +33,20 @@ export default function App() {
   const [editing, setEditing] = useState<EditingEntry | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  // H6 登录：authStatus=null 表示尚未探测；authEnabled=false 后端未启用鉴权（免登录只读+可写）
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
+
+  useEffect(() => {
+    let alive = true;
+    getAuthStatus().then((s) => { if (alive) { setAuthStatus(s); if (s.authEnabled && !s.authenticated) setLoginOpen(true); } }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // 编辑入口可见性（§5「H6 登录决定编辑入口」）：后端启用鉴权且未认证 → 只读
+  const canWrite = authStatus == null || !authStatus.authEnabled || authStatus.authenticated;
 
   async function load() {
     setLoading(true);
@@ -163,15 +177,46 @@ export default function App() {
             <Button variant="ghost" size="icon" onClick={() => setDark((d) => !d)} aria-label="切换主题">
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </Button>
-            <Avatar className="size-8">
-              <AvatarFallback className="bg-secondary text-xs font-semibold text-foreground">A</AvatarFallback>
-            </Avatar>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="flex items-center gap-1.5 rounded-full border px-2 py-1 outline-none data-open:bg-muted"
+                aria-label="账号菜单"
+              >
+                <Avatar className="size-8">
+                  <AvatarFallback className="bg-secondary text-xs font-semibold text-foreground">
+                    {canWrite ? "A" : "?"}
+                  </AvatarFallback>
+                </Avatar>
+                <span className={`text-[11px] ${canWrite ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                  {authStatus ? (canWrite ? "已认证" : "只读") : "…"}
+                </span>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {!canWrite && authStatus?.authEnabled ? (
+                  <>
+                    <DropdownMenuItem disabled className="text-muted-foreground">未登录（只读）</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setLoginOpen(true)}>登录…</DropdownMenuItem>
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem disabled className="text-muted-foreground">
+                      {authStatus?.authEnabled ? "admin 令牌已认证" : "后端未启用鉴权（免登录）"}
+                    </DropdownMenuItem>
+                    {authStatus?.authEnabled && (
+                      <DropdownMenuItem onSelect={() => { setAdminToken(null); setAuthStatus({ ...authStatus, authenticated: false }); setEditing(null); void load(); }}>
+                        <LogOut className="size-3.5" /> 退出登录
+                      </DropdownMenuItem>
+                    )}
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
         <main className="min-h-0 flex-1">
           {domain === "api" ? (
-            editing ? (
+            editing && canWrite ? (
               <EditorView
                 entry={editing}
                 repos={repos}
@@ -184,7 +229,7 @@ export default function App() {
                 }}
               />
             ) : selected && !loading && !error ? (
-              <ApiDetail id={selected} onBack={() => setSelected(null)} repos={repos} onEdit={(a) => setEditing({ repoId: a.repoId, path: a.specPath ?? null })} />
+              <ApiDetail id={selected} onBack={() => setSelected(null)} repos={repos} canWrite={canWrite} onEdit={(a) => setEditing({ repoId: a.repoId, path: a.specPath ?? null })} />
             ) : (
               <ApiList
                 apis={apis}
@@ -193,6 +238,7 @@ export default function App() {
                 onFilter={setFilter}
                 onSelect={setSelected}
                 onEdit={() => setEditing({ repoId: repos[0]?.id, path: null })}
+                canWrite={canWrite}
                 loading={loading}
                 error={error}
                 onRetry={load}
@@ -211,6 +257,15 @@ export default function App() {
           <span>{toast}</span>
           <button className="ml-2 text-muted-foreground hover:text-foreground" onClick={() => setToast(null)} aria-label="关闭">✕</button>
         </div>
+      )}
+
+      {/* H6 登录对话框 */}
+      {authStatus?.authEnabled && (
+        <LoginDialog
+          open={loginOpen}
+          onOpenChange={setLoginOpen}
+          onAuthed={(status) => { setAuthStatus(status); void load(); }}
+        />
       )}
     </div>
   );

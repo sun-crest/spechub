@@ -9,7 +9,7 @@ H 组 Web（由 `apps/web-spike` 于 2026-11-14 转正）。Vite 6 + React 19 + 
 - **H3** 接口详情三段式 ✅ —— 契约从 `specJson` 前端解析渲染（Parameters 表 + Responses + schema 递归）；Doc 域**真 Markdown 渲染**（react-markdown + remark-gfm，标题索引从 md 提取）
 - **H4** 编辑即提交 ✅ —— 双栏编辑器保存 = 强制 diff 确认（Monaco DiffEditor + commit message）→ `PUT /api/repos/{id}/spec` 写回真源（platform commit → 自动摄取）；e2e 实证
 - **H5** Monaco 双栏编辑器 ✅ —— 左 YAML/JSON 编辑（本地打包 monaco，dev/构建均验证）｜右实时渲染预览（`yaml` 解析 → 操作列表 + 复用契约渲染引擎）
-- **H6** 登录 / admin 初始化 — 未做（backend 未配 `admin-token` 时免鉴权可开发）
+- **H6** 登录 / admin 初始化 ✅ —— admin token 简单登录占位（§7 O3，RBAC 留 P2 I4）：后端 `GET /api/auth/status` + `POST /api/auth/login`；前端 localStorage 持有 token → 全请求带 Bearer；后端启用鉴权时未登录进入**只读**（编辑入口隐藏/禁用），登录/登出在顶栏账号菜单；未配 admin-token 时免鉴权照常可用
 
 ## 运行
 
@@ -48,6 +48,8 @@ cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
 ```
 
 **build**：`cd apps/web && npm run build`（monaco 独立 chunk）。
+
+**登录（H6）**：默认后端未配 admin-token，前端免登录直接可用。要启用鉴权：backend 启动时加 `SPECHUB_ADMIN_TOKEN=<token>`（或 `--seed-admin` 生成，日志打印）→ 前端启动后未登录为**只读**，顶栏账号菜单「登录…」输入 token，成功后写操作可用、请求带 Bearer。
 
 **运行自检（冒烟命令）**：起好后可快速验证读写链路
 ```bash
