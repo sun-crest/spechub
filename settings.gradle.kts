@@ -28,9 +28,11 @@ project(":kernel").projectDir = file("modules/kernel")
 
 include(":kernel:spec-model", ":kernel:spec-parser", ":kernel:git-store", ":kernel:spec-index")
 include(":server")
+include(":mock")
 
 project(":kernel:spec-model").projectDir = file("modules/kernel/spec-model")
 project(":kernel:spec-parser").projectDir = file("modules/kernel/spec-parser")
 project(":kernel:git-store").projectDir = file("modules/kernel/git-store")
 project(":kernel:spec-index").projectDir = file("modules/kernel/spec-index")
 project(":server").projectDir = file("modules/server")
+project(":mock").projectDir = file("modules/mock")

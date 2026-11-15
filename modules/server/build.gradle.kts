@@ -12,6 +12,8 @@ dependencies {
     implementation(project(":kernel:spec-parser"))
     implementation(project(":kernel:git-store"))
     implementation(project(":kernel:spec-index"))
+    // Mock 规则引擎（§7.4：依赖 kernel 的独立模块，部署并入 backend 进程，I3）
+    implementation(project(":mock"))
 
     implementation(platform(libs.spring.boot.dependencies))
     implementation("org.springframework.boot:spring-boot-starter-web")

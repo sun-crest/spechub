@@ -64,7 +64,8 @@ class RepoController(
         @RequestParam method: String? = null,
         @RequestParam tag: String? = null,
         @RequestParam q: String? = null,
-    ) = index.listApis(id, method?.uppercase(), tag, q)
+        @RequestParam stage: String? = null,
+    ) = index.listApis(id, method?.uppercase(), tag, q, stage ?: "draft")
 
     companion object {
         const val DEFAULT_PROJECT = "default"

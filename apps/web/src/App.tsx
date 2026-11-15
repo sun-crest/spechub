@@ -20,6 +20,8 @@ export default function App() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const [domain, setDomain] = useState("api");
   const [collapsed, setCollapsed] = useState(false);
+  // I6 双层版本：draft（仓内最新）/ release（发布快照）全局视图开关（UI 方案决策 1 top pin）
+  const [stage, setStage] = useState<"draft" | "release">("draft");
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -47,12 +49,14 @@ export default function App() {
 
   // 编辑入口可见性（§5「H6 登录决定编辑入口」）：后端启用鉴权且未认证 → 只读
   const canWrite = authStatus == null || !authStatus.authEnabled || authStatus.authenticated;
+  // I6：release 是只读消费视图，编辑/发布只作用于 draft
+  const canEdit = canWrite && stage === "draft";
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [pr, re, ap] = await Promise.all([listProjects(), listRepos(), listApis()]);
+      const [pr, re, ap] = await Promise.all([listProjects(), listRepos(), listApis(undefined, undefined, stage)]);
       setProjects(pr);
       setRepos(re);
       setApis(ap);
@@ -62,7 +66,7 @@ export default function App() {
       setLoading(false);
     }
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [stage]);
 
   const tags = useMemo(() => Array.from(new Set(apis.map((a) => a.tag).filter(Boolean) as string[])), [apis]);
 
@@ -168,6 +172,19 @@ export default function App() {
               {projects.length === 0 && <DropdownMenuItem disabled>无项目</DropdownMenuItem>}
             </DropdownMenuContent>
           </DropdownMenu>
+          {/* I6 双层版本开关：draft（仓内最新，可编辑） / release（发布快照，只读消费视图） */}
+          <div className="ml-2 flex shrink-0 items-center overflow-hidden rounded-lg border text-[12px]" role="group" aria-label="版本档位">
+            {(["draft", "release"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => { setStage(s); setEditing(null); }}
+                className={`px-2.5 py-1 transition-colors ${s === stage ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                title={s === "draft" ? "仓内最新（编辑中，可发布）" : "对外发布快照（消费者默认读 release）"}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
           <div className="relative ml-2 w-72">
             <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <Input placeholder="搜索接口 / 文档…" className="bg-muted/60 pl-9 text-[13px] focus-visible:bg-background" />
@@ -216,7 +233,7 @@ export default function App() {
 
         <main className="min-h-0 flex-1">
           {domain === "api" ? (
-            editing && canWrite ? (
+            editing && canEdit ? (
               <EditorView
                 entry={editing}
                 repos={repos}
@@ -229,7 +246,15 @@ export default function App() {
                 }}
               />
             ) : selected && !loading && !error ? (
-              <ApiDetail id={selected} onBack={() => setSelected(null)} repos={repos} canWrite={canWrite} onEdit={(a) => setEditing({ repoId: a.repoId, path: a.specPath ?? null })} />
+              <ApiDetail
+                id={selected}
+                onBack={() => setSelected(null)}
+                repos={repos}
+                canWrite={canEdit}
+                stage={stage}
+                onEdit={(a) => setEditing({ repoId: a.repoId, path: a.specPath ?? null })}
+                onPromoted={(msg) => { setToast(msg); void load(); }}
+              />
             ) : (
               <ApiList
                 apis={apis}
@@ -238,7 +263,7 @@ export default function App() {
                 onFilter={setFilter}
                 onSelect={setSelected}
                 onEdit={() => setEditing({ repoId: repos[0]?.id, path: null })}
-                canWrite={canWrite}
+                canWrite={canEdit}
                 loading={loading}
                 error={error}
                 onRetry={load}

@@ -1,0 +1,74 @@
+# Mock 引擎黄金用例（I2/I3）——覆盖 $ref 解析、format 样例、enum、array、可空类型、规则覆盖
+openapi: 3.1.0
+info:
+  title: Mock Store
+  version: 1.0.0
+paths:
+  /users/{id}:
+    get:
+      operationId: getUser
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /users:
+    post:
+      operationId: createUser
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /status:
+    get:
+      operationId: getStatus
+      responses:
+        default:
+          description: anything
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  latency:
+                    type: integer
+components:
+  schemas:
+    User:
+      type: object
+      required: [id, email]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, user]
+        tags:
+          type: array
+          items:
+            type: string
+            format: date-time
+        address:
+          type: object
+          properties:
+            city:
+              type: string
+            code:
+              type: integer

@@ -33,7 +33,8 @@ class ApiQueryController(
     fun search(
         @RequestParam q: String? = null,
         @RequestParam method: String? = null,
-    ): List<ApiRecord> = index.listAllApis(q, method?.uppercase())
+        @RequestParam stage: String? = null,
+    ): List<ApiRecord> = index.listAllApis(q, method?.uppercase(), stage ?: "draft")
 
     @GetMapping("/apis/{id}")
     fun getApi(@PathVariable id: Long): ApiRecord =

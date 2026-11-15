@@ -43,4 +43,8 @@ class KernelConfig(private val props: SpecHubProperties) {
 
     @Bean
     fun ingestor(): Ingestor = Ingestor(gitStore(), specIndexStore(), props)
+
+    /** Mock 规则引擎（I3：零 Spring 内核模块，此处接线注入索引） */
+    @Bean
+    fun mockEngine(): io.spechub.spec.mock.MockEngine = io.spechub.spec.mock.MockEngine(specIndexStore())
 }

@@ -23,11 +23,32 @@ class IndexDb(private val path: Path) {
         Files.createDirectories(path.toAbsolutePath().parent)
     }
 
-    /** 应用全部 DDL（幂等，可安全多次调用） */
+    /** 应用全部 DDL（幂等，可安全多次调用）。
+     *  旧库升级：P0 库的 api/schema 表无 stage 列（I6 加列 + 改复合幂等键，SQLite 无法 ADD COLUMN 改 UNIQUE），
+     *  按 §6.4 决策 7「索引可重建」纪律先 drop 再随 DDL 重建（投影可从 git 全量重建，不构成数据事故）。
+     *  顺序注意：引用 stage 的索引必须先于 DDL 完成表重建，否则旧表缺列建索引报错。 */
     fun migrate() {
         transaction { conn ->
+            if (!hasColumn(conn, "api", "stage") || !hasColumn(conn, "schema", "stage")) {
+                conn.exec(listOf("DROP TABLE IF EXISTS api", "DROP TABLE IF EXISTS schema"))
+            }
             conn.exec(IndexSchema.DDL_STATEMENTS)
         }
+    }
+
+    private fun hasColumn(conn: java.sql.Connection, table: String, column: String): Boolean {
+        val st = conn.prepareStatement("PRAGMA table_info(${table})")
+        try {
+            val rs = st.executeQuery()
+            try {
+                while (rs.next()) if (rs.getString("name") == column) return true
+            } finally {
+                rs.close()
+            }
+        } finally {
+            st.close()
+        }
+        return false
     }
 
     /** 在一个事务内执行块，成功提交 / 异常回滚并抛 */
@@ -136,7 +157,8 @@ object IndexSchema {
         )
         """.trimIndent(),
 
-        // 归一化接口条目（method+path 唯一，同一 repo 内幂等重建）
+        // 归一化接口条目（method+path 唯一；I6 加 stage 维度后同 repo 可并存 draft/release 双投影）
+        // 幂等读档区分：replaceApisForRepo 只清 draft，release 快照副本独立保留（§6.4 决策 5）
         """
         CREATE TABLE IF NOT EXISTS api (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -148,7 +170,8 @@ object IndexSchema {
             tag TEXT,
             summary TEXT,
             spec_json TEXT NOT NULL,
-            UNIQUE(repo_id, method, path)
+            stage TEXT NOT NULL DEFAULT 'draft',
+            UNIQUE(repo_id, method, path, stage)
         )
         """.trimIndent(),
 
@@ -160,7 +183,8 @@ object IndexSchema {
             version_id INTEGER REFERENCES version(id) ON DELETE CASCADE,
             name TEXT NOT NULL,
             spec_json TEXT NOT NULL,
-            UNIQUE(repo_id, name)
+            stage TEXT NOT NULL DEFAULT 'draft',
+            UNIQUE(repo_id, name, stage)
         )
         """.trimIndent(),
 
@@ -177,10 +201,39 @@ object IndexSchema {
         )
         """.trimIndent(),
 
+        // Mock 规则（I2，§6.3 MockRule：pattern / value / script 三档）
+        """
+        CREATE TABLE IF NOT EXISTS mock_rule (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            api_id INTEGER REFERENCES api(id) ON DELETE CASCADE,
+            field_pattern TEXT NOT NULL,
+            rule_type TEXT NOT NULL,
+            rule_value TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )
+        """.trimIndent(),
+
+        // 变更记录（I5 铺底，§6.3 ChangeLog：actor/diff/reason/review）
+        """
+        CREATE TABLE IF NOT EXISTS changelog (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_id INTEGER REFERENCES repo(id) ON DELETE CASCADE,
+            api_id INTEGER REFERENCES api(id) ON DELETE CASCADE,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )
+        """.trimIndent(),
+
         // 查询索引
         "CREATE INDEX IF NOT EXISTS idx_repo_url ON repo(url)",
         "CREATE INDEX IF NOT EXISTS idx_version_spec_hash ON version(spec_hash)",
         "CREATE INDEX IF NOT EXISTS idx_api_method_path ON api(method, path)",
         "CREATE INDEX IF NOT EXISTS idx_api_tag ON api(tag)",
+        "CREATE INDEX IF NOT EXISTS idx_api_stage ON api(stage)",
+        "CREATE INDEX IF NOT EXISTS idx_mock_rule_repo ON mock_rule(repo_id)",
+        "CREATE INDEX IF NOT EXISTS idx_changelog_repo ON changelog(repo_id, created_at)",
     )
 }

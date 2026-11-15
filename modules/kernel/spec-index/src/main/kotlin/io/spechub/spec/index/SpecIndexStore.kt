@@ -92,15 +92,126 @@ class SpecIndexStore(private val db: IndexDb) {
         ) { r -> VersionRecord(r.long("id"), r.long("repo_id"), r["path"] as String, r["spec_hash"] as String, r["stage"] as String) }
     }
 
+    /** 某 spec 文件全部版本（最新在前），供版本历史 / 发布状态展示（I6） */
+    fun listVersionsOfPath(repoId: Long, path: String): List<VersionRecord> = db.transaction { conn ->
+        conn.select(
+            "SELECT * FROM version WHERE repo_id=? AND path=? ORDER BY id DESC",
+            repoId, path,
+        ) { r -> VersionRecord(r.long("id"), r.long("repo_id"), r["path"] as String, r["spec_hash"] as String, r["stage"] as String) }
+    }
+
+    /**
+     * 发布（I6）：把某 spec 文件的最新版本打 release tag，同 path 其它版本降回 draft；
+     * 并把当前 draft 投影复制一份为 release 快照（§6.4 决策 5：消费者默认读 release，draft 继续演进互不影响）。
+     * @return 升级为 release 的版本；该 path 无任何版本时返回 null。
+     */
+    fun promotePath(repoId: Long, path: String): VersionRecord? = db.transaction { conn ->
+        val latest = conn.select(
+            "SELECT * FROM version WHERE repo_id=? AND path=? ORDER BY id DESC LIMIT 1",
+            repoId, path,
+        ) { r -> VersionRecord(r.long("id"), r.long("repo_id"), r["path"] as String, r["spec_hash"] as String, r["stage"] as String) }.firstOrNull()
+            ?: return@transaction null
+
+        // 同 path 其它版本降 draft（单一 release 语义：release 永远是「某个 spec 文件的最近一次发布」）
+        conn.exec("UPDATE version SET stage=? WHERE repo_id=? AND path=? AND id!=?", Stage.DRAFT, repoId, path, latest.id)
+        conn.exec("UPDATE version SET stage=? WHERE id=?", Stage.RELEASE, latest.id)
+
+        // api / schema 投影复制 draft → release（ON CONFLICT DO UPDATE：同 key 幂等覆盖，id 不变）
+        conn.exec(
+            """
+            INSERT INTO api (repo_id, version_id, method, path, operation_id, tag, summary, spec_json, stage)
+            SELECT repo_id, version_id, method, path, operation_id, tag, summary, spec_json, '${Stage.RELEASE}'
+            FROM api WHERE repo_id=? AND version_id=? AND stage='${Stage.DRAFT}'
+            ON CONFLICT(repo_id, method, path, stage) DO UPDATE SET
+                version_id=excluded.version_id, operation_id=excluded.operation_id, tag=excluded.tag,
+                summary=excluded.summary, spec_json=excluded.spec_json
+            """.trimIndent(), repoId, latest.id,
+        )
+        conn.exec(
+            """
+            INSERT INTO schema (repo_id, version_id, name, spec_json, stage)
+            SELECT repo_id, version_id, name, spec_json, '${Stage.RELEASE}'
+            FROM schema WHERE repo_id=? AND version_id=? AND stage='${Stage.DRAFT}'
+            ON CONFLICT(repo_id, name, stage) DO UPDATE SET
+                version_id=excluded.version_id, spec_json=excluded.spec_json
+            """.trimIndent(), repoId, latest.id,
+        )
+        VersionRecord(latest.id, repoId, path, latest.specHash, Stage.RELEASE)
+    }
+
+    // ── changelog（变更记录，I5 铺底：spec 写回 / 发布 / mock 规则变更都留痕）──────────
+
+    fun addChangelog(repoId: Long?, apiId: Long?, actor: String, action: String, detail: String) = db.transaction { conn ->
+        conn.insert(
+            "INSERT INTO changelog (repo_id, api_id, actor, action, detail) VALUES (?,?,?,?,?)",
+            repoId, apiId, actor, action, detail,
+        )
+    }
+
+    fun listChangelogs(repoId: Long?, apiId: Long?, limit: Int = 50): List<ChangelogRecord> = db.transaction { conn ->
+        val sql = buildString {
+            append("SELECT * FROM changelog WHERE 1=1")
+            if (repoId != null) append(" AND repo_id=?")
+            if (apiId != null) append(" AND api_id=?")
+            append(" ORDER BY id DESC LIMIT ?")
+        }
+        val params = buildList<Any?> {
+            if (repoId != null) add(repoId)
+            if (apiId != null) add(apiId)
+            add(limit)
+        }
+        conn.select(sql, *params.toTypedArray()) { r ->
+            ChangelogRecord(
+                r.long("id"), r.longOrNull("repo_id"), r.longOrNull("api_id"),
+                r["actor"] as String, r["action"] as String, r["detail"] as String,
+                r["created_at"] as? String,
+            )
+        }
+    }
+
+    // ── mock_rule（I2 规则引擎的存储）──────────────────────────────────────────
+
+    fun upsertMockRule(rule: MockRuleRecord): MockRuleRecord = db.transaction { conn ->
+        val existing = conn.select(
+            "SELECT * FROM mock_rule WHERE repo_id=? AND api_id IS ? AND field_pattern=? AND rule_type=?",
+            rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType,
+        ) { r -> r.long("id") }.firstOrNull()
+        if (existing != null) {
+            conn.exec("UPDATE mock_rule SET rule_value=? WHERE id=?", rule.ruleValue, existing)
+            MockRuleRecord(existing, rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue)
+        } else {
+            val id = conn.insert(
+                "INSERT INTO mock_rule (repo_id, api_id, field_pattern, rule_type, rule_value) VALUES (?,?,?,?,?)",
+                rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue,
+            )
+            MockRuleRecord(id, rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue)
+        }
+    }
+
+    fun listMockRules(repoId: Long): List<MockRuleRecord> = db.transaction { conn ->
+        conn.select("SELECT * FROM mock_rule WHERE repo_id=? ORDER BY id", repoId) { r ->
+            MockRuleRecord(
+                r.long("id"), r.long("repo_id"), r.longOrNull("api_id"),
+                r["field_pattern"] as String, r["rule_type"] as String, r["rule_value"] as String,
+            )
+        }
+    }
+
+    fun deleteMockRule(id: Long) = db.transaction { conn ->
+        conn.exec("DELETE FROM mock_rule WHERE id=?", id)
+    }
+
     // ── api（归一化接口投影）─────────────────────────────────────────────
 
+    /** 只重建 draft 档（I6：release 快照副本是 promote 时刻的冻结投影，摄取代代不碰） */
     fun replaceApisForRepo(repoId: Long, apis: List<ApiRecord>) = db.transaction { conn ->
-        conn.exec("DELETE FROM api WHERE repo_id=?", repoId)
+        conn.exec("DELETE FROM api WHERE repo_id=? AND stage=?", repoId, Stage.DRAFT)
         for (a in apis) {
             conn.insert(
-                "INSERT OR REPLACE INTO api (repo_id, version_id, method, path, operation_id, tag, summary, spec_json) " +
-                    "VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT INTO api (repo_id, version_id, method, path, operation_id, tag, summary, spec_json, stage) " +
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
                 repoId, a.versionId, a.method, a.path, a.operationId, a.tag, a.summary, a.specJson,
+                a.stage.ifBlank { Stage.DRAFT },
             )
         }
     }
@@ -109,16 +220,16 @@ class SpecIndexStore(private val db: IndexDb) {
         (conn.queryObj("SELECT COUNT(*) AS c FROM api WHERE repo_id=?", repoId) as? Number)?.toLong()?.toInt() ?: 0
     }
 
-    fun listApis(repoId: Long, method: String? = null, tag: String? = null, keyword: String? = null): List<ApiRecord> =
+    fun listApis(repoId: Long, method: String? = null, tag: String? = null, keyword: String? = null, stage: String = Stage.DRAFT): List<ApiRecord> =
         db.transaction { conn ->
             val sql = buildString {
-                append("SELECT * FROM api WHERE repo_id=?")
+                append("SELECT * FROM api WHERE repo_id=? AND stage=?")
                 if (method != null) append(" AND method=?")
                 if (tag != null) append(" AND tag=?")
                 if (keyword != null) append(" AND (path LIKE ? OR operation_id LIKE ? OR summary LIKE ?)")
             }
             val params = buildList<Any?> {
-                add(repoId)
+                add(repoId); add(stage)
                 if (method != null) add(method)
                 if (tag != null) add(tag)
                 if (keyword != null) { val k = "%$keyword%"; add(k); add(k); add(k) }
@@ -129,17 +240,19 @@ class SpecIndexStore(private val db: IndexDb) {
                     r["method"] as String, r["path"] as String,
                     r["operation_id"] as? String, r["tag"] as? String, r["summary"] as? String,
                     r["spec_json"] as String,
+                    stage = r["stage"] as? String ?: Stage.DRAFT,
                 )
             }
         }
 
-    fun listAllApis(keyword: String? = null, method: String? = null): List<ApiRecord> = db.transaction { conn ->
+    fun listAllApis(keyword: String? = null, method: String? = null, stage: String = Stage.DRAFT): List<ApiRecord> = db.transaction { conn ->
         val sql = buildString {
-            append("SELECT * FROM api WHERE 1=1")
+            append("SELECT * FROM api WHERE stage=?")
             if (keyword != null) append(" AND (path LIKE ? OR operation_id LIKE ? OR summary LIKE ?)")
             if (method != null) append(" AND method=?")
         }
-        val params = buildList {
+        val params = buildList<Any?> {
+            add(stage)
             if (keyword != null) { val k = "%$keyword%"; add(k); add(k); add(k) }
             if (method != null) add(method)
         }
@@ -149,6 +262,7 @@ class SpecIndexStore(private val db: IndexDb) {
                 r["method"] as String, r["path"] as String,
                 r["operation_id"] as? String, r["tag"] as? String, r["summary"] as? String,
                 r["spec_json"] as String,
+                stage = r["stage"] as? String ?: Stage.DRAFT,
             )
         }
     }
@@ -156,11 +270,11 @@ class SpecIndexStore(private val db: IndexDb) {
     // ── schema（组件投影）───────────────────────────────────────────────
 
     fun replaceSchemasForRepo(repoId: Long, schemas: List<SchemaRecord>) = db.transaction { conn ->
-        conn.exec("DELETE FROM schema WHERE repo_id=?", repoId)
+        conn.exec("DELETE FROM schema WHERE repo_id=? AND stage=?", repoId, Stage.DRAFT)
         for (s in schemas) {
             conn.insert(
-                "INSERT OR REPLACE INTO schema (repo_id, version_id, name, spec_json) VALUES (?,?,?,?)",
-                repoId, s.versionId, s.name, s.specJson,
+                "INSERT INTO schema (repo_id, version_id, name, spec_json, stage) VALUES (?,?,?,?,?)",
+                repoId, s.versionId, s.name, s.specJson, s.stage.ifBlank { Stage.DRAFT },
             )
         }
     }
@@ -169,6 +283,13 @@ class SpecIndexStore(private val db: IndexDb) {
         conn.select("SELECT * FROM schema WHERE repo_id=? AND name=?", repoId, name) { r ->
             SchemaRecord(r.long("id"), r.long("repo_id"), r.longOrNull("version_id"), r["name"] as String, r["spec_json"] as String)
         }.firstOrNull()
+    }
+
+    /** 某 repo 指定 stage 的全部 schema 投影（mock 生成时按 release/draft 取组件解析 $ref） */
+    fun listSchemas(repoId: Long, stage: String = Stage.DRAFT): List<SchemaRecord> = db.transaction { conn ->
+        conn.select("SELECT * FROM schema WHERE repo_id=? AND stage=?", repoId, stage) { r ->
+            SchemaRecord(r.long("id"), r.long("repo_id"), r.longOrNull("version_id"), r["name"] as String, r["spec_json"] as String)
+        }
     }
 
     // ── 内部 SQL 助手 ─────────────────────────────────────────────────────

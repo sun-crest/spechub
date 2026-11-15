@@ -2,6 +2,7 @@ package io.spechub.server.web
 
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
+import io.spechub.spec.index.ChangelogAction
 import io.spechub.spec.index.RepoRecord
 import io.spechub.server.config.SpecHubProperties
 import org.springframework.stereotype.Component
@@ -22,6 +23,7 @@ class SpecWriter(
     private val git: GitStore,
     private val props: SpecHubProperties,
     private val urlTokens: UrlTokenStore,
+    private val index: io.spechub.spec.index.SpecIndexStore,
 ) {
     /** 平台提交身份（写入 commit 由这台机器统一署名，便于真源审计） */
     private val bot = Identity("spechub-bot", "specbot@spechub.test")
@@ -42,7 +44,13 @@ class SpecWriter(
         git.stage(work, listOf(path)).require("stage $path")
         val commit = git.commit(work, "chore(spechub): update $path", bot).require("commit $path")
         git.push(work, "origin", repo.branch).require("push")
-        return WriteResult(git.commitHash(work, "HEAD"), repo.branch)
+        val short = git.commitHash(work, "HEAD")
+        index.addChangelog(
+            repoId = repo.id, apiId = null, actor = bot.name,
+            action = ChangelogAction.SPEC_WRITE,
+            detail = "PUT spec $path → commit $short（${repo.branch}）",
+        )
+        return WriteResult(short, repo.branch)
     }
 
     /** 该仓全部 spec 文件相对路径（工作树视角，含 specs/ 目录内） */
