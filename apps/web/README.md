@@ -13,13 +13,48 @@ H 组 Web（由 `apps/web-spike` 于 2026-11-14 转正）。Vite 6 + React 19 + 
 
 ## 运行
 
+**方式 A · docker compose（推荐，含 gitea）**：
 ```bash
-npm install
-npm run dev      # http://localhost:5173
-npm run build
+docker compose up -d --build        # 起 gitea(:3000) + backend(:8080)
+cd apps/web && npm install && npm run dev
+# 打开 http://localhost:5173（5173 被占时 vite 自动顺延端口），/api 代理到 :8080
 ```
 
-前提：`docker compose up -d` 先起 backend（:8080）+ gitea。dev 时 Vite 把 `/api` 代理到 `http://localhost:8080`（可用 `VITE_API_BASE` 覆盖）。
+**方式 B · 本地目录档（纯本地 git 仓，无需 docker；2026-11-15 实测通过）**：
+```bash
+# 1) 构建后端 bootJar
+./gradlew :server:bootJar
+
+# 2) 起一个本地 bare origin（真源仓），内含一个 spec（可复用 kernel 黄金样例）
+rm -rf /tmp/spechub-origin && git init -q --bare -b main /tmp/spechub-origin
+mkdir -p /tmp/spechub-seed/specs/pet
+cp modules/kernel/spec-model/src/test/resources/openapi/PetStore-3.1.yaml /tmp/spechub-seed/specs/pet/openapi.yaml
+cd /tmp/spechub-seed && git init -q -b main && git add -A \
+  && git -c user.name=t -c user.email=t@x commit -qm init && git remote add origin /tmp/spechub-origin && git push -q origin main
+
+# 3) 启动 backend（本地目录档）
+SPECHUB_GIT_SOURCE_DIR=/tmp/spechub-gitsource SPECHUB_SQLITE_DIR=/tmp/spechub-sqlite \
+  SPECHUB_ARTIFACTS_DIR=/tmp/spechub-artifacts \
+  java -jar modules/server/build/libs/spechub-server.jar --server.port=18080 &
+
+# 4) 注册 repo（本地目录指向 bare 仓）
+curl -X POST http://localhost:18080/api/repos -H 'Content-Type: application/json' \
+  -d '{"url":"/tmp/spechub-origin"}'
+# → 返回 apiCount:3 schemaCount:1 versionCount:1，即摄取已跑通
+
+# 5) 起前端，代理指向本地 backend
+cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
+# 打开 http://localhost:5174 → 侧栏应见仓库 + 接口列表；点「编辑此文件」进 Monaco 双栏编辑器
+```
+
+**build**：`cd apps/web && npm run build`（monaco 独立 chunk）。
+
+**运行自检（冒烟命令）**：起好后可快速验证读写链路
+```bash
+curl localhost:18080/api/repos/1/specs          # 应列 ["specs/pet/openapi.yaml"]
+curl "localhost:18080/api/apis/1" | grep specPath  # 详情应带 specPath
+```
+⚠ 本会话为纯文本模型，验证止于 HTTP 层（模块可加载 + 数据链路通 + 写回闭环）；Monaco 交互/布局需浏览器肉眼确认。
 
 ## 对接说明
 
