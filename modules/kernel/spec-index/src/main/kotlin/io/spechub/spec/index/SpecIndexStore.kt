@@ -301,6 +301,73 @@ class SpecIndexStore(private val db: IndexDb) {
         conn.select("SELECT * FROM app_user ORDER BY is_platform_admin DESC, id") { rowToUser(it) }
     }
 
+    // ── subscription / notification（I7 订阅与变更通知）────────────────────────
+
+    /** 某 spec 文件最近一次摄取的 spec_hash（变更检测：与本次比较，不同则订阅通知） */
+    fun latestSpecHash(repoId: Long, path: String): String? = db.transaction { conn ->
+        (conn.queryObj("SELECT spec_hash FROM version WHERE repo_id=? AND path=? ORDER BY id DESC LIMIT 1", repoId, path) as? String)
+    }
+
+    fun upsertSubscription(repoId: Long, apiId: Long?, method: String, path: String, team: String, notifyUrl: String = ""): SubscriptionRecord = db.transaction { conn ->
+        val existing = conn.select(
+            "SELECT id FROM subscription WHERE repo_id=? AND method=? AND path=? AND team=?",
+            repoId, method, path, team,
+        ) { r -> r.long("id") }.firstOrNull()
+        if (existing != null) {
+            conn.exec("UPDATE subscription SET notify_url=?, api_id=? WHERE id=?", notifyUrl, apiId, existing)
+            conn.select<SubscriptionRecord>("SELECT * FROM subscription WHERE id=?", existing) { rowToSubscription(it) }.firstOrNull()
+                ?: SubscriptionRecord(existing, repoId, apiId, method, path, team, notifyUrl)
+        } else {
+            val id = conn.insert(
+                "INSERT INTO subscription (repo_id, api_id, method, path, team, notify_url) VALUES (?,?,?,?,?,?)",
+                repoId, apiId, method, path, team, notifyUrl,
+            )
+            SubscriptionRecord(id, repoId, apiId, method, path, team, notifyUrl)
+        }
+    }
+
+    fun listSubscriptions(repoId: Long? = null): List<SubscriptionRecord> = db.transaction { conn ->
+        val sql = if (repoId != null) "SELECT * FROM subscription WHERE repo_id=? ORDER BY team, path" else "SELECT * FROM subscription ORDER BY team, path"
+        conn.select(sql, *if (repoId != null) arrayOf(repoId) else emptyArray()) { rowToSubscription(it) }
+    }
+
+    fun getSubscription(id: Long): SubscriptionRecord? = db.transaction { conn ->
+        conn.select<SubscriptionRecord>("SELECT * FROM subscription WHERE id=?", id) { rowToSubscription(it) }.firstOrNull()
+    }
+
+    /** 摄取期变更检测：某接口（repo+method+path）的订阅方 */
+    fun listSubscriptionsForEndpoint(repoId: Long, method: String, path: String): List<SubscriptionRecord> = db.transaction { conn ->
+        conn.select("SELECT * FROM subscription WHERE repo_id=? AND method=? AND path=? ORDER BY team", repoId, method, path) { rowToSubscription(it) }
+    }
+
+    fun deleteSubscription(id: Long) = db.transaction { conn ->
+        conn.exec("DELETE FROM subscription WHERE id=?", id)
+    }
+
+    fun addNotification(team: String, repoId: Long, method: String, path: String, summary: String): NotificationRecord = db.transaction { conn ->
+        val id = conn.insert(
+            "INSERT INTO notification (team, repo_id, method, path, summary) VALUES (?,?,?,?,?)",
+            team, repoId, method, path, summary,
+        )
+        NotificationRecord(id, team, repoId, method, path, summary)
+    }
+
+    fun listNotifications(team: String? = null, limit: Int = 50): List<NotificationRecord> = db.transaction { conn ->
+        val sql = if (team != null) {
+            "SELECT * FROM notification WHERE team=? ORDER BY id DESC LIMIT ?"
+        } else {
+            "SELECT * FROM notification ORDER BY id DESC LIMIT ?"
+        }
+        val params: Array<Any?> = if (team != null) arrayOf(team, limit) else arrayOf(limit)
+        conn.select(sql, *params) { r ->
+            NotificationRecord(
+                r.long("id"), r["team"] as String, r.long("repo_id"),
+                r["method"] as String, r["path"] as String,
+                r["summary"] as String, r["created_at"] as? String,
+            )
+        }
+    }
+
     // ── comment（I5 轻评论）───────────────────────────────────────────────
 
     fun addComment(repoId: Long, apiId: Long?, docId: Long?, method: String, path: String, author: String, body: String): CommentRecord = db.transaction { conn ->
@@ -439,6 +506,17 @@ class SpecIndexStore(private val db: IndexDb) {
         path = r["path"] as? String ?: "",
         author = r["author"] as String,
         body = r["body"] as String,
+        createdAt = r["created_at"] as? String,
+    )
+
+    private fun rowToSubscription(r: Map<String, Any?>): SubscriptionRecord = SubscriptionRecord(
+        id = r.long("id"),
+        repoId = r.long("repo_id"),
+        apiId = r.longOrNull("api_id"),
+        method = r["method"] as String,
+        path = r["path"] as String,
+        team = r["team"] as String,
+        notifyUrl = r["notify_url"] as? String ?: "",
         createdAt = r["created_at"] as? String,
     )
 

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { MethodBadge } from "./method";
 import { TryPanel } from "./TryPanel";
 import { MockPanel } from "./MockPanel";
-import { getApi, listVersions, listChangelog, promoteSpec, listComments, addComment, deleteComment, repoDisplay, type Api, type ChangelogEntry, type Comment, type Repo, type VersionRecord } from "@/lib/api";
+import { getApi, listVersions, listChangelog, promoteSpec, listComments, addComment, deleteComment, listSubscriptions, subscribe, unsubscribe, listNotifications, repoDisplay, type Api, type ChangelogEntry, type Comment, type Repo, type Subscription, type Notification, type VersionRecord } from "@/lib/api";
 import { OperationContract, type SpecOp } from "./contract";
 
 export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername, stage, onEdit, onPromoted }: {
@@ -30,6 +31,11 @@ export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername,
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentBody, setCommentBody] = useState("");
   const [commentMsg, setCommentMsg] = useState<string | null>(null);
+  // I7 订阅
+  const [subs, setSubs] = useState<Subscription[]>([]);
+  const [team, setTeam] = useState("");
+  const [notifs, setNotifs] = useState<Notification[]>([]);
+  const [subMsg, setSubMsg] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
@@ -75,6 +81,38 @@ export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername,
     setCommentMsg(null);
     try { await deleteComment(c.id); setComments((cs) => cs.filter((x) => x.id !== c.id)); }
     catch (e) { setCommentMsg(String(e)); }
+  }
+
+  // I7 订阅：该接口的订阅方列表 + 当前用户的通知
+  const loadSubs = useCallback((repoId: number, method: string, path: string) => {
+    void listSubscriptions(repoId).then((all) =>
+      setSubs(all.filter((s) => s.method === method && s.path === path))).catch(() => setSubs([]));
+  }, []);
+  const loadNotifs = useCallback((teamName: string | null) => {
+    if (!teamName) { setNotifs([]); return; }
+    void listNotifications(teamName, 5).then(setNotifs).catch(() => setNotifs([]));
+  }, []);
+  useEffect(() => {
+    if (api) { loadSubs(api.repoId, api.method, api.path); loadNotifs(meUsername); }
+  }, [api, meUsername, loadSubs, loadNotifs]);
+
+  async function doSubscribe() {
+    if (!api) return;
+    const name = team.trim() || meUsername?.trim() || "";
+    if (!name) { setSubMsg("请填订阅团队名（或已登录自动用你的用户名）"); return; }
+    setSubMsg(null);
+    try {
+      await subscribe(api.repoId, api.method, api.path, name);
+      setTeam("");
+      await loadSubs(api.repoId, api.method, api.path);
+      setSubMsg("已订阅（结构变更时通知「$name」）");
+    } catch (e) { setSubMsg(String(e)); }
+  }
+
+  async function doUnsubscribe(id: number) {
+    setSubMsg(null);
+    try { await unsubscribe(id); if (api) await loadSubs(api.repoId, api.method, api.path); }
+    catch (e) { setSubMsg(String(e)); }
   }
 
   const op: SpecOp | null = useMemo(() => {
@@ -160,6 +198,7 @@ export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername,
           <TabsTrigger value="provenance">溯源</TabsTrigger>
           <TabsTrigger value="debug">交互</TabsTrigger>
           <TabsTrigger value="comments">评论{comments.length > 0 ? ` (${comments.length})` : ""}</TabsTrigger>
+          <TabsTrigger value="subscribe">订阅{subs.length > 0 ? ` (${subs.length})` : ""}</TabsTrigger>
         </TabsList>
 
         {/* ① 契约 */}
@@ -260,6 +299,56 @@ export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername,
               <p className="mt-3 text-[12px] text-muted-foreground">留言需要登录（账号菜单登录后可见评论区）。</p>
             )}
           </div>
+        </TabsContent>
+      {/* ⑤ 订阅（I7） */}
+        <TabsContent value="subscribe" className="mt-5 flex flex-col gap-4">
+          <div className="rounded-lg border bg-card p-5">
+            <h3 className="mb-3 text-sm font-semibold">订阅方（消费团队 · {subs.length}）</h3>
+            {subMsg && <p className="mb-2 text-[12px] text-muted-foreground">{subMsg}</p>}
+            {subs.length > 0 ? (
+              <ul className="flex flex-col gap-1.5">
+                {subs.map((s) => (
+                  <li key={s.id} className="flex items-center gap-2 rounded border bg-muted/20 px-3 py-1.5 text-[13px]">
+                    <Badge variant="outline" className="font-mono text-[10px]">{s.team}</Badge>
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">{s.notifyUrl || "（通知落平台记录）"}</span>
+                    {(meUsername != null && (s.team === meUsername || meUsername === "admin")) && (
+                      <button className="text-[11px] text-muted-foreground hover:text-destructive" onClick={() => void doUnsubscribe(s.id)}>取消</button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="py-1 text-[12.5px] text-muted-foreground">暂无团队订阅此接口</p>
+            )}
+
+            {canComment ? (
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <Input
+                  value={team}
+                  onChange={(e) => setTeam(e.target.value)}
+                  placeholder={meUsername ? `订阅团队名（默认 ${meUsername}）` : "订阅团队名"}
+                  className="w-56 text-[12.5px]"
+                />
+                <Button size="sm" variant="outline" onClick={() => void doSubscribe()}>订阅此接口</Button>
+              </div>
+            ) : (
+              <p className="mt-3 text-[12px] text-muted-foreground">订阅需要登录（账号菜单登录后可用）。</p>
+            )}
+          </div>
+
+          {notifs.length > 0 && (
+            <div className="rounded-lg border bg-card p-5">
+              <h3 className="mb-3 text-sm font-semibold">你的团队最近的变更通知</h3>
+              <div className="flex flex-col gap-1.5">
+                {notifs.map((n) => (
+                  <div key={n.id} className="rounded border bg-muted/20 px-3 py-1.5 text-[12.5px]">
+                    <span className="font-mono text-muted-foreground">{n.method} {n.path}：</span>{n.summary}
+                    <span className="ml-2 font-mono text-[11px] text-muted-foreground">{n.createdAt ?? ""}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

@@ -272,6 +272,35 @@ object IndexSchema {
         )
         """.trimIndent(),
 
+        // 订阅（I7）：消费团队声明依赖某接口 → 结构变更时通知（§6.3 Subscription）。
+        // 稳定寻址同 comment：repo + method + path（api 是可重建投影）；api_id 非 FK。
+        """
+        CREATE TABLE IF NOT EXISTS subscription (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            api_id INTEGER,
+            method TEXT NOT NULL,
+            path TEXT NOT NULL,
+            team TEXT NOT NULL,
+            notify_url TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            UNIQUE(repo_id, method, path, team)
+        )
+        """.trimIndent(),
+
+        // 变更通知（I7）：摄取检测订阅接口结构变化时落条，消费团队可查（通知历史留痕）
+        """
+        CREATE TABLE IF NOT EXISTS notification (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            team TEXT NOT NULL,
+            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            method TEXT NOT NULL,
+            path TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )
+        """.trimIndent(),
+
         // 查询索引
         "CREATE INDEX IF NOT EXISTS idx_repo_url ON repo(url)",
         "CREATE INDEX IF NOT EXISTS idx_version_spec_hash ON version(spec_hash)",
@@ -284,5 +313,7 @@ object IndexSchema {
         "CREATE INDEX IF NOT EXISTS idx_membership_user ON membership(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_comment_api ON comment(api_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_comment_repo ON comment(repo_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_subscription_endpoint ON subscription(repo_id, method, path)",
+        "CREATE INDEX IF NOT EXISTS idx_notification_team ON notification(team, created_at)",
     )
 }

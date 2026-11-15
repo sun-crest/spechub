@@ -215,4 +215,27 @@ class SpecIndexStoreTest {
         ))
         assertEquals(1, store.listCommentsForEndpoint(repo.id, "GET", "/pets").size, "投影重建不丢评论")
     }
+
+    // ── I7 订阅与通知 ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `subscription 幂等 upsert 与通知记录`() {
+        val store = newStore()
+        val repo = store.insertRepo("default", "https://example.com/o/r.git")
+
+        val s1 = store.upsertSubscription(repo.id, null, "GET", "/pets", "pay-team")
+        val s2 = store.upsertSubscription(repo.id, null, "GET", "/pets", "pay-team")
+        assertEquals(s1.id, s2.id, "同（repo,method,path,team）幂等 upsert")
+        assertEquals(1, store.listSubscriptions(repo.id).size)
+
+        store.addNotification("pay-team", repo.id, "GET", "/pets", "结构变更 a")
+        store.addNotification("pay-team", repo.id, "GET", "/pets", "结构变更 b")
+        assertEquals(2, store.listNotifications("pay-team").size)
+        assertEquals(1, store.listSubscriptionsForEndpoint(repo.id, "GET", "/pets").size)
+
+        assertEquals("GET", store.listSubscriptionsForEndpoint(repo.id, "GET", "/pets").single().method)
+        store.deleteSubscription(s1.id!!)
+        assertEquals(0, store.listSubscriptions(repo.id).size, "取消订阅后查询为空")
+        assertEquals(2, store.listNotifications("pay-team").size, "通知历史不随订阅删除而清空（供审计）")
+    }
 }

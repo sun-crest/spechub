@@ -223,6 +223,40 @@ export const addComment = (apiId: number, body: string) =>
   j<Comment>(`/apis/${apiId}/comments`, { method: "POST", body: JSON.stringify({ body }) });
 export const deleteComment = (id: number) => j<unknown>(`/comments/${id}`, { method: "DELETE" });
 
+// ── I7 订阅与变更通知 ─────────────────────────────────────────────────────
+export interface Subscription {
+  id: number;
+  repoId: number;
+  apiId?: number | null;
+  method: string;
+  path: string;
+  team: string;
+  notifyUrl?: string;
+  createdAt?: string | null;
+}
+
+export interface Notification {
+  id: number;
+  team: string;
+  repoId: number;
+  method: string;
+  path: string;
+  summary: string;
+  createdAt?: string | null;
+}
+
+export const listSubscriptions = (repoId?: number) =>
+  j<Subscription[]>(`/subscriptions${repoId ? `?repoId=${repoId}` : ""}`);
+export const subscribe = (repoId: number, method: string, path: string, team: string, notifyUrl = "") =>
+  j<Subscription>(`/subscriptions`, { method: "POST", body: JSON.stringify({ repoId, method, path, team, notifyUrl }) });
+export const unsubscribe = (id: number) => j<unknown>(`/subscriptions/${id}`, { method: "DELETE" });
+export const listNotifications = (team?: string, limit = 20) => {
+  const p = new URLSearchParams();
+  if (team) p.set("team", team);
+  p.set("limit", String(limit));
+  return j<Notification[]>(`/subscriptions/notifications?${p.toString()}`);
+};
+
 // ── I2/I3 Mock ─────────────────────────────────────────────────────────────
 export const listMockRules = (repoId: number) => j<MockRule[]>(`/repos/${repoId}/mock/rules`);
 export const addMockRule = (repoId: number, rule: Omit<MockRule, "repoId" | "id">) =>

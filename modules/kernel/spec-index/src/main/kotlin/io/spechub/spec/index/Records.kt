@@ -100,6 +100,29 @@ object ChangelogAction {
     const val MOCK_RULE = "mock.rule"
 }
 
+/** 订阅（I7 §6.3）：消费团队声明对某接口（repo+method+path 稳定寻址）的结构变更关注 */
+data class SubscriptionRecord(
+    val id: Long? = null,
+    val repoId: Long,
+    val apiId: Long? = null,
+    val method: String,
+    val path: String,
+    val team: String,
+    val notifyUrl: String = "",
+    val createdAt: String? = null,
+)
+
+/** 变更通知（I7）：摄取检测订阅接口结构变化时落条；team 为消费方标识 */
+data class NotificationRecord(
+    val id: Long? = null,
+    val team: String,
+    val repoId: Long,
+    val method: String,
+    val path: String,
+    val summary: String,
+    val createdAt: String? = null,
+)
+
 /** 项目成员角色（I4 RBAC，§6.3 Project.members 落地；等级见 [Role.rank]） */
 object Role {
     const val OWNER = "owner"

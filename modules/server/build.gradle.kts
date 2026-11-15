@@ -31,6 +31,8 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // 多 @SpringBootTest 共享 build/tmp 投影目录，单 worker 串行避免 SQLite 偶发锁（SQLITE_BUSY）
+    maxParallelForks = 1
 }
 
 tasks.bootJar {

@@ -58,11 +58,17 @@ class Ingestor(
                 when (val parsed = SpecParser.parse(content.output)) {
                     is ParseResult.Success -> {
                         val hash = SpecHash.of(parsed.doc)
+                        // I7：与上次摄入的 spec_hash 比对判定「结构变化」（幂等续跑同内容不算）
+                        val prevHash = index.latestSpecHash(repo.id, file)
                         val version = index.upsertVersion(repo.id, file, hash)
                         versionCount++
-                        apis += IndexMapper.extractApis(repo.id, version.id, parsed.doc)
+                        val fileApis = IndexMapper.extractApis(repo.id, version.id, parsed.doc)
+                        apis += fileApis
                         schemas += IndexMapper.extractSchemas(repo.id, version.id, parsed.doc)
                         if (parsed.issues.isNotEmpty()) messages += "$file：警告 ${parsed.issues.joinToString("; "){it.message}}"
+                        if (prevHash != hash) {
+                            for (a in fileApis) notifySubscribers(repo.id, a.method, a.path, hash)
+                        }
                     }
                     is ParseResult.Failure -> {
                         messages += "$file：跳过（${parsed.issues.firstOrNull()?.message ?: "未知错误"}）"
@@ -92,6 +98,13 @@ class Ingestor(
                     (f.contains("openapi") || f.contains("swagger") || f.contains("/api/"))
             }
         }.sorted()
+    }
+
+    /** I7：某接口结构变化 → 对其每个订阅方落一条通知（消费团队可查/后续挂 webhook） */
+    private fun notifySubscribers(repoId: Long, method: String, path: String, hash: String) {
+        for (s in index.listSubscriptionsForEndpoint(repoId, method, path)) {
+            index.addNotification(s.team, repoId, method, path, "结构变更：$method $path → specHash ${hash.take(10)}…")
+        }
     }
 
     /** url → 稳定可读镜像目录 `<gitSourceDir>/repos/<org>_<repo>`（§7.3） */
