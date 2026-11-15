@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-15　**状态**：**P0 完成 + P1 全组完成 + P2 I 组全部完成 + J 组全部完成（J1–J4）**——A–E 六组 40 测试全绿、部署实测两档通过；F-G-H 全组实证；P2 I 组 2026-11-15 全完成（I1–I8）；J 组 2026-11-15 全部完成：J1/J2/J3 导入导出（Swagger 2.0 自研升级、Postman 导入写回真源、OpenAPI 3.1/3.0/Postman 导出）+ J4 文档导出（Markdown 手册、自包含静态 HTML 门户、docx/pdf pandoc 软依赖）；测试基建 TEMPDIR 隔离根治 SQLITE_BUSY。P2 剩余 K AI 文档层（Doc 域）。
+> **日期**：2026-11-15　**状态**：**P0 完成 + P1 全组完成 + P2 全部完成（I+J+K）**——A–E 六组 40 测试全绿、部署实测两档通过；F-G-H 全组实证；P2 I 组 8/8、J 组 4/4（导入导出 + 文档门户）、K 组 3/3（Doc 域摄取 / FTS5 全文检索 / 双入口 + Doc↔Api 链接）全部完成（2026-11-15，P0–P2 全部勾选）；测试基建 TEMPDIR 隔离根治 SQLITE_BUSY。P3（IDE 插件 / 契约测试 / 云托管）待规划。
 
 ---
 
@@ -121,9 +121,9 @@
 
 ### K AI 文档层（Doc 域） [modules/server + apps/web]
 
-- [ ] K1 `docs/` 域 Markdown 摄取入索引（与 Api 域隔离，§5.7 / §6.2）→ E3
-- [ ] K2 全文检索 FTS5 trigram（中文子串匹配）
-- [ ] K3 双入口完善：目录树 / 渲染 / 评论 / Doc↔Api 链接
+- [x] K1 `docs/` 域 Markdown 摄取入索引（与 Api 域隔离，§5.7 / §6.2）→ E3 ✅ 2026-11-15：Ingestor 扫描 `docs/<service>/` 下 `.md/.markdown` → `replaceDocsForRepo` 入 doc 表（UNIQUE repo+path 幂等）；front-matter 解析（title/related），title 兜底首个 `#` 或文件名；`IngestResult.docCount`；摄取随 spec 同链路（注册即摄取含 Doc）。
+- [x] K2 全文检索 FTS5 trigram（中文子串匹配）✅ 2026-11-15：migrate 新增 `doc_fts` FTS5 trigram 虚拟表（环境 sqlite-jdbc 支持则建，捕获 SQLException 优雅回退）；`store.searchDocs(q, repoId)` FTS5 MATCH（带引号短语，防注入 + 子串）优先、**LIKE 兜底/合并**（中文子串天然命中，经 db.fts5Available 标志判断）；spec-index 用例 + DocApiTest 集成验证「处理器/分页」命中、无关词不命中；e2e 3 项 ✔。
+- [x] K3 双入口完善：目录树 / 渲染 / 评论 / Doc↔Api 链接 ✅ 2026-11-15：`DocController`（GET /api/docs?repoId=&q= 清单/检索、GET /{id} 详情、GET/POST /{id}/comments 复用 comment 表 doc_id 寻址）；front-matter `related` → 正文追加「关联接口」节（`[`/pets`](#/api/pets)`）；前端 DocPanel 接真后端（目录树=docs 路径、检索框防抖、react-markdown 渲染 + TOC、评论、关联接口链接拦截跳接口详情）；侧栏 Doc 域改由后端 docs 驱动（searchDocs/ listDocs）。测试：SpecIndexStoreTest Doc 检索 + DocApiTest 2 用例（摄取/检索、详情/关联节/评论）；e2e 9 项✔。**P2 全部完成**。
 
 **P2 验收**：团队从 Web / AI / CLI 三端日常使用不退出；mock 与 spec 一致；订阅可感知结构变更。
 

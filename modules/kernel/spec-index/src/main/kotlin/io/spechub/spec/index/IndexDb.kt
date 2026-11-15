@@ -37,8 +37,21 @@ class IndexDb(private val path: Path) {
                 conn.exec(listOf("DROP TABLE IF EXISTS comment", "DROP TABLE IF EXISTS changelog"))
             }
             conn.exec(IndexSchema.DDL_STATEMENTS)
+
+            // 全文检索 FTS5（K2）：环境（sqlite-jdbc FTS5 编译开关）支持则建 doc_fts trigram 虚拟表
+            try {
+                conn.exec(listOf(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(title, body, tokenize='trigram')",
+                ))
+                fts5Available = true
+            } catch (e: java.sql.SQLException) {
+                fts5Available = false // 不支持 FTS5 → 检索回退 LIKE（中文子串仍可达）
+            }
         }
     }
+
+    var fts5Available: Boolean = false
+        private set
 
     private fun hasColumn(conn: java.sql.Connection, table: String, column: String): Boolean {
         val st = conn.prepareStatement("PRAGMA table_info(${table})")

@@ -263,4 +263,27 @@ class SpecIndexStoreTest {
         assertEquals("缺 required 字段", store.getReview(r2.id)!!.rejectReason, "打回理由")
         assertEquals(0, store.listReviews(repoId = repo.id, status = ReviewStatus.PENDING).size, "两条均处理后无待审")
     }
+
+    // ── K Doc 域：摄取投影 + 全文检索（K2 中文子串）────────────────────────
+
+    @Test
+    fun `doc 摄取与全文检索 中文子串命中`() {
+        val store = newStore()
+        val repo = store.insertRepo("default", "https://example.com/o/r.git")
+        store.replaceDocsForRepo(repo.id, listOf(
+            DocRecord(repoId = repo.id, path = "docs/petstore/handover.md", title = "接手分析", markdown = "# 接手分析\n\n服务器处理器负责订单处理与库存扣减。"),
+            DocRecord(repoId = repo.id, path = "docs/petstore/requirements.md", title = "需求说明", markdown = "# 需求\n\n支持宠物目录检索。"),
+        ))
+
+        assertEquals(2, store.listDocs(repo.id).size)
+        val doc = store.listDocs().first()
+        assertEquals("接手分析", doc.title)
+        assertEquals("docs/petstore/handover.md", doc.path)
+        assertNotNull(store.getDoc(doc.id!!))
+
+        // 中文子串检索（LIKE 兜底保证；FTS5 环境支持时亦可命中）
+        assertTrue(store.searchDocs("处理器").isNotEmpty(), "中文子串应命中")
+        assertTrue(store.searchDocs("扣减").isNotEmpty(), "正文子串命中")
+        assertTrue(store.searchDocs("完全无关的词").isEmpty(), "无关词不命中")
+    }
 }

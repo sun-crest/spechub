@@ -403,6 +403,67 @@ class SpecIndexStore(private val db: IndexDb) {
         )
     }
 
+    // ── Doc 域（K AI 文档层，两域隔离管理，§5.7）─────────────────────────────
+
+    /** 摄取期全量替换某 repo 的文档投影（幂等；doc 表 UNIQUE(repo_id,path)） */
+    fun replaceDocsForRepo(repoId: Long, docs: List<DocRecord>) = db.transaction { conn ->
+        val oldIds = conn.select("SELECT id FROM doc WHERE repo_id=?", repoId) { r -> r.long("id") }
+        conn.exec("DELETE FROM doc WHERE repo_id=?", repoId)
+        if (db.fts5Available) {
+            for (id in oldIds) conn.exec("DELETE FROM doc_fts WHERE rowid=?", id)
+        }
+        for (d in docs) {
+            val id = conn.insert(
+                "INSERT INTO doc (repo_id, version_id, path, title, markdown) VALUES (?,?,?,?,?)",
+                repoId, d.versionId, d.path, d.title, d.markdown,
+            )
+            if (db.fts5Available) {
+                try {
+                    conn.exec("INSERT INTO doc_fts (rowid, title, body) VALUES (?,?,?)", id, d.title, d.markdown)
+                } catch (e: Exception) {
+                    // FTS 写入失败不影响主数据
+                }
+            }
+        }
+    }
+
+    fun listDocs(repoId: Long? = null): List<DocRecord> = db.transaction { conn ->
+        val sql = if (repoId != null) "SELECT * FROM doc WHERE repo_id=? ORDER BY path" else "SELECT * FROM doc ORDER BY path"
+        conn.select(sql, *if (repoId != null) arrayOf(repoId) else emptyArray()) { rowToDoc(it) }
+    }
+
+    fun getDoc(id: Long): DocRecord? = db.transaction { conn ->
+        conn.select<DocRecord>("SELECT * FROM doc WHERE id=?", id) { rowToDoc(it) }.firstOrNull()
+    }
+
+    /** 全文检索（K2）：FTS5 trigram 优先（中文子串），环境不支持回退 LIKE */
+    fun searchDocs(keyword: String, repoId: Long? = null): List<DocRecord> = db.transaction { conn ->
+        val kw = keyword.trim()
+        if (kw.isEmpty()) return@transaction emptyList()
+        val ftsHits = if (db.fts5Available) {
+            try {
+                // FTS5 MATCH：构造带引号的短语查询（防注入 + 按子串）
+                val q = "\"" + kw.replace("\"", "\"\"") + "\""
+                val sql = buildString {
+                    append("SELECT d.* FROM doc d JOIN doc_fts f ON f.rowid = d.id WHERE doc_fts MATCH ?")
+                    if (repoId != null) append(" AND d.repo_id=?")
+                }
+                val params: Array<Any?> = if (repoId != null) arrayOf(q, repoId) else arrayOf(q)
+                conn.select<DocRecord>(sql, *params) { rowToDoc(it) }
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else emptyList()
+
+        // LIKE 兜底/合并（中文子串匹配；FTS5 未命中或不支持时覆盖）
+        val likeParams: Array<Any?> = if (repoId != null) arrayOf("%$kw%", "%$kw%", repoId) else arrayOf("%$kw%", "%$kw%")
+        val likeHits = conn.select<DocRecord>(
+            "SELECT * FROM doc WHERE (title LIKE ? OR markdown LIKE ?)" + (if (repoId != null) " AND repo_id=?" else ""),
+            *likeParams,
+        ) { rowToDoc(it) }
+        (ftsHits + likeHits).distinctBy { it.id }.toList()
+    }
+
     // ── comment（I5 轻评论）───────────────────────────────────────────────
 
     fun addComment(repoId: Long, apiId: Long?, docId: Long?, method: String, path: String, author: String, body: String): CommentRecord = db.transaction { conn ->
@@ -420,6 +481,11 @@ class SpecIndexStore(private val db: IndexDb) {
 
     fun listCommentsForRepo(repoId: Long, limit: Int = 100): List<CommentRecord> = db.transaction { conn ->
         conn.select("SELECT * FROM comment WHERE repo_id=? ORDER BY id DESC LIMIT ?", repoId, limit) { rowToComment(it) }
+    }
+
+    /** I5/K：Doc 域评论（comment.doc_id 稳定寻址，不随 api 投影重建影响） */
+    fun listCommentsForDoc(docId: Long): List<CommentRecord> = db.transaction { conn ->
+        conn.select("SELECT * FROM comment WHERE doc_id=? ORDER BY id", docId) { rowToComment(it) }
     }
 
     fun getComment(id: Long): CommentRecord? = db.transaction { conn ->
@@ -541,6 +607,16 @@ class SpecIndexStore(private val db: IndexDb) {
         path = r["path"] as? String ?: "",
         author = r["author"] as String,
         body = r["body"] as String,
+        createdAt = r["created_at"] as? String,
+    )
+
+    private fun rowToDoc(r: Map<String, Any?>): DocRecord = DocRecord(
+        id = r.long("id"),
+        repoId = r.long("repo_id"),
+        versionId = r.longOrNull("version_id"),
+        path = r["path"] as String,
+        title = r["title"] as String,
+        markdown = r["markdown"] as String,
         createdAt = r["created_at"] as? String,
     )
 

@@ -16,8 +16,7 @@ import { MembersDialog } from "./demo/MembersDialog";
 import { ChangeLogDialog } from "./demo/ChangeLogDialog";
 import { ReviewDialog } from "./demo/ReviewDialog";
 import { DocPanel } from "./demo/DocPanel";
-import { DOCS } from "./demo/data";
-import { getAuthStatus, getAdminToken, setAdminToken, getMe, listApis, listProjects, listRepos, listReviews, repoDisplay, WRITE_ROLES, type Api, type Me, type Project, type Repo, type WriteSpecResp, type AuthStatus } from "@/lib/api";
+import { getAuthStatus, getAdminToken, setAdminToken, getMe, listApis, listProjects, listRepos, listDocs, searchDocs, listReviews, repoDisplay, WRITE_ROLES, type Api, type Doc, type Me, type Project, type Repo, type WriteSpecResp, type AuthStatus } from "@/lib/api";
 
 export default function App() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -29,12 +28,15 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [apis, setApis] = useState<Api[]>([]);
+  // K Doc 域
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
+  const [docQ, setDocQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [filter, setFilter] = useState<Filter>({});
   const [selected, setSelected] = useState<number | null>(null);
-  const [selectedDoc, setSelectedDoc] = useState("overview");
   const [editing, setEditing] = useState<EditingEntry | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -83,10 +85,11 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const [pr, re, ap] = await Promise.all([listProjects(), listRepos(), listApis(undefined, undefined, stage)]);
+      const [pr, re, ap, dc] = await Promise.all([listProjects(), listRepos(), listApis(undefined, undefined, stage), listDocs()]);
       setProjects(pr);
       setRepos(re);
       setApis(ap);
+      setDocs(dc);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -94,6 +97,23 @@ export default function App() {
     }
   }
   useEffect(() => { void load(); }, [stage]);
+
+  // K：Doc 全文检索（防抖）
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (docQ.trim()) void searchDocs(docQ.trim()).then(setDocs).catch(() => setDocs([]));
+      else void listDocs().then(setDocs).catch(() => setDocs([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [docQ]);
+
+  // K：Doc↔Api 链接 —— 从 AI 文档跳转到关联接口详情
+  function gotoApi(path: string) {
+    const api = apis.find((a) => a.path === "/" + path.replace(/^\/+/, ""));
+    setDomain("api");
+    setSelected(api?.id ?? null);
+    if (!api) setToast(`未找到关联接口：/${path}`);
+  }
 
   const tags = useMemo(() => Array.from(new Set(apis.map((a) => a.tag).filter(Boolean) as string[])), [apis]);
 
@@ -161,19 +181,26 @@ export default function App() {
         ) : (
           <ScrollArea className="min-h-0 flex-1 px-2">
             <div className="flex flex-col gap-0.5">
-              <div className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">docs/</div>
-              {DOCS.map((d) => (
+              <div className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">docs/（AI 文档）</div>
+              <Input
+                value={docQ}
+                onChange={(e) => setDocQ(e.target.value)}
+                placeholder="全文搜索…"
+                className="mb-1 h-8 bg-muted/50 text-[12px]"
+              />
+              {docs.map((d) => (
                 <button
                   key={d.id}
-                  onClick={() => setSelectedDoc(d.id)}
+                  onClick={() => setSelectedDocId(d.id)}
                   className={`flex flex-col gap-0.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
-                    d.id === selectedDoc ? "bg-primary/8 text-primary" : "text-foreground/80 hover:bg-sidebar-accent"
+                    d.id === selectedDocId ? "bg-primary/8 text-primary" : "text-foreground/80 hover:bg-sidebar-accent"
                   }`}
                 >
-                  <span className="font-mono text-[12.5px]">{d.name}</span>
-                  <span className={`text-[11.5px] ${d.id === selectedDoc ? "text-primary/70" : "text-muted-foreground"}`}>{d.title}</span>
+                  <span className="font-mono text-[12.5px]">{d.path.replace(/^docs\//, "")}</span>
+                  <span className={`text-[11.5px] ${d.id === selectedDocId ? "text-primary/70" : "text-muted-foreground"}`}>{d.title}</span>
                 </button>
               ))}
+              {docs.length === 0 && <p className="px-2.5 py-2 text-[11.5px] text-muted-foreground">暂无文档（摄取 specs/ 同仓的 docs/ 下 Markdown）</p>}
             </div>
           </ScrollArea>
         )}
@@ -340,7 +367,19 @@ export default function App() {
               />
             )
           ) : (
-            <DocPanel docId={selectedDoc} />
+            selectedDocId ? (
+              <DocPanel
+                docId={selectedDocId}
+                canComment={canComment}
+                meUsername={meUsername}
+                onBack={() => setSelectedDocId(null)}
+                onNavigateApi={gotoApi}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center p-8 text-[13px] text-muted-foreground">
+                从左侧选择一份 AI 文档（docs/ 域，与接口分开管理）
+              </div>
+            )
           )}
         </main>
       </div>

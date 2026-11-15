@@ -37,3 +37,6 @@ Thumbs.db
 # --- TS build cache ---
 *.tsbuildinfo
 **/tsconfig.tsbuildinfo
+
+# --- 本地运行时数据（KernelConfig 默认目录）---
+.spechub/

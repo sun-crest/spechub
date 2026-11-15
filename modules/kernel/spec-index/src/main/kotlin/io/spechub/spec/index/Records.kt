@@ -147,6 +147,19 @@ object ReviewStatus {
     val ALL = setOf(PENDING, APPROVED, REJECTED)
 }
 
+/** Doc 域（K AI 文档层，§5.7 独立管理域）：AI 分析的 Markdown，与 Api 域分开管理 */
+data class DocRecord(
+    val id: Long? = null,
+    val repoId: Long,
+    val versionId: Long? = null,
+    val path: String,
+    val title: String,
+    val markdown: String,
+    /** front-matter 关联接口列表（K3 Doc↔Api 链接） */
+    val relatedApis: List<String> = emptyList(),
+    val createdAt: String? = null,
+)
+
 /** 项目成员角色（I4 RBAC，§6.3 Project.members 落地；等级见 [Role.rank]） */
 object Role {
     const val OWNER = "owner"

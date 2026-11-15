@@ -183,6 +183,39 @@ export const deleteUser = (id: number) => j<unknown>(`/auth/users/${id}`, { meth
 
 export const listProjects = () => j<Project[]>("/projects");
 export const listRepos = () => j<Repo[]>("/repos");
+
+// ── K AI 文档层（Doc 域，两域隔离 §5.7）──────────────────────────────────
+export interface Doc {
+  id: number;
+  repoId: number;
+  versionId?: number | null;
+  path: string;
+  title: string;
+  markdown: string;
+  createdAt?: string | null;
+}
+
+export interface DocComment {
+  id: number;
+  docId: number | null;
+  author: string;
+  body: string;
+  createdAt?: string | null;
+}
+
+export const listDocs = (repoId?: number) =>
+  j<Doc[]>(`/docs${repoId ? `?repoId=${repoId}` : ""}`);
+export const searchDocs = (q: string, repoId?: number) => {
+  const p = new URLSearchParams();
+  if (q) p.set("q", q);
+  if (repoId) p.set("repoId", String(repoId));
+  const s = p.toString();
+  return j<Doc[]>(`/docs${s ? `?${s}` : ""}`);
+};
+export const getDoc = (id: number) => j<Doc>(`/docs/${id}`);
+export const listDocComments = (id: number) => j<DocComment[]>(`/docs/${id}/comments`);
+export const addDocComment = (id: number, body: string) =>
+  j<DocComment>(`/docs/${id}/comments`, { method: "POST", body: JSON.stringify({ body }) });
 export const listApis = (q?: string, method?: string, stage = "draft") => {
   const p = new URLSearchParams();
   if (q) p.set("q", q);

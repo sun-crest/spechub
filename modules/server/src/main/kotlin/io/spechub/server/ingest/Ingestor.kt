@@ -32,6 +32,7 @@ class Ingestor(
         val apiCount: Int,
         val schemaCount: Int,
         val versionCount: Int,
+        val docCount: Int = 0,
         val messages: List<String> = emptyList(),
     )
 
@@ -80,7 +81,21 @@ class Ingestor(
 
             index.replaceApisForRepo(repo.id, apis.values.toList())
             index.replaceSchemasForRepo(repo.id, schemas.values.toList())
-            val result = IngestResult(repo.id, apis.size, schemas.size, versionCount, messages)
+
+            // K（Doc 域）：摄取 docs/ 下 Markdown 到独立 doc 投影（两域隔离 §5.7）
+            val docs = mutableListOf<io.spechub.spec.index.DocRecord>()
+            for (file in findDocFiles(repoDir, branch)) {
+                val content = git.readFile(repoDir, branch, file)
+                if (!content.success) {
+                    messages += "读取失败 $file：${content.stderr.take(120)}"
+                    continue
+                }
+                val parsed = parseDoc(file, content.output)
+                if (parsed != null) docs += parsed
+            }
+            index.replaceDocsForRepo(repo.id, docs)
+
+            val result = IngestResult(repo.id, apis.size, schemas.size, versionCount, docs.size, messages)
             index.updateSyncStatus(repo.id, SyncStatus.OK)
             result
         } catch (e: Exception) {
@@ -100,6 +115,46 @@ class Ingestor(
                     (f.contains("openapi") || f.contains("swagger") || f.contains("/api/"))
             }
         }.sorted()
+    }
+
+    /** 发现 Doc 域文件：§6.2 `docs/<service>/` 下 Markdown（两域隔离，§5.7） */
+    private fun findDocFiles(repoDir: Path, branch: String): List<String> {
+        val mdExt = listOf(".md", ".markdown")
+        return git.listFiles(repoDir, branch).filter { it.startsWith("docs/") && mdExt.any { it.endsWith(it) } }.sorted()
+    }
+
+    /** Markdown → DocRecord：front-matter（title/related）解析 + 标题兜底；related 追加「关联接口」节（K3 链接） */
+    internal fun parseDoc(path: String, raw: String): io.spechub.spec.index.DocRecord? {
+        var body = raw
+        var title: String? = null
+        val related = mutableListOf<String>()
+
+        val fm = Regex("^---\\s*\n(.*?)\n---\\s*\n?", RegexOption.DOT_MATCHES_ALL).find(raw)
+        if (fm != null) {
+            body = raw.removeRange(fm.range)
+            for (line in fm.groupValues[1].lineSequence()) {
+                when {
+                    line.startsWith("title:") -> title = line.removePrefix("title:").trim().trim('"', '\'', ' ')
+                    line.startsWith("related:") -> {
+                        val listText = line.removePrefix("related:").trim()
+                        // `[/pets, /pets/{id}]` 或 `- /pets`（多行）简化：取方括号列表
+                        Regex("[^,\\[\\]\\s]+").findAll(listText).forEach { m -> related += m.value.removePrefix("/") }
+                    }
+                }
+            }
+        }
+
+        if (title == null) {
+            title = Regex("^#\\s+(.+)$", RegexOption.MULTILINE).find(body)?.groupValues?.get(1)?.trim()
+        }
+        if (title == null) title = path.substringAfterLast("/").removeSuffix(".md").removeSuffix(".markdown")
+
+        // related → 追加「关联接口」节（前端渲染为可点击链接跳接口详情）
+        if (related.isNotEmpty()) {
+            val section = "\n## 关联接口\n\n" + related.distinct().joinToString("\n") { "- [`/$it`](#/api/$it)" } + "\n"
+            body = body.trimEnd('\n') + "\n" + section
+        }
+        return io.spechub.spec.index.DocRecord(repoId = 0, path = path, title = title.trim(), markdown = body, relatedApis = related)
     }
 
     /** I7：某接口结构变化 → 对其每个订阅方落一条通知（消费团队可查/后续挂 webhook） */
