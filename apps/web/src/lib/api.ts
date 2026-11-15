@@ -203,6 +203,25 @@ export const listVersions = (repoId: number, path?: string) =>
   j<VersionRecord[]>(`/repos/${repoId}/versions${path ? `?path=${encodeURIComponent(path)}` : ""}`);
 export const listChangelog = (repoId: number) => j<ChangelogEntry[]>(`/repos/${repoId}/changelog`);
 export const listApiChangelog = (apiId: number) => j<ChangelogEntry[]>(`/apis/${apiId}/changelog`);
+/** 全局变更记录流（跨 repo，I5 独立变更页） */
+export const listGlobalChangelog = (limit = 50) => j<ChangelogEntry[]>(`/changelog?limit=${limit}`);
+
+// ── I5 评论 ──────────────────────────────────────────────────────────────
+export interface Comment {
+  id: number;
+  apiId: number | null;
+  repoId: number;
+  method: string;
+  path: string;
+  author: string;
+  body: string;
+  createdAt: string | null;
+}
+
+export const listComments = (apiId: number) => j<Comment[]>(`/apis/${apiId}/comments`);
+export const addComment = (apiId: number, body: string) =>
+  j<Comment>(`/apis/${apiId}/comments`, { method: "POST", body: JSON.stringify({ body }) });
+export const deleteComment = (id: number) => j<unknown>(`/comments/${id}`, { method: "DELETE" });
 
 // ── I2/I3 Mock ─────────────────────────────────────────────────────────────
 export const listMockRules = (repoId: number) => j<MockRule[]>(`/repos/${repoId}/mock/rules`);

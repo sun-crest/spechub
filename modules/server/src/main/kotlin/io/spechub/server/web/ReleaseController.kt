@@ -62,6 +62,9 @@ class ReleaseController(
     @GetMapping("/repos/{id}/changelog")
     fun changelog(@PathVariable id: Long, @RequestParam limit: Int = 50) = index.listChangelogs(repoId = id, apiId = null, limit = limit)
 
+    @GetMapping("/changelog")
+    fun globalChangelog(@RequestParam limit: Int = 50) = index.listChangelogs(repoId = null, apiId = null, limit = limit)
+
     @GetMapping("/apis/{id}/changelog")
     fun apiChangelog(@PathVariable id: Long) = index.listChangelogs(repoId = null, apiId = id, limit = 50)
 }

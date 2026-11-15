@@ -301,6 +301,33 @@ class SpecIndexStore(private val db: IndexDb) {
         conn.select("SELECT * FROM app_user ORDER BY is_platform_admin DESC, id") { rowToUser(it) }
     }
 
+    // ── comment（I5 轻评论）───────────────────────────────────────────────
+
+    fun addComment(repoId: Long, apiId: Long?, docId: Long?, method: String, path: String, author: String, body: String): CommentRecord = db.transaction { conn ->
+        val id = conn.insert(
+            "INSERT INTO comment (repo_id, api_id, doc_id, method, path, author, body) VALUES (?,?,?,?,?,?,?)",
+            repoId, apiId, docId, method, path, author, body,
+        )
+        CommentRecord(id, repoId, apiId, docId, method, path, author, body)
+    }
+
+    /** 按稳定寻址（repo + method + path）取评论：api 投影重建后依旧命中 */
+    fun listCommentsForEndpoint(repoId: Long, method: String, path: String): List<CommentRecord> = db.transaction { conn ->
+        conn.select("SELECT * FROM comment WHERE repo_id=? AND method=? AND path=? ORDER BY id", repoId, method, path) { rowToComment(it) }
+    }
+
+    fun listCommentsForRepo(repoId: Long, limit: Int = 100): List<CommentRecord> = db.transaction { conn ->
+        conn.select("SELECT * FROM comment WHERE repo_id=? ORDER BY id DESC LIMIT ?", repoId, limit) { rowToComment(it) }
+    }
+
+    fun getComment(id: Long): CommentRecord? = db.transaction { conn ->
+        conn.select("SELECT * FROM comment WHERE id=?", id) { rowToComment(it) }.firstOrNull()
+    }
+
+    fun deleteComment(id: Long) = db.transaction { conn ->
+        conn.exec("DELETE FROM comment WHERE id=?", id)
+    }
+
     // ── api（归一化接口投影）─────────────────────────────────────────────
 
     /** 只重建 draft 档（I6：release 快照副本是 promote 时刻的冻结投影，摄取代代不碰） */
@@ -400,6 +427,18 @@ class SpecIndexStore(private val db: IndexDb) {
         displayName = r["display_name"] as? String ?: "",
         tokenHash = r["token_hash"] as String,
         isPlatformAdmin = ((r["is_platform_admin"] as? Number)?.toInt() ?: 0) == 1,
+        createdAt = r["created_at"] as? String,
+    )
+
+    private fun rowToComment(r: Map<String, Any?>): CommentRecord = CommentRecord(
+        id = r.long("id"),
+        repoId = r.long("repo_id"),
+        apiId = r.longOrNull("api_id"),
+        docId = r.longOrNull("doc_id"),
+        method = r["method"] as? String ?: "",
+        path = r["path"] as? String ?: "",
+        author = r["author"] as String,
+        body = r["body"] as String,
         createdAt = r["created_at"] as? String,
     )
 

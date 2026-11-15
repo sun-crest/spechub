@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, ChevronsUpDown, LogOut, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2, Users } from "lucide-react";
+import { Boxes, ChevronsUpDown, LogOut, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2, Users, History } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { ApiDetail } from "./demo/ApiDetail";
 import { EditorView, type EditingEntry } from "./demo/EditorView";
 import { LoginDialog } from "./demo/LoginDialog";
 import { MembersDialog } from "./demo/MembersDialog";
+import { ChangeLogDialog } from "./demo/ChangeLogDialog";
 import { DocPanel } from "./demo/DocPanel";
 import { DOCS } from "./demo/data";
 import { getAuthStatus, getAdminToken, setAdminToken, getMe, listApis, listProjects, listRepos, repoDisplay, WRITE_ROLES, type Api, type Me, type Project, type Repo, type WriteSpecResp, type AuthStatus } from "@/lib/api";
@@ -42,6 +43,8 @@ export default function App() {
   // I4 RBAC：当前用户 + 默认项目角色（决定写入口可见性）
   const [me, setMe] = useState<Me | null>(null);
   const [membersOpen, setMembersOpen] = useState(false);
+  // I5 变更记录独立视图
+  const [changeLogOpen, setChangeLogOpen] = useState(false);
 
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
 
@@ -61,6 +64,11 @@ export default function App() {
   const canWrite = meCanWrite;
   // I6：release 是只读消费视图，编辑/发布只作用于 draft
   const canEdit = canWrite && stage === "draft";
+  // I5：评论能力 = 登录即可（未启用鉴权视为已登录）
+  const canComment = me == null
+    ? !(authStatus?.authEnabled && !authStatus.authenticated)
+    : !me.authEnabled || me.authenticated === true;
+  const meUsername = me?.username ?? null;
 
   async function load() {
     setLoading(true);
@@ -160,6 +168,16 @@ export default function App() {
             </div>
           </ScrollArea>
         )}
+        {/* I5：侧栏底部全局变更记录入口（跨 repo 写操作留痕） */}
+        <div className="shrink-0 border-t border-sidebar-border p-2">
+          <button
+            onClick={() => setChangeLogOpen(true)}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] text-muted-foreground transition-colors hover:bg-sidebar-accent"
+          >
+            <History className="size-4 shrink-0" />
+            <span className="flex-1">变更记录</span>
+          </button>
+        </div>
       </aside>
 
       {/* 主区 */}
@@ -279,6 +297,8 @@ export default function App() {
                 onBack={() => setSelected(null)}
                 repos={repos}
                 canWrite={canEdit}
+                canComment={canComment}
+                meUsername={meUsername}
                 stage={stage}
                 onEdit={(a) => setEditing({ repoId: a.repoId, path: a.specPath ?? null })}
                 onPromoted={(msg) => { setToast(msg); void load(); }}
@@ -323,6 +343,9 @@ export default function App() {
 
       {/* I4 成员与角色管理（admin+） */}
       <MembersDialog open={membersOpen} onOpenChange={setMembersOpen} />
+
+      {/* I5 全局变更记录 */}
+      <ChangeLogDialog open={changeLogOpen} onOpenChange={setChangeLogOpen} />
     </div>
   );
 }

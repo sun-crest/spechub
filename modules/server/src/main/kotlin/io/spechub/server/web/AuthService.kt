@@ -104,4 +104,12 @@ class AuthService(
 
     /** require：管理端点（成员/角色管理），需要目标 repo 所在项目 admin+ 或平台 admin */
     fun requireAdmin(req: HttpServletRequest, repoId: Long, op: String) = requireRepoRole(req, repoId, Role.ADMIN, op)
+
+    /** require：轻交互（评论等）需「有登录用户」即可，不必 editor+；未启用鉴权放行 */
+    fun requireAuthenticated(req: HttpServletRequest, op: String): UserRecord {
+        if (!authEnabled) {
+            return currentUser(req) ?: UserRecord(id = -1, username = "anonymous", tokenHash = "", isPlatformAdmin = false)
+        }
+        return currentUser(req) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "$op 需要登录")
+    }
 }

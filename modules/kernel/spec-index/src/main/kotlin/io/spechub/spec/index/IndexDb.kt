@@ -26,11 +26,15 @@ class IndexDb(private val path: Path) {
     /** 应用全部 DDL（幂等，可安全多次调用）。
      *  旧库升级：P0 库的 api/schema 表无 stage 列（I6 加列 + 改复合幂等键，SQLite 无法 ADD COLUMN 改 UNIQUE），
      *  按 §6.4 决策 7「索引可重建」纪律先 drop 再随 DDL 重建（投影可从 git 全量重建，不构成数据事故）。
-     *  顺序注意：引用 stage 的索引必须先于 DDL 完成表重建，否则旧表缺列建索引报错。 */
+     *  顺序注意：引用 stage 的索引必须先于 DDL 完成表重建，否则旧表缺列建索引报错。
+     *  I5：comment 需 method/path 稳定寻址列且 api_id 去 FK（投影重建不级联删）；旧表缺列则连 changelog 重建。 */
     fun migrate() {
         transaction { conn ->
             if (!hasColumn(conn, "api", "stage") || !hasColumn(conn, "schema", "stage")) {
                 conn.exec(listOf("DROP TABLE IF EXISTS api", "DROP TABLE IF EXISTS schema"))
+            }
+            if (!hasColumn(conn, "comment", "method")) {
+                conn.exec(listOf("DROP TABLE IF EXISTS comment", "DROP TABLE IF EXISTS changelog"))
             }
             conn.exec(IndexSchema.DDL_STATEMENTS)
         }
@@ -215,11 +219,12 @@ object IndexSchema {
         """.trimIndent(),
 
         // 变更记录（I5 铺底，§6.3 ChangeLog：actor/diff/reason/review）
+        // api_id 非 FK：避免摄取重建 api 投影（DELETE+INSERT）时评论类留痕被级联删；repo/method/path 稳定寻址。
         """
         CREATE TABLE IF NOT EXISTS changelog (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             repo_id INTEGER REFERENCES repo(id) ON DELETE CASCADE,
-            api_id INTEGER REFERENCES api(id) ON DELETE CASCADE,
+            api_id INTEGER,
             actor TEXT NOT NULL,
             action TEXT NOT NULL,
             detail TEXT NOT NULL,
@@ -250,6 +255,23 @@ object IndexSchema {
         )
         """.trimIndent(),
 
+        // 评论（I5：挂在接口/文档/仓库下的轻评论；作者 = app_user.username）
+        // 关键设计：api 是可重建投影（摄取 DELETE+INSERT），评论不挂 api 行 FK 级联，
+        // 用 repo_id + method + path 稳定寻址（api_id 仅作展示快照，过时无害）。
+        """
+        CREATE TABLE IF NOT EXISTS comment (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            api_id INTEGER,
+            doc_id INTEGER REFERENCES doc(id) ON DELETE CASCADE,
+            method TEXT NOT NULL DEFAULT '',
+            path TEXT NOT NULL DEFAULT '',
+            author TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )
+        """.trimIndent(),
+
         // 查询索引
         "CREATE INDEX IF NOT EXISTS idx_repo_url ON repo(url)",
         "CREATE INDEX IF NOT EXISTS idx_version_spec_hash ON version(spec_hash)",
@@ -260,5 +282,7 @@ object IndexSchema {
         "CREATE INDEX IF NOT EXISTS idx_changelog_repo ON changelog(repo_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_app_user_username ON app_user(username)",
         "CREATE INDEX IF NOT EXISTS idx_membership_user ON membership(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_comment_api ON comment(api_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_comment_repo ON comment(repo_id, created_at)",
     )
 }

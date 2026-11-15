@@ -43,12 +43,18 @@ class SpecWriter(
 
         git.stage(work, listOf(path)).require("stage $path")
         val commit = git.commit(work, "chore(spechub): update $path", bot).require("commit $path")
+        // 本次提交的增量摘要（对比上一提交 HEAD^；首次提交无 HEAD^ 容错为空）
+        val diffStat = try {
+            git.diffStat(work, "HEAD^").joinToString("; ") { "+${it.added}/-${it.deleted} ${it.path}" }
+        } catch (e: Exception) {
+            ""
+        }
         git.push(work, "origin", repo.branch).require("push")
         val short = git.commitHash(work, "HEAD")
         index.addChangelog(
             repoId = repo.id, apiId = null, actor = bot.name,
             action = ChangelogAction.SPEC_WRITE,
-            detail = "PUT spec $path → commit $short（${repo.branch}）",
+            detail = "PUT spec $path → commit $short（${repo.branch}）; diff ${diffStat.ifEmpty { "（首次/无增量）" }}",
         )
         return WriteResult(short, repo.branch)
     }

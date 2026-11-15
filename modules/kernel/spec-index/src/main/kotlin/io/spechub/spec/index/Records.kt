@@ -73,6 +73,20 @@ data class ChangelogRecord(
     val createdAt: String? = null,
 )
 
+/** 评论（I5：挂接口 / 文档 / 仓库下的轻评论；author 为 app_user.username）
+ *  稳定寻址＝repo_id + method + path（api 是可重建投影，评论不随其 id 级联）。 */
+data class CommentRecord(
+    val id: Long? = null,
+    val repoId: Long,
+    val apiId: Long? = null,
+    val docId: Long? = null,
+    val method: String = "",
+    val path: String = "",
+    val author: String,
+    val body: String,
+    val createdAt: String? = null,
+)
+
 /** 发布档位常量 */
 object Stage {
     const val DRAFT = "draft"

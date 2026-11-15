@@ -2,17 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { MethodBadge } from "./method";
 import { TryPanel } from "./TryPanel";
 import { MockPanel } from "./MockPanel";
-import { getApi, listVersions, listChangelog, promoteSpec, repoDisplay, type Api, type ChangelogEntry, type Repo, type VersionRecord } from "@/lib/api";
+import { getApi, listVersions, listChangelog, promoteSpec, listComments, addComment, deleteComment, repoDisplay, type Api, type ChangelogEntry, type Comment, type Repo, type VersionRecord } from "@/lib/api";
 import { OperationContract, type SpecOp } from "./contract";
 
-export function ApiDetail({ id, onBack, repos, canWrite, stage, onEdit, onPromoted }: {
+export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername, stage, onEdit, onPromoted }: {
   id: number;
   onBack: () => void;
   repos: Repo[];
   canWrite: boolean;
+  /** I5 评论能力：登录即可（不必 editor+） */
+  canComment: boolean;
+  meUsername: string | null;
   /** I6 当前视图档位（release 只读消费视图） */
   stage: "draft" | "release";
   onEdit: (api: Api) => void;
@@ -23,6 +27,9 @@ export function ApiDetail({ id, onBack, repos, canWrite, stage, onEdit, onPromot
   const [tab, setTab] = useState("contract");
   const [versions, setVersions] = useState<VersionRecord[]>([]);
   const [log, setLog] = useState<ChangelogEntry[]>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentBody, setCommentBody] = useState("");
+  const [commentMsg, setCommentMsg] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
@@ -38,10 +45,37 @@ export function ApiDetail({ id, onBack, repos, canWrite, stage, onEdit, onPromot
     void listChangelog(repoId).then((l) => setLog(l.slice(0, 12))).catch(() => setLog([]));
   }, []);
 
-  // 详情数据变化时刷新版本与变更记录（发布/编辑后）
+  // 详情数据变化时刷新版本、变更记录（发布/编辑后）
   useEffect(() => {
     if (api) { loadVersions(api.repoId, api.specPath); loadLog(api.repoId); }
   }, [api, loadVersions, loadLog]);
+
+  // I5 评论：随详情加载
+  const loadComments = useCallback((apiId: number) => {
+    void listComments(apiId).then(setComments).catch(() => setComments([]));
+  }, []);
+  useEffect(() => {
+    if (api) loadComments(api.id);
+  }, [api, loadComments]);
+
+  async function postComment() {
+    if (!api) return;
+    if (!commentBody.trim()) { setCommentMsg("请输入评论内容"); return; }
+    setCommentMsg(null);
+    try {
+      const c = await addComment(api.id, commentBody.trim());
+      setComments((cs) => [...cs, c]);
+      setCommentBody("");
+    } catch (e) {
+      setCommentMsg(String(e));
+    }
+  }
+
+  async function delComment(c: Comment) {
+    setCommentMsg(null);
+    try { await deleteComment(c.id); setComments((cs) => cs.filter((x) => x.id !== c.id)); }
+    catch (e) { setCommentMsg(String(e)); }
+  }
 
   const op: SpecOp | null = useMemo(() => {
     if (!api) return null;
@@ -125,6 +159,7 @@ export function ApiDetail({ id, onBack, repos, canWrite, stage, onEdit, onPromot
           <TabsTrigger value="contract">契约</TabsTrigger>
           <TabsTrigger value="provenance">溯源</TabsTrigger>
           <TabsTrigger value="debug">交互</TabsTrigger>
+          <TabsTrigger value="comments">评论{comments.length > 0 ? ` (${comments.length})` : ""}</TabsTrigger>
         </TabsList>
 
         {/* ① 契约 */}
@@ -185,6 +220,46 @@ export function ApiDetail({ id, onBack, repos, canWrite, stage, onEdit, onPromot
         <TabsContent value="debug" className="mt-5 flex flex-col gap-5">
           <TryPanel apiId={api.id} method={api.method} path={api.path} op={op} />
           <MockPanel apiId={api.id} repoId={api.repoId} path={api.path} canWrite={stage === "draft" && canWrite} />
+        </TabsContent>
+
+        {/* ④ 评论（I5） */}
+        <TabsContent value="comments" className="mt-5 flex flex-col gap-4">
+          <div className="rounded-lg border bg-card p-5">
+            <h3 className="mb-3 text-sm font-semibold">评论（{comments.length}）</h3>
+            {commentMsg && <p className="mb-2 text-[12px] text-muted-foreground">{commentMsg}</p>}
+            <div className="flex flex-col gap-2">
+              {comments.map((c) => (
+                <div key={c.id} className="rounded-md border bg-muted/20 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[12.5px] font-medium">{c.author}</span>
+                    <span className="font-mono text-[11px] text-muted-foreground">{c.createdAt ?? ""}</span>
+                    {meUsername != null && c.author === meUsername && (
+                      <button className="ml-auto text-[11px] text-muted-foreground hover:text-destructive" onClick={() => void delComment(c)}>删除</button>
+                    )}
+                  </div>
+                  <p className="mt-1 whitespace-pre-wrap text-[13px] text-foreground/90">{c.body}</p>
+                </div>
+              ))}
+              {comments.length === 0 && <p className="py-2 text-[12.5px] text-muted-foreground">暂无评论</p>}
+            </div>
+
+            {canComment ? (
+              <div className="mt-4 flex flex-col gap-2">
+                <Textarea
+                  value={commentBody}
+                  onChange={(e) => setCommentBody(e.target.value)}
+                  rows={3}
+                  placeholder="对这条接口契约的疑问 / 补充 / 变更说明…"
+                  className="text-[13px]"
+                />
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void postComment()} disabled={!commentBody.trim()}>发表评论</Button>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-[12px] text-muted-foreground">留言需要登录（账号菜单登录后可见评论区）。</p>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
     </div>

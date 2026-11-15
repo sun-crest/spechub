@@ -184,4 +184,35 @@ class SpecIndexStoreTest {
         store.deleteMockRule(checkNotNull(r1.id) { "mock rule upsert 应回填 id" })
         assertEquals(0, store.listMockRules(repo.id).size)
     }
+
+    // ── I5 评论 ──────────────────────────────────────────────────────────────
+
+    @Test
+    fun `comment 增查删 - 按 repo+method+path 稳定寻址`() {
+        val store = newStore()
+        val repo = store.insertRepo("default", "https://example.com/o/r.git")
+        store.replaceApisForRepo(repo.id, listOf(
+            ApiRecord(repoId = repo.id, method = "GET", path = "/pets", specJson = "{}"),
+        ))
+        val apiId = store.listApis(repo.id).single().id!!
+
+        val c1 = store.addComment(repo.id, apiId, null, "GET", "/pets", "alice", "这个路径参数缺 required")
+        store.addComment(repo.id, apiId, null, "GET", "/pets", "bob", "收到，下版补上")
+        val list = store.listCommentsForEndpoint(repo.id, "GET", "/pets")
+        assertEquals(2, list.size)
+        assertEquals("alice", list.first().author)
+        assertEquals("收到，下版补上", list.last().body, "时间正序")
+        assertEquals("GET", list.first().method)
+        assertEquals("/pets", list.first().path)
+
+        assertNotNull(store.getComment(c1.id!!))
+        store.deleteComment(c1.id!!)
+        assertEquals(1, store.listCommentsForEndpoint(repo.id, "GET", "/pets").size)
+
+        // 投影重建（摄取 DELETE+INSERT）后评论仍在：api_id 非 FK，稳定寻址命中
+        store.replaceApisForRepo(repo.id, listOf(
+            ApiRecord(repoId = repo.id, method = "GET", path = "/pets", specJson = "{}"),
+        ))
+        assertEquals(1, store.listCommentsForEndpoint(repo.id, "GET", "/pets").size, "投影重建不丢评论")
+    }
 }
