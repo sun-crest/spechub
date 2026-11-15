@@ -44,6 +44,42 @@ spechub/
 
 ## 环境与构建
 
-- **JVM 侧**：Java 25 LTS（JDK≥25）、Gradle 9.9.1（wrapper）；构建入口 `./gradlew build`
-- **部署**：compose 蓝图见 [compose/docker-compose.yml](compose/docker-compose.yml)，`docker compose -f compose/docker-compose.yml up -d --build` 一键拉起 gitea + backend
-- **未完成前置**：P0 骨架仅含构建链与部署骨架，摄取 / 索引 / API 能力随开发计划 B–E 组落地
+### 依赖环境清单（2026-11-15 实测整理）
+
+| 依赖 | 版本要求 | 必需? | 用途 | 说明 |
+|---|---|---|---|---|
+| **JDK** | **25 LTS**（`jvmToolchain(25)` 强制） | ✅ | Kotlin / Spring Boot 4 编译运行 | 低版本会被 Gradle 工具链直接拒绝 |
+| **系统 git** | 任意 | ✅ | git-store 以子进程驱动镜像 / 写回 | Dockerfile 也专门 `apt-get install git` |
+| **Node.js + npm** | Node ≥18（无 engines 硬约束，Vite 6 下限） | ✅（web / mcp） | React 前端 + TS MCP server | 实测 Node 24 |
+| **Go** | 1.27（`toolchain go1.27.4`） | ⚠️ 仅 CLI | `apps/cli` 交叉编译 | 只跑 web/backend 可跳过 |
+| **Docker + Compose** | — | ⚠️ 可选（仅 compose 档） | gitea 托管 + 容器化 backend | 用本地目录档可完全不需要 |
+| **Gradle** | 9.9.1 wrapper | 由 `./gradlew` 提供，无需预装 | — | — |
+| **SQLite** | 内嵌 `sqlite-jdbc` | 无需安装 | 索引存储 `spechub-index.db` | 无独立数据库服务 |
+
+### 启动方式
+
+**方式 A · docker compose（含 gitea，贴近生产）**
+```bash
+docker compose up -d --build          # gitea(:3000) + backend(:8080)，Dockerfile 内自动 bootJar
+cd apps/web && npm install && npm run dev   # → http://localhost:5173（被占顺延 5174），/api 代理到 :8080
+```
+
+**方式 B · 本地目录档（无需 docker，纯本地 git 仓）**
+```bash
+# 1) 后端 bootJar + 起服务（SPECHUB_* 三个目录启动时自动创建）
+./gradlew :server:bootJar
+SPECHUB_GIT_SOURCE_DIR=/tmp/spechub-gitsource SPECHUB_SQLITE_DIR=/tmp/spechub-sqlite \
+  SPECHUB_ARTIFACTS_DIR=/tmp/spechub-artifacts \
+  java -jar modules/server/build/libs/spechub-server.jar --server.port=18080 &
+
+# 2) 一个本地 bare origin（真源仓），注册即摄取
+git init -q --bare -b main /tmp/spechub-origin
+# 往 seed 工作仓塞一份 spec（如 kernel 的 PetStore 样例）并 push，POST /api/repos 注册
+
+# 3) 前端代理指向本地 backend
+cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
+```
+
+**可选端**：MCP `cd apps/mcp && npm install && npm run build && node dist/index.js`（连 backend 走 HTTP）；CLI `cd apps/cli && go build`（或 `scripts/build-release.sh` 交叉编译四平台）。
+
+> 实测踩坑：① 本地目录档的 origin 必须是 **bare 仓**（非 bare 会被 `denyCurrentBranch` 拒 push）；② Vite 端口被占自动顺延，看终端提示；③ 最小 Web 起步只需 JDK 25 + git + Node，数据全局皆走 `/tmp` 目录即可。

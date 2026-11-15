@@ -89,6 +89,12 @@
 
 **P1 验收**：人用 Web、Claude 用 MCP 读同一份 spec，双写无冲突；CI 里 `spechub check` 可跑通。✅ 2026-11-15：H 组全完成（人用 Web 读+编辑+登录，F 组 MCP 读+写、G 组 CLI 四端，双写共用 SpecWriter 写回真源链路上均已实证）。
 
+> **本地开发环境**（2026-11-15 整理，真源与完整命令见根 README「环境与构建」）：
+> - **依赖**：JDK 25（toolchain 强制）+ 系统 git + Node≥18/npm（web·mcp）；Go 1.27 仅 CLI；Docker 可选（compose 档）。
+> - **两档启动**：A) `docker compose up -d --build` 起 gitea+backend → web dev（/api 代理 :8080）；B) 本地目录档——`./gradlew :server:bootJar` + `java -jar spechub-server.jar --server.port=18080`（SPECHUB_* 三个目录）→ `VITE_API_BASE=http://localhost:18080 npm run dev`。
+> - **踩坑**：本地目录档 origin 必须是 bare 仓（非 bare 拒 push）；Vite 端口被占自动顺延 5174；不要用内置 jar，用 bootJar（`spechub-server.jar`）。
+> - 全部数据（gitsource 镜像 / SQLite 索引 / artifacts）走 `/tmp` 目录即可起步，无外部服务。
+
 > **UI 设计对照**：本组与 P2 I 组的界面决策见 [SpecHub-UI方案.md](SpecHub-UI方案.md)（三区壳 + 双入口、详情三段式、Monaco 双栏语义、H 组范围清单）
 
 ---
