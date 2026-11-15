@@ -238,4 +238,29 @@ class SpecIndexStoreTest {
         assertEquals(0, store.listSubscriptions(repo.id).size, "取消订阅后查询为空")
         assertEquals(2, store.listNotifications("pay-team").size, "通知历史不随订阅删除而清空（供审计）")
     }
+
+    // ── I8 评审审批流 ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `review 创建查询与审批状态流转`() {
+        val store = newStore()
+        val repo = store.insertRepo("default", "https://example.com/o/r.git")
+
+        val r1 = store.createReview(repo.id, "specs/pet/openapi.yaml", "new content v2", "diff...", "hash123", "alice")
+        val r2 = store.createReview(repo.id, "specs/pet/openapi.yaml", "new content v3", "diff...", "hash456", "bob")
+        assertEquals(ReviewStatus.PENDING, r1.status, "新评审默认 pending")
+        assertEquals(2, store.listReviews(repo.id).size)
+        assertEquals(2, store.listReviews(status = ReviewStatus.PENDING).size)
+
+        store.resolveReview(r1.id!!, ReviewStatus.APPROVED, "reviewer")
+        val approved = store.getReview(r1.id)!!
+        assertEquals(ReviewStatus.APPROVED, approved.status)
+        assertEquals("reviewer", approved.reviewer, "审批人记录")
+        assertNotNull(approved.resolvedAt, "审批时间戳")
+        assertEquals(1, store.listReviews(status = ReviewStatus.APPROVED).size)
+
+        store.resolveReview(r2.id!!, ReviewStatus.REJECTED, "reviewer", "缺 required 字段")
+        assertEquals("缺 required 字段", store.getReview(r2.id)!!.rejectReason, "打回理由")
+        assertEquals(0, store.listReviews(repoId = repo.id, status = ReviewStatus.PENDING).size, "两条均处理后无待审")
+    }
 }

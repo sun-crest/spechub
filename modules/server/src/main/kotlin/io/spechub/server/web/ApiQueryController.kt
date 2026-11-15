@@ -51,6 +51,10 @@ class ApiQueryController(
         val commit: String,
         val branch: String,
         val apiCount: Int,
+        /** I8 评审流：启鉴权下写回先入评审队列，非空表示待批准；无鉴权直写时为 null */
+        val reviewId: Long? = null,
+        val status: String? = null,
+        val message: String = "",
     )
 
     @GetMapping("/repos/{id}/specs")
@@ -73,8 +77,27 @@ class ApiQueryController(
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "path 须为 specs 下的 .yaml/.yml/.json 文件")
         }
         val repo = index.getRepo(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo $id 不存在")
-        val written = writer.writeSpec(repo, req.path.trim(), req.content)
-        val ing = ingestor.ingest(repo, urlTokens.get(id))
-        return WriteSpecResponse(repo.id, req.path.trim(), written.commit, written.branch, ing.apiCount)
+        val path = req.path.trim()
+
+        // 未启用鉴权：本地/最小部署直写（保存即提交，现状；评审流只在团队启用鉴权后生效）
+        if (!auth.authEnabled) {
+            val written = writer.writeSpec(repo, path, req.content)
+            val ing = ingestor.ingest(repo, urlTokens.get(id))
+            return WriteSpecResponse(repo.id, path, written.commit, written.branch, ing.apiCount, message = "已提交 ${written.commit.take(8)}")
+        }
+
+        // 启鉴权 →「写操作皆审」（§6.4 决策 3）：先入评审队列，approve 后才落真源
+        val actor = auth.currentUser(request)?.username ?: "anonymous"
+        val review = index.createReview(
+            repoId = id, path = path, newContent = req.content,
+            diff = "", oldHash = index.latestSpecHash(id, path), requester = actor,
+        )
+        index.addChangelog(repoId = id, apiId = null, actor = actor, action = "review.create",
+            detail = "提交评审 #${review.id}：$path（$actor 提交，等待审批）")
+        return WriteSpecResponse(
+            repo.id, path, commit = "", branch = repo.branch, apiCount = 0,
+            reviewId = review.id, status = io.spechub.spec.index.ReviewStatus.PENDING,
+            message = "已提交评审请求 #${review.id}：$path（写操作皆审，审批通过后落真源）",
+        )
     }
 }

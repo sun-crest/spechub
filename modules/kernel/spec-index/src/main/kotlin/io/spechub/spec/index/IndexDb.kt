@@ -61,7 +61,8 @@ class IndexDb(private val path: Path) {
             // 连接级 PRAGMA 必须在事务外生效（foreign_keys 在事务中更改会被 SQLite 静默忽略 → 级联失效）
             conn.exec(listOf(
                 "PRAGMA foreign_keys=ON",
-                "PRAGMA busy_timeout=5000",
+                // 20s：多 @SpringBootTest context 顺序/并行初始化时偶发 SQLITE_BUSY（WAL 写锁竞争）容忍窗口
+                "PRAGMA busy_timeout=20000",
                 "PRAGMA journal_mode=WAL",
             ))
             conn.autoCommit = false
@@ -301,6 +302,25 @@ object IndexSchema {
         )
         """.trimIndent(),
 
+        // 评审审批流（I8「写操作皆审」§6.4 决策 3）：spec 写回先入 pending，人批准才落真源。
+        // new_content 存待批准全文；approve 时由 SpecWriter 写入真源（git commit+push + 摄取）。
+        """
+        CREATE TABLE IF NOT EXISTS review (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            path TEXT NOT NULL,
+            new_content TEXT NOT NULL,
+            diff TEXT NOT NULL DEFAULT '',
+            old_hash TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            requester TEXT NOT NULL,
+            reviewer TEXT,
+            reject_reason TEXT,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            resolved_at TEXT
+        )
+        """.trimIndent(),
+
         // 查询索引
         "CREATE INDEX IF NOT EXISTS idx_repo_url ON repo(url)",
         "CREATE INDEX IF NOT EXISTS idx_version_spec_hash ON version(spec_hash)",
@@ -315,5 +335,6 @@ object IndexSchema {
         "CREATE INDEX IF NOT EXISTS idx_comment_repo ON comment(repo_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_subscription_endpoint ON subscription(repo_id, method, path)",
         "CREATE INDEX IF NOT EXISTS idx_notification_team ON notification(team, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_review_repo_status ON review(repo_id, status)",
     )
 }

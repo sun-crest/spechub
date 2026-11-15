@@ -123,6 +123,30 @@ data class NotificationRecord(
     val createdAt: String? = null,
 )
 
+/** 评审审批流（I8 §6.4 决策 3「写操作皆审」）：spec 写回待批准，approve 才落真源 */
+data class ReviewRecord(
+    val id: Long? = null,
+    val repoId: Long,
+    val path: String,
+    val newContent: String,
+    val diff: String = "",
+    val oldHash: String? = null,
+    val status: String = ReviewStatus.PENDING,
+    val requester: String,
+    val reviewer: String? = null,
+    val rejectReason: String? = null,
+    val createdAt: String? = null,
+    val resolvedAt: String? = null,
+)
+
+/** 评审状态常量 */
+object ReviewStatus {
+    const val PENDING = "pending"
+    const val APPROVED = "approved"
+    const val REJECTED = "rejected"
+    val ALL = setOf(PENDING, APPROVED, REJECTED)
+}
+
 /** 项目成员角色（I4 RBAC，§6.3 Project.members 落地；等级见 [Role.rank]） */
 object Role {
     const val OWNER = "owner"

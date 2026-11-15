@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, ChevronsUpDown, LogOut, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2, Users, History } from "lucide-react";
+import { Boxes, ChevronsUpDown, LogOut, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2, Users, History, ClipboardCheck } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -14,9 +14,10 @@ import { EditorView, type EditingEntry } from "./demo/EditorView";
 import { LoginDialog } from "./demo/LoginDialog";
 import { MembersDialog } from "./demo/MembersDialog";
 import { ChangeLogDialog } from "./demo/ChangeLogDialog";
+import { ReviewDialog } from "./demo/ReviewDialog";
 import { DocPanel } from "./demo/DocPanel";
 import { DOCS } from "./demo/data";
-import { getAuthStatus, getAdminToken, setAdminToken, getMe, listApis, listProjects, listRepos, repoDisplay, WRITE_ROLES, type Api, type Me, type Project, type Repo, type WriteSpecResp, type AuthStatus } from "@/lib/api";
+import { getAuthStatus, getAdminToken, setAdminToken, getMe, listApis, listProjects, listRepos, listReviews, repoDisplay, WRITE_ROLES, type Api, type Me, type Project, type Repo, type WriteSpecResp, type AuthStatus } from "@/lib/api";
 
 export default function App() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -45,6 +46,14 @@ export default function App() {
   const [membersOpen, setMembersOpen] = useState(false);
   // I5 变更记录独立视图
   const [changeLogOpen, setChangeLogOpen] = useState(false);
+  // I8 评审审批流
+  const [reviewsOpen, setReviewsOpen] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+  const loadPendingReviews = () => {
+    if (!me?.authEnabled) { setPendingCount(0); return; }
+    void listReviews("pending").then((rs) => setPendingCount(rs.length)).catch(() => setPendingCount(0));
+  };
+  useEffect(() => { loadPendingReviews(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [me?.authEnabled]);
 
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
 
@@ -177,6 +186,19 @@ export default function App() {
             <History className="size-4 shrink-0" />
             <span className="flex-1">变更记录</span>
           </button>
+          {/* I8：评审队列入口（启鉴权时显示待审计数） */}
+          {me?.authEnabled && (
+            <button
+              onClick={() => { loadPendingReviews(); setReviewsOpen(true); }}
+              className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] text-muted-foreground transition-colors hover:bg-sidebar-accent"
+            >
+              <ClipboardCheck className="size-4 shrink-0" />
+              <span className="flex-1">评审队列</span>
+              {pendingCount > 0 && (
+                <span className="rounded-full bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary-foreground">{pendingCount}</span>
+              )}
+            </button>
+          )}
         </div>
       </aside>
 
@@ -285,10 +307,10 @@ export default function App() {
                 repos={repos}
                 onBack={() => { setEditing(null); setSelected(null); void load(); }}
                 onSaved={(r: WriteSpecResp) => {
-                  setToast(`已提交 ${r.commit.slice(0, 8)} · ${r.path}（${r.apiCount} 个接口）`);
+                  setToast(r.message || (r.reviewId ? `已提交评审请求 #${r.reviewId}` : `已提交 ${r.commit.slice(0, 8)} · ${r.path}（${r.apiCount} 个接口）`));
                   setEditing(null);
                   setSelected(null);
-                  void load();
+                  void load(); void loadPendingReviews();
                 }}
               />
             ) : selected && !loading && !error ? (
@@ -346,6 +368,9 @@ export default function App() {
 
       {/* I5 全局变更记录 */}
       <ChangeLogDialog open={changeLogOpen} onOpenChange={setChangeLogOpen} />
+
+      {/* I8 评审审批流 */}
+      <ReviewDialog open={reviewsOpen} onOpenChange={(o) => { setReviewsOpen(o); if (!o) loadPendingReviews(); }} canReview={canWrite} />
     </div>
   );
 }

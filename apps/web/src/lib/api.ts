@@ -85,6 +85,10 @@ export interface WriteSpecResp {
   commit: string;
   branch: string;
   apiCount: number;
+  /** I8 评审流：启鉴权下写回返回非空 reviewId */
+  reviewId?: number | null;
+  status?: string | null;
+  message?: string;
 }
 
 // ── I6 双层版本 / 变更记录 / Mock / Try it out ─────────────────────────────
@@ -256,6 +260,37 @@ export const listNotifications = (team?: string, limit = 20) => {
   p.set("limit", String(limit));
   return j<Notification[]>(`/subscriptions/notifications?${p.toString()}`);
 };
+
+// ── I8 评审审批流（写操作皆审）──────────────────────────────────────────────
+export interface Review {
+  id: number;
+  repoId: number;
+  path: string;
+  status: string;
+  requester: string;
+  reviewer?: string | null;
+  rejectReason?: string | null;
+  createdAt?: string | null;
+  resolvedAt?: string | null;
+}
+
+export interface ReviewDetail extends Review {
+  newContent: string;
+  currentContent?: string | null;
+  oldHash?: string | null;
+}
+
+export const listReviews = (status?: string, repoId?: number) => {
+  const p = new URLSearchParams();
+  if (status) p.set("status", status);
+  if (repoId) p.set("repoId", String(repoId));
+  const s = p.toString();
+  return j<Review[]>(`/reviews${s ? `?${s}` : ""}`);
+};
+export const getReview = (id: number) => j<ReviewDetail>(`/reviews/${id}`);
+export const approveReview = (id: number) => j<Review>(`/reviews/${id}/approve`, { method: "POST" });
+export const rejectReview = (id: number, reason?: string) =>
+  j<unknown>(`/reviews/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
 
 // ── I2/I3 Mock ─────────────────────────────────────────────────────────────
 export const listMockRules = (repoId: number) => j<MockRule[]>(`/repos/${repoId}/mock/rules`);
