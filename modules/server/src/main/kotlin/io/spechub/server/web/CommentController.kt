@@ -56,8 +56,12 @@ class CommentController(
     fun add(@PathVariable id: Long, @RequestBody @Valid body: CommentBody, request: HttpServletRequest): CommentView {
         val user = auth.requireAuthenticated(request, "发表评论")
         val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
-        val comment = index.addComment(api.repoId, api.id, null, api.method, api.path, user.username, body.body.trim())
-        index.addChangelog(api.repoId, api.id, user.username, "comment", "评论 ${api.method} ${api.path}：${body.body.trim().take(60)}")
+        val comment = index.addCommentWithChangelog(
+            repoId = api.repoId, apiId = api.id, docId = null,
+            method = api.method, path = api.path, author = user.username, body = body.body.trim(),
+            actor = user.username, action = "comment",
+            detail = "评论 ${api.method} ${api.path}：${body.body.trim().take(60)}",
+        )
         return toView(comment)
     }
 
@@ -73,8 +77,10 @@ class CommentController(
         if (!isAuthor && !isManager && !actor.isPlatformAdmin) {
             throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "只能删除自己的评论或需 admin 及以上")
         }
-        index.deleteComment(id)
-        index.addChangelog(comment.repoId, comment.apiId, actor.username, "comment.delete", "删除评论 #${comment.id}")
+        index.deleteCommentWithChangelog(
+            id = id, repoId = comment.repoId, apiId = comment.apiId,
+            actor = actor.username, action = "comment.delete", detail = "删除评论 #${comment.id}",
+        )
     }
 
     private fun toView(c: CommentRecord): CommentView = CommentView(

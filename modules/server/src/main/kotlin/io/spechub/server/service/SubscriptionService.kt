@@ -31,12 +31,16 @@ class SubscriptionService(private val index: SpecIndexStore) {
         // api_id 尽力关联（method+path 命中当前投影则填，便于详情展示；非 FK）
         val apiId = index.listApis(repoId, method = normalizedMethod, keyword = path.removePrefix("/"))
             .firstOrNull { it.path == path }?.id
-        val sub = index.upsertSubscription(
-            repoId, apiId, normalizedMethod, path, normalizedTeam, notifyUrl.trim(),
-        )
-        index.addChangelog(
-            repoId = repoId, apiId = apiId, actor = actor,
-            action = "subscription", detail = "$team 订阅 $normalizedMethod $path",
+        val sub = index.upsertSubscriptionWithChangelog(
+            repoId = repoId,
+            apiId = apiId,
+            method = normalizedMethod,
+            path = path,
+            team = normalizedTeam,
+            notifyUrl = notifyUrl.trim(),
+            actor = actor,
+            action = "subscription",
+            detail = "$team 订阅 $normalizedMethod $path",
         )
         return sub
     }
@@ -44,10 +48,13 @@ class SubscriptionService(private val index: SpecIndexStore) {
     /** 取消订阅（204 语义由 Controller 声明）+ changelog */
     fun unsubscribe(id: Long, actor: String) {
         val sub = index.getSubscription(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "订阅 $id 不存在")
-        index.deleteSubscription(id)
-        index.addChangelog(
-            repoId = sub.repoId, apiId = sub.apiId, actor = actor,
-            action = "subscription.delete", detail = "取消订阅：${sub.team} ${sub.method} ${sub.path}",
+        index.deleteSubscriptionWithChangelog(
+            id = id,
+            repoId = sub.repoId,
+            apiId = sub.apiId,
+            actor = actor,
+            action = "subscription.delete",
+            detail = "取消订阅：${sub.team} ${sub.method} ${sub.path}",
         )
     }
 }

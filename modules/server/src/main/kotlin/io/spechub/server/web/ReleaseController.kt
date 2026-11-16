@@ -42,12 +42,14 @@ class ReleaseController(
     @PostMapping("/repos/{id}/promote")
     fun promote(@PathVariable id: Long, @RequestBody @Valid req: PromoteRequest, request: jakarta.servlet.http.HttpServletRequest): PromoteResponse {
         auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "发布 release")
-        val promoted = index.promotePath(id, req.path.trim())
-            ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 的 ${req.path} 无版本可发布（先摄取）")
-        index.addChangelog(
-            repoId = id, apiId = null, actor = "spechub-bot", action = ChangelogAction.PROMOTE,
-            detail = "发布 ${promoted.path} → release（版本 #${promoted.id}，specHash ${promoted.specHash.take(12)}…）",
-        )
+        // R6：发布与 changelog 同一事务（发布失败/留痕失败一并回滚）
+        val promoted = index.promotePathWithChangelog(
+            repoId = id,
+            path = req.path.trim(),
+            actor = "spechub-bot",
+            action = ChangelogAction.PROMOTE,
+            detail = { p -> "发布 ${p.path} → release（版本 #${p.id}，specHash ${p.specHash.take(12)}…）" },
+        ) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 的 ${req.path} 无版本可发布（先摄取）")
         return PromoteResponse(
             id, promoted.path, promoted.id, promoted.specHash, promoted.stage,
             "已发布为 release：${promoted.path}（specHash ${promoted.specHash.take(12)}…）",

@@ -43,16 +43,15 @@ class UserService(
             throw ApiException(ApiErrorCode.CONFLICT, "用户 $name 已存在")
         }
         val token = AuthService.generateToken()
-        val user = index.createUserWithMembership(
+        val user = index.createUserWithMembershipWithChangelog(
             username = name,
             displayName = displayName.ifBlank { name },
             tokenHash = AuthService.sha256(token),
             projectId = projectId,
             role = role,
-        )
-        index.addChangelog(
-            repoId = null, apiId = null, actor = actorName(actor),
-            action = "user.create", detail = "创建用户 $name（$role）",
+            actor = actorName(actor),
+            action = "user.create",
+            detail = "创建用户 $name（$role）",
         )
         return CreatedUser(UserSummary(user, roleOf(user.id, projectId)), token)
     }
@@ -62,10 +61,13 @@ class UserService(
         requireValidRole(role)
         val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "平台 admin 角色不可改")
-        if (projectId != null) index.setMembership(id, projectId, role)
-        index.addChangelog(
-            repoId = null, apiId = null, actor = actorName(actor),
-            action = "user.role", detail = "用户 ${user.username} → $role",
+        index.setMembershipWithChangelog(
+            userId = id,
+            projectId = projectId,
+            role = role,
+            actor = actorName(actor),
+            action = "user.role",
+            detail = "用户 ${user.username} → $role",
         )
         return UserSummary(user, roleOf(id, projectId))
     }
@@ -83,10 +85,11 @@ class UserService(
         val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除平台 admin")
         if (actor != null && actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")
-        index.deleteUser(id)
-        index.addChangelog(
-            repoId = null, apiId = null, actor = actorName(actor),
-            action = "user.delete", detail = "删除用户 ${user.username}",
+        index.deleteUserWithChangelog(
+            id = id,
+            actor = actorName(actor),
+            action = "user.delete",
+            detail = "删除用户 ${user.username}",
         )
     }
 

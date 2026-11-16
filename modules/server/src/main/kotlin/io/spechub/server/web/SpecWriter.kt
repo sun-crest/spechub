@@ -51,6 +51,8 @@ class SpecWriter(
         }
         git.push(work, "origin", repo.branch).require("push")
         val short = git.commitHash(work, "HEAD")
+        // R6 承诺语义：git commit+push 与 DB changelog 物理上不可同事务；固定次序为
+        // 「push 成功 → 留痕」，push 失败即停（不留痕），重试由 git/specHash 幂等兜底。
         index.addChangelog(
             repoId = repo.id, apiId = null, actor = bot.name,
             action = ChangelogAction.SPEC_WRITE,

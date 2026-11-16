@@ -20,8 +20,8 @@ import org.springframework.stereotype.Service
  * 写路径承诺（§5 / 决策 1 落法 b）：
  * - 直写：writer.writeSpec（git commit+push）→ ingestor.ingest（索引重建）；失败即停，
  *   重试依赖 git/specHash 幂等（同内容续跑不重复建版本）。
- * - 启鉴权：先落评审（index.createReview + changelog），approve 才写真源；
- *   approve 的次序固定为「git 写 → 摄取 → resolveReview → changelog」，中途失败由调用方重试，
+ * - 启鉴权：先落评审（createReview + changelog 单事务），approve 才写真源；
+ *   approve 的次序固定为「git 写 → 摄取 → resolveReview + changelog 单事务」，中途失败由调用方重试，
  *   评审状态不会先于真源落定。
  *
  * 鉴权决策复用：是否走评审只在 writeOrQueue 一处判定；approve/reject 的角色与
@@ -52,13 +52,11 @@ class SpecWriteService(
         }
 
         // 启鉴权 →「写操作皆审」（§6.4 决策 3）：先入评审队列，approve 后才落真源
-        val review = index.createReview(
+        val review = index.createReviewWithChangelog(
             repoId = repo.id, path = path, newContent = content,
             diff = "", oldHash = index.latestSpecHash(repo.id, path), requester = actor,
-        )
-        index.addChangelog(
-            repoId = repo.id, apiId = null, actor = actor, action = "review.create",
-            detail = "提交评审 #${review.id}：$path（$actor 提交，等待审批）",
+            actor = actor, action = "review.create",
+            detail = { r -> "提交评审 #${r.id}：$path（$actor 提交，等待审批）" },
         )
         return WriteOutcome(
             repoId = repo.id, path = path, commit = "", branch = repo.branch, apiCount = 0,
@@ -80,9 +78,10 @@ class SpecWriteService(
             ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${review.repoId} 不存在")
         val written = writer.writeSpec(repo, review.path, review.newContent)
         val ing = ingestor.ingest(repo, urlTokens.get(repo.id))
-        index.resolveReview(reviewId, ReviewStatus.APPROVED, reviewer.username)
-        index.addChangelog(
-            repoId = review.repoId, apiId = null, actor = reviewer.username, action = "review.approve",
+        index.resolveReviewWithChangelog(
+            repoId = review.repoId, id = reviewId, status = ReviewStatus.APPROVED,
+            reviewer = reviewer.username, rejectReason = null,
+            actor = reviewer.username, action = "review.approve",
             detail = "批准评审 #$reviewId：${review.path} → commit ${written.commit.take(8)}（${ing.apiCount} 个接口）",
         )
         return index.getReview(reviewId)
@@ -94,9 +93,10 @@ class SpecWriteService(
         val review = requirePending(reviewId)
         val reviewer = requireReviewer(actor, review.repoId, "打回评审")
         requireOtherReviewer(reviewer.username, review.requester, reviewer.isPlatformAdmin)
-        index.resolveReview(reviewId, ReviewStatus.REJECTED, reviewer.username, reason)
-        index.addChangelog(
-            repoId = review.repoId, apiId = null, actor = reviewer.username, action = "review.reject",
+        index.resolveReviewWithChangelog(
+            repoId = review.repoId, id = reviewId, status = ReviewStatus.REJECTED,
+            reviewer = reviewer.username, rejectReason = reason,
+            actor = reviewer.username, action = "review.reject",
             detail = "打回评审 #$reviewId：${review.path}${reason?.let { "（$it）" } ?: ""}",
         )
     }

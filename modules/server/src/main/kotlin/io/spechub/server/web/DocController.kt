@@ -57,8 +57,12 @@ class DocController(
     fun addComment(@PathVariable id: Long, @RequestBody @Valid body: DocCommentBody, request: HttpServletRequest): DocCommentView {
         val user = auth.requireAuthenticated(request, "发表文档评论")
         val doc = index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
-        val comment = index.addComment(doc.repoId, apiId = null, docId = doc.id, method = "", path = "", author = user.username, body = body.body.trim())
-        index.addChangelog(doc.repoId, null, user.username, "doc.comment", "评论文档 ${doc.title}：${body.body.trim().take(40)}")
+        val comment = index.addCommentWithChangelog(
+            repoId = doc.repoId, apiId = null, docId = doc.id,
+            method = "", path = "", author = user.username, body = body.body.trim(),
+            actor = user.username, action = "doc.comment",
+            detail = "评论文档 ${doc.title}：${body.body.trim().take(40)}",
+        )
         return toView(comment)
     }
 

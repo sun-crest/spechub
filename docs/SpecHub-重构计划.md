@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：R1–R5 已完成（2026-11-16 实测通过：全量 100 用例绿）；R6–R12 待执行（R6 的用户创建复合原语已随 R4 先行落地）。
+> **日期**：2026-11-16　**状态**：R1–R6 已完成（2026-11-16 实测通过：全量 104 用例绿）；R7–R12 待执行。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -101,6 +101,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **改动** | ① `SpecIndexStore` 新增复合原语 `createUserWithMembership(username, displayName, tokenHash, projectId, role): UserRecord`（单 `db.transaction`）；② git 侧固定次序「先落 review/直写记录 → git commit+push → 索引重建」，失败抛错即停、重试幂等（git/specHash 幂等已具备），Service 注释写清承诺语义；③ 小写路径「写 + changelog」复合化 |
 | **测试** | kernel 层 `SpecIndexStoreTest` 补「中途失败全量回滚」（注入失败点断言 membership 也不存在） |
 | **验收** | 所有「结果一致性要求」的写路径：要么单事务、要么有明确次序与失败重试语义（注释注明） |
+| **状态** | ✅ 2026-11-16 完成：① `createUserWithMembership`（含 changelog 变体）单事务，中途失败回滚用例已补；② `SpecWriteService` 注释写明直写/审批固定次序与重试幂等，`SpecWriter` 标明 git+changelog 物理不可原子、次序为「push 成功 → 留痕」；③ 评论/文档评论/mock 规则/订阅/用户角色与删除/发布/评审创建与落定全部改为「写 + changelog」单事务复合原语（kernel 事务内 `insertChangelog` 助手 + 复合 API）；kernel 复合原语用例 6 例（含 R4 先行的 2 例）；全量 104 用例绿 |
 
 ---
 

@@ -79,12 +79,12 @@ class MockController(
             )
         }
         index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
-        val rule = index.upsertMockRule(
-            MockRuleRecord(repoId = id, apiId = req.apiId, fieldPattern = req.fieldPattern.trim(), ruleType = req.ruleType, ruleValue = req.ruleValue),
+        return index.upsertMockRuleWithChangelog(
+            rule = MockRuleRecord(repoId = id, apiId = req.apiId, fieldPattern = req.fieldPattern.trim(), ruleType = req.ruleType, ruleValue = req.ruleValue),
+            actor = "spechub-bot",
+            action = "mock.rule",
+            detail = "Mock 规则 [${req.ruleType}] ${req.fieldPattern} = ${req.ruleValue.take(60)}",
         )
-        index.addChangelog(repoId = id, apiId = req.apiId, actor = "spechub-bot", action = "mock.rule",
-            detail = "Mock 规则 [${req.ruleType}] ${req.fieldPattern} = ${req.ruleValue.take(60)}")
-        return rule
     }
 
     @DeleteMapping("/api/mock/rules/{ruleId}")

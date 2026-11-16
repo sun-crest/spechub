@@ -287,6 +287,85 @@ class SpecIndexStoreTest {
         assertNull(store.findByUsername("bob"), "成员关系插入失败应回滚用户创建，不留半用户")
     }
 
+    @Test
+    fun `createUserWithMembershipWithChangelog 用户、成员、留痕同事务`() {
+        val store = newStore()
+        val projectId = store.upsertProject("default")
+        val user = store.createUserWithMembershipWithChangelog(
+            "carol", "Carol", "hash", projectId, Role.VIEWER,
+            actor = "admin", action = "user.create", detail = "创建用户 carol",
+        )
+        assertNotNull(user.id)
+        assertEquals(Role.VIEWER, store.membershipRole(checkNotNull(user.id), projectId))
+        assertEquals(1, store.listChangelogs(null, null).count { it.action == "user.create" })
+    }
+
+    @Test
+    fun `promotePathWithChangelog 发布与留痕同事务`() {
+        val store = newStore()
+        val repo = store.insertRepo("default", "https://example.com/o/r.git")
+        val v1 = store.upsertVersion(repo.id, "specs/pet/openapi.yaml", "hash-a")
+        store.replaceApisForRepo(repo.id, listOf(ApiRecord(repoId = repo.id, versionId = v1.id, method = "GET", path = "/pets", specJson = """{"v":1}""")))
+
+        val promoted = store.promotePathWithChangelog(
+            repo.id, "specs/pet/openapi.yaml", "spechub-bot", ChangelogAction.PROMOTE,
+        ) { p -> "发布 ${p.path} → release" }
+        assertNotNull(promoted)
+        assertEquals(Stage.RELEASE, promoted.stage)
+        val logs = store.listChangelogs(repo.id, null).filter { it.action == ChangelogAction.PROMOTE }
+        assertEquals(1, logs.size, "发布留痕 1 条")
+        assertEquals("spechub-bot", logs.single().actor)
+    }
+
+    @Test
+    fun `小写路径复合原语同时落主写与 changelog`() {
+        val store = newStore()
+        val repo = store.insertRepo("default", "https://example.com/o/r.git")
+
+        val comment = store.addCommentWithChangelog(
+            repo.id, null, null, "GET", "/pets", "alice", "hi", "alice", "comment", "评论 GET /pets",
+        )
+        assertNotNull(comment.id)
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "comment" })
+
+        val rule = store.upsertMockRuleWithChangelog(
+            MockRuleRecord(repoId = repo.id, apiId = null, fieldPattern = "user.name", ruleType = "value", ruleValue = "A"),
+            "spechub-bot", "mock.rule", "规则 user.name",
+        )
+        assertNotNull(rule.id)
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "mock.rule" })
+
+        val sub = store.upsertSubscriptionWithChangelog(
+            repo.id, null, "GET", "/pets", "pay-team", "", "alice", "subscription", "订阅 GET /pets",
+        )
+        assertNotNull(sub.id)
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "subscription" })
+
+        store.deleteSubscriptionWithChangelog(
+            checkNotNull(sub.id), sub.repoId, sub.apiId, "alice", "subscription.delete", "取消订阅",
+        )
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "subscription.delete" })
+    }
+
+    @Test
+    fun `review 复合原语状态与留痕同事务`() {
+        val store = newStore()
+        val repo = store.insertRepo("default", "https://example.com/o/r.git")
+        val review = store.createReviewWithChangelog(
+            repo.id, "specs/pet/openapi.yaml", "v2", "", "hash", "alice",
+            actor = "alice", action = "review.create", detail = { r -> "提交评审 #${r.id}" },
+        )
+        assertNotNull(review.id)
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "review.create" })
+
+        store.resolveReviewWithChangelog(
+            repo.id, checkNotNull(review.id), ReviewStatus.APPROVED, "reviewer", null,
+            actor = "reviewer", action = "review.approve", detail = "批准评审",
+        )
+        assertEquals(ReviewStatus.APPROVED, store.getReview(checkNotNull(review.id))?.status)
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "review.approve" })
+    }
+
     // ── K Doc 域：摄取投影 + 全文检索（K2 中文子串）────────────────────────
 
     @Test

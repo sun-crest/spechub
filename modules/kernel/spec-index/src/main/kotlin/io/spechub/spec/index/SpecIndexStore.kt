@@ -106,11 +106,31 @@ class SpecIndexStore(private val db: IndexDb) {
      * @return 升级为 release 的版本；该 path 无任何版本时返回 null。
      */
     fun promotePath(repoId: Long, path: String): VersionRecord? = db.transaction { conn ->
+        promotePath(conn, repoId, path)
+    }
+
+    /**
+     * R6 —— 发布 + changelog 同一事务：发布成功才留痕，任一失败一并回滚。
+     * [detail] 在事务内按发布结果生成留痕文案（纯格式化，不做 I/O）。
+     */
+    fun promotePathWithChangelog(
+        repoId: Long,
+        path: String,
+        actor: String,
+        action: String,
+        detail: (VersionRecord) -> String,
+    ): VersionRecord? = db.transaction { conn ->
+        val promoted = promotePath(conn, repoId, path) ?: return@transaction null
+        conn.insertChangelog(repoId, null, actor, action, detail(promoted))
+        promoted
+    }
+
+    private fun promotePath(conn: Connection, repoId: Long, path: String): VersionRecord? {
         val latest = conn.select(
             "SELECT * FROM version WHERE repo_id=? AND path=? ORDER BY id DESC LIMIT 1",
             repoId, path,
         ) { r -> VersionRecord(r.long("id"), r.long("repo_id"), r["path"] as String, r["spec_hash"] as String, r["stage"] as String) }.firstOrNull()
-            ?: return@transaction null
+            ?: return null
 
         // 同 path 其它版本降 draft（单一 release 语义：release 永远是「某个 spec 文件的最近一次发布」）
         conn.exec("UPDATE version SET stage=? WHERE repo_id=? AND path=? AND id!=?", Stage.DRAFT, repoId, path, latest.id)
@@ -136,16 +156,13 @@ class SpecIndexStore(private val db: IndexDb) {
                 version_id=excluded.version_id, spec_json=excluded.spec_json
             """.trimIndent(), repoId, latest.id,
         )
-        VersionRecord(latest.id, repoId, path, latest.specHash, Stage.RELEASE)
+        return VersionRecord(latest.id, repoId, path, latest.specHash, Stage.RELEASE)
     }
 
     // ── changelog（变更记录，I5 铺底：spec 写回 / 发布 / mock 规则变更都留痕）──────────
 
     fun addChangelog(repoId: Long?, apiId: Long?, actor: String, action: String, detail: String) = db.transaction { conn ->
-        conn.insert(
-            "INSERT INTO changelog (repo_id, api_id, actor, action, detail) VALUES (?,?,?,?,?)",
-            repoId, apiId, actor, action, detail,
-        )
+        conn.insertChangelog(repoId, apiId, actor, action, detail)
     }
 
     fun listChangelogs(repoId: Long?, apiId: Long?, limit: Int = 50): List<ChangelogRecord> = db.transaction { conn ->
@@ -172,20 +189,35 @@ class SpecIndexStore(private val db: IndexDb) {
     // ── mock_rule（I2 规则引擎的存储）──────────────────────────────────────────
 
     fun upsertMockRule(rule: MockRuleRecord): MockRuleRecord = db.transaction { conn ->
+        upsertMockRule(conn, rule)
+    }
+
+    /** R6 —— mock 规则 upsert + changelog 同一事务（写入成功才留痕）。 */
+    fun upsertMockRuleWithChangelog(
+        rule: MockRuleRecord,
+        actor: String,
+        action: String,
+        detail: String,
+    ): MockRuleRecord = db.transaction { conn ->
+        val saved = upsertMockRule(conn, rule)
+        conn.insertChangelog(saved.repoId, saved.apiId, actor, action, detail)
+        saved
+    }
+
+    private fun upsertMockRule(conn: Connection, rule: MockRuleRecord): MockRuleRecord {
         val existing = conn.select(
             "SELECT * FROM mock_rule WHERE repo_id=? AND api_id IS ? AND field_pattern=? AND rule_type=?",
             rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType,
         ) { r -> r.long("id") }.firstOrNull()
         if (existing != null) {
             conn.exec("UPDATE mock_rule SET rule_value=? WHERE id=?", rule.ruleValue, existing)
-            MockRuleRecord(existing, rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue)
-        } else {
-            val id = conn.insert(
-                "INSERT INTO mock_rule (repo_id, api_id, field_pattern, rule_type, rule_value) VALUES (?,?,?,?,?)",
-                rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue,
-            )
-            MockRuleRecord(id, rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue)
+            return MockRuleRecord(existing, rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue)
         }
+        val id = conn.insert(
+            "INSERT INTO mock_rule (repo_id, api_id, field_pattern, rule_type, rule_value) VALUES (?,?,?,?,?)",
+            rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue,
+        )
+        return MockRuleRecord(id, rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue)
     }
 
     fun listMockRules(repoId: Long): List<MockRuleRecord> = db.transaction { conn ->
@@ -257,7 +289,6 @@ class SpecIndexStore(private val db: IndexDb) {
     /**
      * R6 —— 复合原子写：创建用户 + 加入项目成员在同一事务内完成。
      * 任一插入失败（如 projectId 不存在触发 FK）→ 整个事务回滚，避免留下「半用户」。
-     * changelog 仍由 Service 在业务写成功后另行追加（审计记录不阻断主写）。
      */
     fun createUserWithMembership(
         username: String,
@@ -266,6 +297,33 @@ class SpecIndexStore(private val db: IndexDb) {
         projectId: Long?,
         role: String,
     ): UserRecord = db.transaction { conn ->
+        createUserWithMembership(conn, username, displayName, tokenHash, projectId, role)
+    }
+
+    /** R6 —— 创建用户 + 成员 + changelog 同一事务（用户域写路径全原子）。 */
+    fun createUserWithMembershipWithChangelog(
+        username: String,
+        displayName: String,
+        tokenHash: String,
+        projectId: Long?,
+        role: String,
+        actor: String,
+        action: String,
+        detail: String,
+    ): UserRecord = db.transaction { conn ->
+        val user = createUserWithMembership(conn, username, displayName, tokenHash, projectId, role)
+        conn.insertChangelog(null, null, actor, action, detail)
+        user
+    }
+
+    private fun createUserWithMembership(
+        conn: Connection,
+        username: String,
+        displayName: String,
+        tokenHash: String,
+        projectId: Long?,
+        role: String,
+    ): UserRecord {
         val id = conn.insert(
             "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES (?,?,?,0)",
             username, displayName, tokenHash,
@@ -276,11 +334,17 @@ class SpecIndexStore(private val db: IndexDb) {
                 id, projectId, role,
             )
         }
-        UserRecord(id, username, displayName, tokenHash)
+        return UserRecord(id, username, displayName, tokenHash)
     }
 
     fun deleteUser(id: Long) = db.transaction { conn ->
         conn.exec("DELETE FROM app_user WHERE id=?", id)
+    }
+
+    /** R6 —— 删除用户 + changelog 同一事务。 */
+    fun deleteUserWithChangelog(id: Long, actor: String, action: String, detail: String) = db.transaction { conn ->
+        conn.exec("DELETE FROM app_user WHERE id=?", id)
+        conn.insertChangelog(null, null, actor, action, detail)
     }
 
     fun updateUserToken(id: Long, newHash: String) = db.transaction { conn ->
@@ -288,6 +352,26 @@ class SpecIndexStore(private val db: IndexDb) {
     }
 
     fun setMembership(userId: Long, projectId: Long, role: String) = db.transaction { conn ->
+        setMembership(conn, userId, projectId, role)
+    }
+
+    /**
+     * R6 —— 成员角色写 + changelog 同一事务（projectId 为空时仅留痕，兼容默认项目缺失场景）。
+     * 角色写失败（如 FK 不满足）→ changelog 一并回滚。
+     */
+    fun setMembershipWithChangelog(
+        userId: Long,
+        projectId: Long?,
+        role: String,
+        actor: String,
+        action: String,
+        detail: String,
+    ) = db.transaction { conn ->
+        if (projectId != null) setMembership(conn, userId, projectId, role)
+        conn.insertChangelog(null, null, actor, action, detail)
+    }
+
+    private fun setMembership(conn: Connection, userId: Long, projectId: Long, role: String) {
         val existing = conn.select(
             "SELECT id FROM membership WHERE user_id=? AND project_id=?",
             userId, projectId,
@@ -334,21 +418,49 @@ class SpecIndexStore(private val db: IndexDb) {
     }
 
     fun upsertSubscription(repoId: Long, apiId: Long?, method: String, path: String, team: String, notifyUrl: String = ""): SubscriptionRecord = db.transaction { conn ->
+        upsertSubscription(conn, repoId, apiId, method, path, team, notifyUrl)
+    }
+
+    /** R6 —— 订阅 upsert + changelog 同一事务（订阅写成功才留痕）。 */
+    fun upsertSubscriptionWithChangelog(
+        repoId: Long,
+        apiId: Long?,
+        method: String,
+        path: String,
+        team: String,
+        notifyUrl: String,
+        actor: String,
+        action: String,
+        detail: String,
+    ): SubscriptionRecord = db.transaction { conn ->
+        val sub = upsertSubscription(conn, repoId, apiId, method, path, team, notifyUrl)
+        conn.insertChangelog(sub.repoId, sub.apiId, actor, action, detail)
+        sub
+    }
+
+    private fun upsertSubscription(
+        conn: Connection,
+        repoId: Long,
+        apiId: Long?,
+        method: String,
+        path: String,
+        team: String,
+        notifyUrl: String,
+    ): SubscriptionRecord {
         val existing = conn.select(
             "SELECT id FROM subscription WHERE repo_id=? AND method=? AND path=? AND team=?",
             repoId, method, path, team,
         ) { r -> r.long("id") }.firstOrNull()
         if (existing != null) {
             conn.exec("UPDATE subscription SET notify_url=?, api_id=? WHERE id=?", notifyUrl, apiId, existing)
-            conn.select<SubscriptionRecord>("SELECT * FROM subscription WHERE id=?", existing) { rowToSubscription(it) }.firstOrNull()
+            return conn.select<SubscriptionRecord>("SELECT * FROM subscription WHERE id=?", existing) { rowToSubscription(it) }.firstOrNull()
                 ?: SubscriptionRecord(existing, repoId, apiId, method, path, team, notifyUrl)
-        } else {
-            val id = conn.insert(
-                "INSERT INTO subscription (repo_id, api_id, method, path, team, notify_url) VALUES (?,?,?,?,?,?)",
-                repoId, apiId, method, path, team, notifyUrl,
-            )
-            SubscriptionRecord(id, repoId, apiId, method, path, team, notifyUrl)
         }
+        val id = conn.insert(
+            "INSERT INTO subscription (repo_id, api_id, method, path, team, notify_url) VALUES (?,?,?,?,?,?)",
+            repoId, apiId, method, path, team, notifyUrl,
+        )
+        return SubscriptionRecord(id, repoId, apiId, method, path, team, notifyUrl)
     }
 
     fun listSubscriptions(repoId: Long? = null): List<SubscriptionRecord> = db.transaction { conn ->
@@ -367,6 +479,19 @@ class SpecIndexStore(private val db: IndexDb) {
 
     fun deleteSubscription(id: Long) = db.transaction { conn ->
         conn.exec("DELETE FROM subscription WHERE id=?", id)
+    }
+
+    /** R6 —— 取消订阅 + changelog 同一事务。 */
+    fun deleteSubscriptionWithChangelog(
+        id: Long,
+        repoId: Long,
+        apiId: Long?,
+        actor: String,
+        action: String,
+        detail: String,
+    ) = db.transaction { conn ->
+        conn.exec("DELETE FROM subscription WHERE id=?", id)
+        conn.insertChangelog(repoId, apiId, actor, action, detail)
     }
 
     fun addNotification(team: String, repoId: Long, method: String, path: String, summary: String): NotificationRecord = db.transaction { conn ->
@@ -396,11 +521,42 @@ class SpecIndexStore(private val db: IndexDb) {
     // ── review（I8 评审审批流「写操作皆审」）───────────────────────────────────
 
     fun createReview(repoId: Long, path: String, newContent: String, diff: String, oldHash: String?, requester: String): ReviewRecord = db.transaction { conn ->
+        createReview(conn, repoId, path, newContent, diff, oldHash, requester)
+    }
+
+    /**
+     * R6 —— 提交评审 + changelog 同一事务；[detail] 按落库评审记录生成留痕文案。
+     */
+    fun createReviewWithChangelog(
+        repoId: Long,
+        path: String,
+        newContent: String,
+        diff: String,
+        oldHash: String?,
+        requester: String,
+        actor: String,
+        action: String,
+        detail: (ReviewRecord) -> String,
+    ): ReviewRecord = db.transaction { conn ->
+        val review = createReview(conn, repoId, path, newContent, diff, oldHash, requester)
+        conn.insertChangelog(repoId, null, actor, action, detail(review))
+        review
+    }
+
+    private fun createReview(
+        conn: Connection,
+        repoId: Long,
+        path: String,
+        newContent: String,
+        diff: String,
+        oldHash: String?,
+        requester: String,
+    ): ReviewRecord {
         val id = conn.insert(
             "INSERT INTO review (repo_id, path, new_content, diff, old_hash, requester) VALUES (?,?,?,?,?,?)",
             repoId, path, newContent, diff, oldHash, requester,
         )
-        ReviewRecord(id, repoId, path, newContent, diff, oldHash, ReviewStatus.PENDING, requester)
+        return ReviewRecord(id, repoId, path, newContent, diff, oldHash, ReviewStatus.PENDING, requester)
     }
 
     fun getReview(id: Long): ReviewRecord? = db.transaction { conn ->
@@ -422,6 +578,25 @@ class SpecIndexStore(private val db: IndexDb) {
     }
 
     fun resolveReview(id: Long, status: String, reviewer: String, rejectReason: String? = null) = db.transaction { conn ->
+        resolveReview(conn, id, status, reviewer, rejectReason)
+    }
+
+    /** R6 —— 评审落定 + changelog 同一事务（状态与审计同时生效/回滚）。 */
+    fun resolveReviewWithChangelog(
+        repoId: Long,
+        id: Long,
+        status: String,
+        reviewer: String,
+        rejectReason: String?,
+        actor: String,
+        action: String,
+        detail: String,
+    ) = db.transaction { conn ->
+        resolveReview(conn, id, status, reviewer, rejectReason)
+        conn.insertChangelog(repoId, null, actor, action, detail)
+    }
+
+    private fun resolveReview(conn: Connection, id: Long, status: String, reviewer: String, rejectReason: String?) {
         conn.exec(
             "UPDATE review SET status=?, reviewer=?, reject_reason=?, resolved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
             status, reviewer, rejectReason, id,
@@ -492,11 +667,42 @@ class SpecIndexStore(private val db: IndexDb) {
     // ── comment（I5 轻评论）───────────────────────────────────────────────
 
     fun addComment(repoId: Long, apiId: Long?, docId: Long?, method: String, path: String, author: String, body: String): CommentRecord = db.transaction { conn ->
+        addComment(conn, repoId, apiId, docId, method, path, author, body)
+    }
+
+    /** R6 —— 评论 + changelog 同一事务（api 评论与 doc 评论共用；成功才留痕）。 */
+    fun addCommentWithChangelog(
+        repoId: Long,
+        apiId: Long?,
+        docId: Long?,
+        method: String,
+        path: String,
+        author: String,
+        body: String,
+        actor: String,
+        action: String,
+        detail: String,
+    ): CommentRecord = db.transaction { conn ->
+        val comment = addComment(conn, repoId, apiId, docId, method, path, author, body)
+        conn.insertChangelog(comment.repoId, comment.apiId, actor, action, detail)
+        comment
+    }
+
+    private fun addComment(
+        conn: Connection,
+        repoId: Long,
+        apiId: Long?,
+        docId: Long?,
+        method: String,
+        path: String,
+        author: String,
+        body: String,
+    ): CommentRecord {
         val id = conn.insert(
             "INSERT INTO comment (repo_id, api_id, doc_id, method, path, author, body) VALUES (?,?,?,?,?,?,?)",
             repoId, apiId, docId, method, path, author, body,
         )
-        CommentRecord(id, repoId, apiId, docId, method, path, author, body)
+        return CommentRecord(id, repoId, apiId, docId, method, path, author, body)
     }
 
     /** 按稳定寻址（repo + method + path）取评论：api 投影重建后依旧命中 */
@@ -519,6 +725,19 @@ class SpecIndexStore(private val db: IndexDb) {
 
     fun deleteComment(id: Long) = db.transaction { conn ->
         conn.exec("DELETE FROM comment WHERE id=?", id)
+    }
+
+    /** R6 —— 删除评论 + changelog 同一事务（api/doc 评论共用）。 */
+    fun deleteCommentWithChangelog(
+        id: Long,
+        repoId: Long,
+        apiId: Long?,
+        actor: String,
+        action: String,
+        detail: String,
+    ) = db.transaction { conn ->
+        conn.exec("DELETE FROM comment WHERE id=?", id)
+        conn.insertChangelog(repoId, apiId, actor, action, detail)
     }
 
     // ── api（归一化接口投影）─────────────────────────────────────────────
@@ -670,6 +889,13 @@ class SpecIndexStore(private val db: IndexDb) {
         createdAt = r["created_at"] as? String,
         resolvedAt = r["resolved_at"] as? String,
     )
+
+    private fun Connection.insertChangelog(repoId: Long?, apiId: Long?, actor: String, action: String, detail: String) {
+        insert(
+            "INSERT INTO changelog (repo_id, api_id, actor, action, detail) VALUES (?,?,?,?,?)",
+            repoId, apiId, actor, action, detail,
+        )
+    }
 
     private fun insertProject(conn: Connection, name: String): Long {
         projectIdByName(conn, name)?.let { return it }
