@@ -84,15 +84,25 @@ class AuthService(
         return projectId?.let { index.membershipRole(uid, it) }
     }
 
+    /** 用户对某 repo（project）的角色（不依赖 HttpServletRequest，Service 层复用） */
+    fun roleForUser(user: UserRecord, repoId: Long): String? =
+        effectiveRole(user, index.getRepo(repoId)?.projectId)
+
+    /** require：按已解析用户判定 repo 角色（Service 层复用；未启用鉴权放行） */
+    fun requireRole(user: UserRecord, repoId: Long, min: String, op: String) {
+        if (!authEnabled) return
+        val role = roleForUser(user, repoId)
+        if (role == null || Role.rank(role) < Role.rank(min)) {
+            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要 $min 及以上角色（当前 ${role ?: "无项目权限"}）")
+        }
+    }
+
     /** require：写端点入口校验，未达标抛 401/403（带操作名）；未启用鉴权放行 */
     fun requireRepoRole(req: HttpServletRequest, repoId: Long, min: String, op: String) {
         if (!authEnabled) return
         val user = currentUser(req)
             ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
-        val role = roleForRepo(req, repoId)
-        if (role == null || Role.rank(role) < Role.rank(min)) {
-            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要 $min 及以上角色（当前 ${role ?: "无项目权限"}）")
-        }
+        requireRole(user, repoId, min, op)
     }
 
     /** require：面向项目（注册仓库等尚无 repoId 的场景）；平台 admin 恒通过；未启用鉴权放行 */

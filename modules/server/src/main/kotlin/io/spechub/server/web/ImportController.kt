@@ -1,14 +1,13 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.Role
-import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.model.OpenApiDoc
 import io.spechub.spec.model.io.SpecFormat
 import io.spechub.spec.model.io.SpecModelIO
 import io.spechub.spec.parser.ParseResult
 import io.spechub.spec.parser.PostmanImporter
 import io.spechub.spec.parser.SpecParser
-import io.spechub.server.ingest.Ingestor
+import io.spechub.server.service.SpecWriteService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
@@ -32,11 +31,8 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 @RequestMapping("/api/import")
 class ImportController(
-    private val index: SpecIndexStore,
     private val auth: AuthService,
-    private val writer: SpecWriter,
-    private val ingestor: Ingestor,
-    private val urlTokens: UrlTokenStore,
+    private val specWriteService: SpecWriteService,
 ) {
 
     data class ImportRequest(
@@ -83,12 +79,8 @@ class ImportController(
         var written: WrittenInfo? = null
         body.repoId?.let { repoId ->
             auth.requireRepoRole(request, repoId, Role.EDITOR, "导入写回")
-            val repo = index.getRepo(repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $repoId 不存在")
-            val path = body.path?.takeIf { it.endsWith(".yaml") || it.endsWith(".yml") }
-                ?: "specs/import/$type-${System.currentTimeMillis()}.yaml"
-            val wr = writer.writeSpec(repo, path, specYaml)
-            ingestor.ingest(repo, urlTokens.get(repoId))
-            written = WrittenInfo(repoId, path, wr.commit.take(12), wr.branch)
+            val w = specWriteService.importWrite(repoId, body.path, type, specYaml)
+            written = WrittenInfo(w.repoId, w.path, w.commit, w.branch)
         }
 
         val messages = result.issues.map { it.message }

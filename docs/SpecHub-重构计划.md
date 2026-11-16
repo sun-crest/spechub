@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：R1–R3 已完成（2026-11-16 实测通过：server 全量用例绿，含 `ErrorContractTest` 5 + `ValidationContractTest` 6）；R4–R12 待执行。
+> **日期**：2026-11-16　**状态**：R1–R5 已完成（2026-11-16 实测通过：全量 100 用例绿）；R6–R12 待执行（R6 的用户创建复合原语已随 R4 先行落地）。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -77,6 +77,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **现状证据** | `AuthController.createUser` 内联「createUser + setMembership + addChangelog」三步；`ReviewController` 审批编排；`SubscriptionController.subscribe` 内嵌「apiId 尽力关联」业务规则 |
 | **改动** | ① 新建 `server/service/UserService.kt`（`createUserWithMembership/setRole/resetToken/deleteUser`，编排 + changelog 收口，内部用 R6 复合原语）；② 新建 `server/service/SubscriptionService.kt`（`subscribe/unsubscribe` 含关联规则 + changelog）；③ 评论/文档评论/mock 规则等**单次 Store 写 + changelog** 的小写路径暂以 R6 复合 API 收口（§1.2 允许薄 Controller） |
 | **验收** | 涉改 Controller 只剩 HTTP 映射 + 校验 + 转换；业务规则在 Service |
+| **状态** | ✅ 2026-11-16 完成：新建 `server/service/UserService`（`listUsers/createUserWithMembership/setRole/resetToken/deleteUser`，角色值域/同名冲突/平台 admin 保护/不能删自己等规则与 changelog 全部收口）与 `server/service/SubscriptionService`（`subscribe/unsubscribe`，apiId 尽力关联规则 + changelog）；`AuthController`、`SubscriptionController` 只剩 HTTP 映射、声明式校验、鉴权入口与 DTO 转换；用户创建改用新增 `SpecIndexStore.createUserWithMembership` 单事务复合原语（R6 用户路径先行落地，新增 2 例：单事务落库 / membership FK 失败时 user 全量回滚）；全量 99 用例绿 |
 
 #### R5 · Spec 写回编排下沉　`[强]`（规范 §1.2）
 
@@ -86,6 +87,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **改动** | ① 新建 `server/service/SpecWriteService.kt`：`writeOrQueue(repo, path, content, actor)`（含鉴权→评审分支）、`approve(...)`（全序编排）、`reject(...)`、`importWrite(...)`；② `ReviewController / ApiQueryController / ImportController / RepoController` 编排全部下沉；`requireOtherReviewer` 规则上移；③ `SpecWriter`/`Ingestor` 维持基础设施角色 |
 | **测试** | `ReviewApiTest` 补「approve 全链路状态一致」用例 |
 | **验收** | 涉改 4 个 Controller 的 git+数据库编排引用归零；鉴权/非鉴权分支只在 Service 一处判定 |
+| **状态** | ✅ 2026-11-16 完成：新建 `server/service/SpecWriteService`（`writeOrQueue` 直写/评审唯一分支、`approve/reject` 全序编排、`importWrite`、`registerRepo`）；`ReviewController / ApiQueryController / ImportController / RepoController` 的 git 写回、摄取、评审落定、注册编排全部下沉，`requireOtherReviewer` 与待审状态校验移入 Service；`AuthService` 增 `requireRole(user,...)` 供 Service 复用，`UrlTokenStore` 收口 token 注入；`ReviewApiTest` 新增「approve 全链路状态一致」用例（review 行/version/changelog/投影/sync_status 五方核对）；全量 100 用例绿 |
 
 ---
 
