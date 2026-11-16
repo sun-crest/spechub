@@ -16,6 +16,7 @@ build/
 *.iml
 .vscode/
 *.swp
+bin/
 
 # --- Node / Vite / React ---
 node_modules/
