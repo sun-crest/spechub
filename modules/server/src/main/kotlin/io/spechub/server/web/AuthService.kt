@@ -64,6 +64,10 @@ class AuthService(
     /** request 上由 TokenAuthFilter 填充的当前用户 */
     fun currentUser(req: HttpServletRequest): UserRecord? = req.getAttribute(REQ_USER) as? UserRecord
 
+    /** request 上的操作者用户名（filter 已填充）；无则回退 anonymous（单一实现，勿在 Controller 重复取属性） */
+    fun currentActor(req: HttpServletRequest): String =
+        req.getAttribute(REQ_USERNAME) as? String ?: "anonymous"
+
     /**
      * 判定用户对某 repo（project）是否至少 [min] 角色。
      * @return 达标 → 角色名；未达标 → null。

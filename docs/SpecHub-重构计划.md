@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：R1/R2 已完成（2026-11-16 实测通过：server 全量 42 用例绿，含 `ErrorContractTest` 5 例 + `ValidationContractTest` 6 例）；R3–R12 待执行。
+> **日期**：2026-11-16　**状态**：R1–R3 已完成（2026-11-16 实测通过：server 全量用例绿，含 `ErrorContractTest` 5 + `ValidationContractTest` 6）；R4–R12 待执行。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -68,6 +68,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **现状证据** | [AuthController.kt:139-149](../modules/server/src/main/kotlin/io/spechub/server/web/AuthController.kt#L139-L149) 私有 `requireManager` 与 `AuthService.requireProjectRole` 等价；`currentActor` 在 AuthController、[SubscriptionController.kt:76](../modules/server/src/main/kotlin/io/spechub/server/web/SubscriptionController.kt#L76) 重复 |
 | **改动** | ① `AuthController` 换 `auth.requireProjectRole(request, projectIdByName(DEFAULT_PROJECT), Role.ADMIN, op)`；② `AuthService` 补 `currentActor(req)` 单一实现；③ 遵守 §9 边界：**不**扩展 `TokenAuthFilter` URL 白名单 |
 | **验收** | `grep requireManager` 归零；`currentActor` 仅在 `AuthService` 一处定义 |
+| **状态** | ✅ 2026-11-16 完成：`AuthController` 5 处 `requireManager` 全部换 `auth.requireProjectRole`（私有副本已删）；`AuthService` 补 `currentActor(req)` 单一实现，`AuthController`/`SubscriptionController` 6 处调用统一收口；未扩展 `TokenAuthFilter` 白名单；server 全量回归绿 |
 
 #### R4 · Service 化：用户域 + 订阅域　`[强]`（规范 §1.2、§1.1 新增 `service` 包）
 

@@ -52,7 +52,7 @@ class SubscriptionController(
         val sub = index.upsertSubscription(
             body.repoId, apiId, body.method.uppercase(), body.path, body.team.trim(), body.notifyUrl.trim(),
         )
-        index.addChangelog(body.repoId, apiId, currentActor(request), "subscription",
+        index.addChangelog(body.repoId, apiId, auth.currentActor(request), "subscription",
             "${body.team} 订阅 ${body.method.uppercase()} ${body.path}")
         return sub
     }
@@ -66,13 +66,10 @@ class SubscriptionController(
         auth.requireAuthenticated(request, "取消订阅")
         val sub = index.getSubscription(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "订阅 $id 不存在")
         index.deleteSubscription(id)
-        index.addChangelog(sub.repoId, sub.apiId, currentActor(request), "subscription.delete", "取消订阅：${sub.team} ${sub.method} ${sub.path}")
+        index.addChangelog(sub.repoId, sub.apiId, auth.currentActor(request), "subscription.delete", "取消订阅：${sub.team} ${sub.method} ${sub.path}")
     }
 
     @GetMapping("/notifications")
     fun notifications(@RequestParam team: String? = null, @RequestParam limit: Int = 50): List<NotificationRecord> =
         index.listNotifications(team, limit)
-
-    private fun currentActor(request: HttpServletRequest): String =
-        request.getAttribute(AuthService.REQ_USERNAME) as? String ?: "anonymous"
 }

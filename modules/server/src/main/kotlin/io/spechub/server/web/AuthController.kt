@@ -112,7 +112,7 @@ class AuthController(
 
     @GetMapping("/users")
     fun users(req: HttpServletRequest): List<UserView> {
-        requireManager(req, "查看成员")
+        auth.requireProjectRole(req, index.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "查看成员")
         val projectId = index.projectIdByName(RepoController.DEFAULT_PROJECT)
         return index.listUsers().map { user ->
             UserView(
@@ -126,7 +126,7 @@ class AuthController(
 
     @PostMapping("/users")
     fun createUser(req: HttpServletRequest, @RequestBody @Valid body: CreateUserRequest): CreateUserResponse {
-        requireManager(req, "创建用户")
+        auth.requireProjectRole(req, index.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "创建用户")
         val username = body.username.trim()
         if (!Role.ALL.contains(body.role)) {
             throw ApiException(
@@ -142,13 +142,13 @@ class AuthController(
         val user = index.createUser(username, body.displayName.ifBlank { username }, AuthService.sha256(token))
         val projectId = index.projectIdByName(RepoController.DEFAULT_PROJECT)
         if (projectId != null) index.setMembership(user.id!!, projectId, body.role)
-        index.addChangelog(repoId = null, apiId = null, actor = currentActor(req), action = "user.create", detail = "创建用户 $username（$body.role）")
+        index.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.create", detail = "创建用户 $username（$body.role）")
         return CreateUserResponse(toView(user, projectId), token)
     }
 
     @PostMapping("/users/{id}/role")
     fun setRole(req: HttpServletRequest, @PathVariable id: Long, @RequestBody @Valid body: UpdateRoleRequest): UserView {
-        requireManager(req, "改角色")
+        auth.requireProjectRole(req, index.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "改角色")
         if (!Role.ALL.contains(body.role)) {
             throw ApiException(ApiErrorCode.VALIDATION, "role ∈ ${Role.ALL}", listOf(ApiErrorBody.FieldError("role", "role ∈ ${Role.ALL}")))
         }
@@ -156,13 +156,13 @@ class AuthController(
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "平台 admin 角色不可改")
         val projectId = index.projectIdByName(RepoController.DEFAULT_PROJECT)
         if (projectId != null) index.setMembership(id, projectId, body.role)
-        index.addChangelog(repoId = null, apiId = null, actor = currentActor(req), action = "user.role", detail = "用户 ${user.username} → $body.role")
+        index.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.role", detail = "用户 ${user.username} → $body.role")
         return toView(user, projectId)
     }
 
     @PostMapping("/users/{id}/token")
     fun resetToken(req: HttpServletRequest, @PathVariable id: Long): CreateUserResponse {
-        requireManager(req, "重置令牌")
+        auth.requireProjectRole(req, index.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "重置令牌")
         val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         val token = AuthService.generateToken()
         // 无公开 updateToken 字段 → 删除重建不可取（保留 id/role）。这里用内部更新：
@@ -174,29 +174,15 @@ class AuthController(
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun deleteUser(req: HttpServletRequest, @PathVariable id: Long) {
         val actor = auth.currentUser(req)
-        requireManager(req, "删除用户")
+        auth.requireProjectRole(req, index.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "删除用户")
         val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除平台 admin")
         if (actor != null && actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")
         index.deleteUser(id)
-        index.addChangelog(repoId = null, apiId = null, actor = currentActor(req), action = "user.delete", detail = "删除用户 ${user.username}")
+        index.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.delete", detail = "删除用户 ${user.username}")
     }
 
     // ── 内部 ───────────────────────────────────────────────────────────────
-
-    private fun requireManager(req: HttpServletRequest, op: String) {
-        val user = auth.currentUser(req)
-        if (!auth.authEnabled) return // 未启用鉴权：成员管理暂无意义，放行操作（管理 API 用于启鉴权后端）
-        if (user == null) throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
-        val projectId = index.projectIdByName(RepoController.DEFAULT_PROJECT)
-        val role = auth.effectiveRole(user, projectId)
-        if (!(user.isPlatformAdmin || Role.rank(role) >= Role.rank(Role.ADMIN))) {
-            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要 admin 及以上（当前 ${role ?: "无项目权限"}）")
-        }
-    }
-
-    private fun currentActor(req: HttpServletRequest): String =
-        req.getAttribute(AuthService.REQ_USERNAME) as? String ?: "anonymous"
 
     private fun toView(user: UserRecord, projectId: Long?): UserView = UserView(
         id = user.id as Long, username = user.username, displayName = user.displayName,
