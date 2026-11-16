@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：R1–R9 已完成（2026-11-16 实测通过：全量 105 用例绿）；R10–R12 待执行。
+> **日期**：2026-11-16　**状态**：R1–R10 已完成（2026-11-16 实测通过：全量 107 用例绿）；R11–R12 待执行。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -141,6 +141,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **改动** | ① `application.yml` 拆公共 + `application-dev.yml`（默认）+ `application-prod.yml`；② `SpecHubProperties` 加 `@Validated` + 必填项校验（prod 安全项未配 → **启动即 fail**）；③ logback 基础配置 |
 | **测试** | prod profile 冒烟「缺必填项 → 启动失败而非运行期降级」 |
 | **验收** | profile 隔离生效；安全配置缺失在启动期显式报错 |
+| **状态** | ✅ 2026-11-16 完成：`application.yml` 拆公共 + `application-dev.yml`（`spring.profiles.default=dev`）+ `application-prod.yml`；`SpecHubProperties` 加 `@Validated` 与 `@field:NotBlank/@Min`，prod 由 `require-admin-token=true` 触发 `@AssertTrue`（缺失/空 `admin-token` 在配置绑定期即失败）；`AuthService` 空串按「未启用」处理；新增 `logback-spring.xml` 控制台基础格式；`compose/.env.example`、`compose/docker-compose.yml`、README 补 profile 与 `SPECHUB_ADMIN_TOKEN` 说明；新增 `SpecHubPropertiesValidationTest`（dev 可启动 / prod 缺 token 启动失败）；全量 107 用例绿 |
 
 #### R11 · springdoc 落地　`[推]`（规范 §8）
 

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  R10 —— 基础 logback 配置：仅控制台输出（容器/单机部署由外部收集 stdout）。
+  级别按 profile 在 application-dev/prod.yml 的 logging.level.* 覆盖，这里只定义格式与根级别。
+  访问日志由 RequestLogFilter 以 INFO 输出：method path status durationMs。
+-->
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

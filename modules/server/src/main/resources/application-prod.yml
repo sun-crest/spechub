@@ -1,0 +1,9 @@
+# 生产 profile：必须显式提供 SPECHUB_ADMIN_TOKEN。
+# 缺失/空串 → SpecHubProperties 的 @AssertTrue 校验失败，配置绑定阶段即启动失败。
+spechub:
+  require-admin-token: true
+  admin-token: ${SPECHUB_ADMIN_TOKEN:}
+
+logging:
+  level:
+    io.spechub: INFO

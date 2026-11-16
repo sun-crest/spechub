@@ -1,0 +1,8 @@
+# 默认开发 profile：不要求 admin-token（未配置 = 鉴权关闭，全放行）。
+spechub:
+  require-admin-token: false
+
+logging:
+  level:
+    io.spechub: DEBUG
+    org.springframework.web: INFO

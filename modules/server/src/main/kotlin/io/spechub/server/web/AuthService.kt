@@ -47,11 +47,11 @@ class AuthService(
         }
     }
 
-    val authEnabled: Boolean get() = props.adminToken != null
+    val authEnabled: Boolean get() = !props.adminToken.isNullOrBlank()
 
     /** 启动时 bootstrap 平台 admin（幂等；token_hash 由 admin-token 派生） */
     fun bootstrapAdmin(): UserRecord? {
-        val token = props.adminToken ?: return null
+        val token = props.adminToken?.takeIf { it.isNotBlank() } ?: return null
         return index.ensurePlatformAdmin(sha256(token))
     }
 
