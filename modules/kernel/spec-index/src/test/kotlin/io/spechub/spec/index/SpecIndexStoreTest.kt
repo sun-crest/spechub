@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** E4：SQLite 表 + 唯一键 + 幂等重建 + api↔schema 引用可解析 */
@@ -262,6 +264,27 @@ class SpecIndexStoreTest {
         store.resolveReview(r2.id!!, ReviewStatus.REJECTED, "reviewer", "缺 required 字段")
         assertEquals("缺 required 字段", store.getReview(r2.id)!!.rejectReason, "打回理由")
         assertEquals(0, store.listReviews(repoId = repo.id, status = ReviewStatus.PENDING).size, "两条均处理后无待审")
+    }
+
+    // ── R6 复合原语（R4 用户创建先行使用）─────────────────────────────────────
+
+    @Test
+    fun `createUserWithMembership 单事务创建用户与成员关系`() {
+        val store = newStore()
+        val projectId = store.upsertProject("default")
+        val user = store.createUserWithMembership("alice", "Alice", "hash", projectId, Role.VIEWER)
+        assertEquals("alice", store.findUserById(checkNotNull(user.id))?.username, "用户已落库")
+        assertEquals(Role.VIEWER, store.membershipRole(checkNotNull(user.id), projectId), "成员关系已落库")
+    }
+
+    @Test
+    fun `createUserWithMembership 中途失败全量回滚`() {
+        val store = newStore()
+        // projectId 不存在 → membership 插入触发 FK 失败；验证同一事务内 app_user 插入也回滚
+        assertFailsWith<Exception> {
+            store.createUserWithMembership("bob", "Bob", "hash", projectId = 999_999, role = Role.VIEWER)
+        }
+        assertNull(store.findByUsername("bob"), "成员关系插入失败应回滚用户创建，不留半用户")
     }
 
     // ── K Doc 域：摄取投影 + 全文检索（K2 中文子串）────────────────────────

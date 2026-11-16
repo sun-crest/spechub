@@ -254,6 +254,31 @@ class SpecIndexStore(private val db: IndexDb) {
         UserRecord(id, username, displayName, tokenHash)
     }
 
+    /**
+     * R6 —— 复合原子写：创建用户 + 加入项目成员在同一事务内完成。
+     * 任一插入失败（如 projectId 不存在触发 FK）→ 整个事务回滚，避免留下「半用户」。
+     * changelog 仍由 Service 在业务写成功后另行追加（审计记录不阻断主写）。
+     */
+    fun createUserWithMembership(
+        username: String,
+        displayName: String,
+        tokenHash: String,
+        projectId: Long?,
+        role: String,
+    ): UserRecord = db.transaction { conn ->
+        val id = conn.insert(
+            "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES (?,?,?,0)",
+            username, displayName, tokenHash,
+        )
+        if (projectId != null) {
+            conn.insert(
+                "INSERT INTO membership (user_id, project_id, role) VALUES (?,?,?)",
+                id, projectId, role,
+            )
+        }
+        UserRecord(id, username, displayName, tokenHash)
+    }
+
     fun deleteUser(id: Long) = db.transaction { conn ->
         conn.exec("DELETE FROM app_user WHERE id=?", id)
     }
