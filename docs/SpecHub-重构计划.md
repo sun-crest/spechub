@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：**待评审**（草案，未改任何代码）。
+> **日期**：2026-11-16　**状态**：R1 已完成（2026-11-16 实测通过：server 全量测试绿，新增 `ErrorContractTest` 5 例）；R2–R12 待执行。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -45,6 +45,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **改动** | ① 新建 `server/web/common/ApiException.kt`（`status/code/message/fieldErrors?`）；② 新建 `ErrorCode.kt`（enum，前缀族 `AUTH_/NOT_FOUND_/CONFLICT_/VALIDATION_/INTERNAL`）；③ 新建 `ApiExceptionHandler.kt`（`@RestControllerAdvice` 处理 `ApiException`/校验异常→fieldErrors/报文不可读→400/未知异常→500 脱敏）；④ `TokenAuthFilter` 与 `MockController.mock` 的拒绝体改走同一结构；⑤ 存量 78 处**替代优先**：新端点直接 `throw ApiException`，旧端点按 compat 表逐步迁移 |
 | **测试** | 新增 `ErrorContractTest`（错误体结构断言 + 未知异常不进栈）；逐一核验并修正现有 `web/*ApiTest` 中对错误 JSON 的精确断言 |
 | **验收** | 任何错误响应均含 `code`；仓库内无第三类 `{"error":...}`；500 响应体零内部细节 |
+| **状态** | ✅ 2026-11-16 完成：78 处存量 `ResponseStatusException` 全部替换归零；`TokenAuthFilter`/`MockController` 并入统一错误体（消除第二、三种格式）；500 脱敏落实（DocumentController / TryController 详情进日志）；新增 `ErrorContractTest`（NOT_FOUND / MALFORMED_BODY / AUTH_UNAUTHORIZED / MOCK_NO_MATCH / 500 脱敏）＋ server 全量回归全绿 |
 
 #### R2 · 声明式校验落地　`[强]`（规范 §3）
 

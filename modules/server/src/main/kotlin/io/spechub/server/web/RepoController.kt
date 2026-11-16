@@ -3,7 +3,8 @@ package io.spechub.server.web
 import io.spechub.spec.index.RepoRecord
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.server.ingest.Ingestor
-import org.springframework.http.HttpStatus
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -11,7 +12,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.server.ResponseStatusException
 
 /*
  * E2 —— Repo 注册 REST：添加仓地址 / 分支 / 可选 token 注入（不落库）。
@@ -44,7 +44,7 @@ class RepoController(
     @PostMapping("/repos")
     fun register(@RequestBody req: RegisterRepoRequest, request: jakarta.servlet.http.HttpServletRequest): RegisterResponse {
         auth.requireProjectRole(request, index.projectIdByName(DEFAULT_PROJECT), io.spechub.spec.index.Role.EDITOR, "注册仓库")
-        if (req.url.isBlank()) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "url 不能为空")
+        if (req.url.isBlank()) throw ApiException(ApiErrorCode.BAD_REQUEST, "url 不能为空")
         val repo = index.insertRepo(DEFAULT_PROJECT, req.url.trim(), req.branch?.ifEmpty { null } ?: "main")
         if (req.token != null && req.token.isNotBlank()) {
             urlTokens.put(repo.id, injectToken(req.url.trim(), req.token.trim()))
@@ -58,7 +58,7 @@ class RepoController(
 
     @GetMapping("/repos/{id}")
     fun get(@PathVariable id: Long): RepoRecord =
-        index.getRepo(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo $id 不存在")
+        index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
 
     @GetMapping("/repos/{id}/apis")
     fun apis(

@@ -1,5 +1,7 @@
 package io.spechub.server.web
 
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.index.Stage
 import io.spechub.spec.model.Components
@@ -10,8 +12,6 @@ import io.spechub.spec.model.PathItem
 import io.spechub.spec.model.Schema
 import io.spechub.spec.model.io.SpecModelIO
 import org.springframework.stereotype.Service
-import org.springframework.web.server.ResponseStatusException
-import org.springframework.http.HttpStatus
 
 /**
  * J3/J4 —— 导出底座：把 repo 当前档位（draft/release）的索引投影重建为标准 OpenApiDoc，
@@ -22,7 +22,7 @@ import org.springframework.http.HttpStatus
 class ExportService(private val index: SpecIndexStore) {
 
     fun reconstructOpenApi(repoId: Long, stage: String = Stage.DRAFT): OpenApiDoc {
-        val repo = index.getRepo(repoId) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo $repoId 不存在")
+        val repo = index.getRepo(repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $repoId 不存在")
 
         val paths = LinkedHashMap<String, PathItem>()
         for (api in index.listApis(repoId, stage = stage)) {

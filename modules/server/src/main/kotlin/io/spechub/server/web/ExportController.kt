@@ -1,5 +1,7 @@
 package io.spechub.server.web
 
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.index.Stage
 import io.spechub.spec.model.io.SpecFormat
@@ -8,7 +10,6 @@ import io.spechub.spec.parser.export.HtmlPortalExporter
 import io.spechub.spec.parser.export.MarkdownExporter
 import io.spechub.spec.parser.export.OpenApi30Exporter
 import io.spechub.spec.parser.export.PostmanExporter
-import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -16,7 +17,6 @@ import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.server.ResponseStatusException
 
 /**
  * J3/J4 —— 标准/文档导出（读索引投影重建 OpenApiDoc）：
@@ -34,12 +34,12 @@ class ExportController(
     @GetMapping("/{format}")
     fun export(@PathVariable id: Long, @PathVariable format: String, @RequestParam stage: String = Stage.DRAFT): ResponseEntity<String> {
         if (format !in setOf("openapi31", "openapi30", "postman", "markdown", "html")) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "format ∈ openapi31 | openapi30 | postman | markdown | html")
+            throw ApiException(ApiErrorCode.BAD_REQUEST, "format ∈ openapi31 | openapi30 | postman | markdown | html")
         }
         if (stage !in setOf(Stage.DRAFT, Stage.RELEASE)) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "stage ∈ draft | release")
+            throw ApiException(ApiErrorCode.BAD_REQUEST, "stage ∈ draft | release")
         }
-        index.getRepo(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo $id 不存在")
+        index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
 
         val doc = exportService.reconstructOpenApi(id, stage)
         val (body, mediaType, ext) = when (format) {
@@ -48,7 +48,7 @@ class ExportController(
             "postman" -> Triple(PostmanExporter.exportJson(doc), MediaType.APPLICATION_JSON.toString(), "json")
             "markdown" -> Triple(MarkdownExporter.export(doc), "text/markdown;charset=UTF-8", "md")
             "html" -> Triple(HtmlPortalExporter.export(doc), "text/html;charset=UTF-8", "html")
-            else -> throw ResponseStatusException(HttpStatus.BAD_REQUEST, "format 不支持")
+            else -> throw ApiException(ApiErrorCode.BAD_REQUEST, "format 不支持")
         }
         val disposition = "attachment; filename=spechub-$format.$ext"
         return ResponseEntity.ok().header("Content-Type", mediaType).header("Content-Disposition", disposition).body(body)

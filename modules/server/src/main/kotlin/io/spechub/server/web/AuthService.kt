@@ -4,11 +4,11 @@ import io.spechub.spec.index.Role
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.index.UserRecord
 import io.spechub.server.config.SpecHubProperties
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
-import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
-import org.springframework.web.server.ResponseStatusException
 import java.security.MessageDigest
 import java.security.SecureRandom
 
@@ -84,10 +84,10 @@ class AuthService(
     fun requireRepoRole(req: HttpServletRequest, repoId: Long, min: String, op: String) {
         if (!authEnabled) return
         val user = currentUser(req)
-            ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "$op 需要登录")
+            ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
         val role = roleForRepo(req, repoId)
         if (role == null || Role.rank(role) < Role.rank(min)) {
-            throw ResponseStatusException(HttpStatus.FORBIDDEN, "$op 需要 $min 及以上角色（当前 ${role ?: "无项目权限"}）")
+            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要 $min 及以上角色（当前 ${role ?: "无项目权限"}）")
         }
     }
 
@@ -95,10 +95,10 @@ class AuthService(
     fun requireProjectRole(req: HttpServletRequest, projectId: Long?, min: String, op: String) {
         if (!authEnabled) return
         val user = currentUser(req)
-            ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "$op 需要登录")
+            ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
         val role = effectiveRole(user, projectId)
         if (role == null || Role.rank(role) < Role.rank(min)) {
-            throw ResponseStatusException(HttpStatus.FORBIDDEN, "$op 需要 $min 及以上角色（当前 ${role ?: "无项目权限"}）")
+            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要 $min 及以上角色（当前 ${role ?: "无项目权限"}）")
         }
     }
 
@@ -110,6 +110,6 @@ class AuthService(
         if (!authEnabled) {
             return currentUser(req) ?: UserRecord(id = -1, username = "anonymous", tokenHash = "", isPlatformAdmin = false)
         }
-        return currentUser(req) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "$op 需要登录")
+        return currentUser(req) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
     }
 }

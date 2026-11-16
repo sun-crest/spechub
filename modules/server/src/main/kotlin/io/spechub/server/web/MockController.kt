@@ -1,5 +1,7 @@
 package io.spechub.server.web
 
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.MockRuleRecord
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.mock.MockEngine
@@ -15,7 +17,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.server.ResponseStatusException
 
 /*
  * I2/I3 —— Mock 并入 backend（MVC + Java 25 虚拟线程，§7 选型；不引 WebFlux）。
@@ -40,16 +41,14 @@ class MockController(
         val path = request.requestURI.substringAfter(prefix).ifBlank { "/" }
         val method = request.method ?: "GET"
         val result = engine.generate(repoId, method, path)
-        return if (result == null) {
-            ResponseEntity.status(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON)
-                .body("""{"error":"repo $repoId 无匹配 $method $path 的接口"}""")
-        } else {
-            ResponseEntity.status(result.response.status)
-                .contentType(MediaType.parseMediaType(result.response.mediaType.ifBlank { "application/json" }))
-                .header("X-Mock-Stage", result.stage)
-                .header("X-Mock-Api-Id", result.apiId?.toString() ?: "")
-                .body(result.response.body)
+        if (result == null) {
+            throw ApiException(ApiErrorCode.MOCK_NO_MATCH, "repo $repoId 无匹配 $method $path 的接口")
         }
+        return ResponseEntity.status(result.response.status)
+            .contentType(MediaType.parseMediaType(result.response.mediaType.ifBlank { "application/json" }))
+            .header("X-Mock-Stage", result.stage)
+            .header("X-Mock-Api-Id", result.apiId?.toString() ?: "")
+            .body(result.response.body)
     }
 
     // ── 规则 CRUD（I2 value / pattern / script 三档；规则 UI 编辑见后续批次）──────
@@ -63,7 +62,7 @@ class MockController(
 
     @GetMapping("/api/repos/{id}/mock/rules")
     fun rules(@PathVariable id: Long): List<MockRuleRecord> {
-        index.getRepo(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo $id 不存在")
+        index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         return index.listMockRules(id)
     }
 
@@ -71,9 +70,9 @@ class MockController(
     fun addRule(@PathVariable id: Long, @RequestBody req: RuleRequest, request: jakarta.servlet.http.HttpServletRequest): MockRuleRecord {
         auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "配置 mock 规则")
         if (req.fieldPattern.isBlank() || !VALID_TYPES.contains(req.ruleType)) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "fieldPattern 非空；ruleType ∈ value/pattern/script")
+            throw ApiException(ApiErrorCode.BAD_REQUEST, "fieldPattern 非空；ruleType ∈ value/pattern/script")
         }
-        index.getRepo(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo $id 不存在")
+        index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         val rule = index.upsertMockRule(
             MockRuleRecord(repoId = id, apiId = req.apiId, fieldPattern = req.fieldPattern.trim(), ruleType = req.ruleType, ruleValue = req.ruleValue),
         )
@@ -85,7 +84,7 @@ class MockController(
     @DeleteMapping("/api/mock/rules/{ruleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun deleteRule(@PathVariable ruleId: Long, request: jakarta.servlet.http.HttpServletRequest) {
-        val rule = index.getMockRule(ruleId) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "规则 $ruleId 不存在")
+        val rule = index.getMockRule(ruleId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "规则 $ruleId 不存在")
         auth.requireRepoRole(request, rule.repoId, io.spechub.spec.index.Role.EDITOR, "删除 mock 规则")
         index.deleteMockRule(ruleId)
     }
@@ -104,9 +103,9 @@ class MockController(
 
     @GetMapping("/api/apis/{id}/mock/preview")
     fun preview(@PathVariable id: Long): MockPreview {
-        val api = index.getApiById(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "api $id 不存在")
+        val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
         val result = engine.generate(api.repoId, api.method, api.path)
-            ?: throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "mock 生成失败（spec 无响应 schema？）")
+            ?: throw ApiException(ApiErrorCode.INTERNAL, "mock 生成失败（spec 无响应 schema？）")
         return MockPreview(
             method = api.method, requestPath = api.path, stage = result.stage,
             status = result.response.status, mediaType = result.response.mediaType, body = result.response.body,

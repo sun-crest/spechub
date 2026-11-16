@@ -1,11 +1,13 @@
 package io.spechub.server.web
 
+import io.spechub.server.web.common.ApiErrorBody
+import io.spechub.server.web.common.ApiErrorCode
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
-import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
+import tools.jackson.databind.ObjectMapper
 
 /*
  * Bearer token 认证（F3「写操作需确认」服务端基础 → I4 RBAC 升级）。
@@ -18,6 +20,7 @@ import org.springframework.web.filter.OncePerRequestFilter
 @Component
 class TokenAuthFilter(
     private val auth: AuthService,
+    private val json: ObjectMapper,
 ) : OncePerRequestFilter() {
 
     override fun doFilterInternal(
@@ -35,7 +38,7 @@ class TokenAuthFilter(
         }
         if (user == null && bearerToken(req) != null) {
             // 带了 token 但未命中用户（token 无效）
-            reject(res, "无效令牌")
+            reject(req, res, ApiErrorCode.AUTH_UNAUTHORIZED, "无效令牌")
             return
         }
         // 无 token 或未启用鉴权
@@ -45,14 +48,14 @@ class TokenAuthFilter(
             req.requestURI.startsWith("/mock/")) {
             chain.doFilter(req, res)
         } else {
-            reject(res, "unauthorized")
+            reject(req, res, ApiErrorCode.AUTH_UNAUTHORIZED, "unauthorized")
         }
     }
 
-    private fun reject(res: HttpServletResponse, msg: String) {
-        res.status = HttpStatus.UNAUTHORIZED.value()
+    private fun reject(req: HttpServletRequest, res: HttpServletResponse, code: ApiErrorCode, msg: String) {
+        res.status = code.status
         res.contentType = "application/json"
-        res.writer.write("""{"error":"$msg"}""")
+        res.writer.write(json.writeValueAsString(ApiErrorBody(code.status, code.name, msg, req.requestURI)))
     }
 
     private fun bearerToken(req: HttpServletRequest): String? {

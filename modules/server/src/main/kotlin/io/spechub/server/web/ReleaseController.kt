@@ -2,7 +2,8 @@ package io.spechub.server.web
 
 import io.spechub.spec.index.ChangelogAction
 import io.spechub.spec.index.SpecIndexStore
-import org.springframework.http.HttpStatus
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -10,7 +11,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.server.ResponseStatusException
 
 /*
  * I6 —— 双层版本：draft（仓内最新）→ release（对外发布快照）。
@@ -40,9 +40,9 @@ class ReleaseController(
     @PostMapping("/repos/{id}/promote")
     fun promote(@PathVariable id: Long, @RequestBody req: PromoteRequest, request: jakarta.servlet.http.HttpServletRequest): PromoteResponse {
         auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "发布 release")
-        if (req.path.isBlank()) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "path 不能为空")
+        if (req.path.isBlank()) throw ApiException(ApiErrorCode.BAD_REQUEST, "path 不能为空")
         val promoted = index.promotePath(id, req.path.trim())
-            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo $id 的 ${req.path} 无版本可发布（先摄取）")
+            ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 的 ${req.path} 无版本可发布（先摄取）")
         index.addChangelog(
             repoId = id, apiId = null, actor = "spechub-bot", action = ChangelogAction.PROMOTE,
             detail = "发布 ${promoted.path} → release（版本 #${promoted.id}，specHash ${promoted.specHash.take(12)}…）",
@@ -55,7 +55,7 @@ class ReleaseController(
 
     @GetMapping("/repos/{id}/versions")
     fun versions(@PathVariable id: Long, @RequestParam path: String? = null): List<io.spechub.spec.index.VersionRecord> {
-        index.getRepo(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo $id 不存在")
+        index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         return if (path != null) index.listVersionsOfPath(id, path) else index.listVersions(id)
     }
 

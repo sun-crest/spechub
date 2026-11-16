@@ -1,15 +1,16 @@
 package io.spechub.server.web
 
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.model.Operation
 import io.spechub.spec.model.io.SpecModelIO
-import org.springframework.http.HttpStatus
+import org.slf4j.LoggerFactory
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.server.ResponseStatusException
 import java.net.URI
 import java.net.URLEncoder
 import java.net.http.HttpClient
@@ -29,6 +30,8 @@ import java.time.Duration
 @RequestMapping("/api")
 class TryController(private val index: SpecIndexStore) {
 
+    private val log = LoggerFactory.getLogger(javaClass)
+
     data class TryRequest(
         val baseUrl: String,
         val pathParams: Map<String, String> = emptyMap(),
@@ -47,11 +50,11 @@ class TryController(private val index: SpecIndexStore) {
 
     @PostMapping("/apis/{id}/try")
     fun tryIt(@PathVariable id: Long, @RequestBody req: TryRequest): TryResponse {
-        val api = index.getApiById(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "api $id 不存在")
+        val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
 
         val base = req.baseUrl.trim()
         if (!base.startsWith("http://") && !base.startsWith("https://")) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "baseUrl 仅允许 http(s) 协议")
+            throw ApiException(ApiErrorCode.BAD_REQUEST, "baseUrl 仅允许 http(s) 协议")
         }
 
         var path = api.path
@@ -77,7 +80,8 @@ class TryController(private val index: SpecIndexStore) {
         val resp = try {
             client.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream())
         } catch (e: Exception) {
-            throw ResponseStatusException(HttpStatus.BAD_GATEWAY, "请求目标失败：${e.message?.take(200)}")
+            log.warn("try 请求目标失败 {}：{}", target, e.message)
+            throw ApiException(ApiErrorCode.UPSTREAM_ERROR, "请求目标失败，请检查 baseUrl")
         }
 
         val truncatedBody = resp.body().readNBytes(MAX_BODY + 1)

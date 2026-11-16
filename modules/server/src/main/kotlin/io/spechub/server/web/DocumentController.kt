@@ -1,17 +1,18 @@
 package io.spechub.server.web
 
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.index.Stage
 import io.spechub.spec.parser.export.MarkdownExporter
 import io.spechub.server.config.SpecHubProperties
-import org.springframework.http.HttpStatus
+import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.server.ResponseStatusException
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -29,6 +30,7 @@ class DocumentController(
     private val index: SpecIndexStore,
     private val props: SpecHubProperties,
 ) {
+    private val log = LoggerFactory.getLogger(javaClass)
 
     @PostMapping("/{format}")
     fun render(
@@ -37,12 +39,12 @@ class DocumentController(
         @RequestParam stage: String = Stage.DRAFT,
     ): ResponseEntity<ByteArray> {
         if (format !in setOf("docx", "pdf")) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "format ∈ docx | pdf")
+            throw ApiException(ApiErrorCode.BAD_REQUEST, "format ∈ docx | pdf")
         }
         if (stage !in setOf(Stage.DRAFT, Stage.RELEASE)) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "stage ∈ draft | release")
+            throw ApiException(ApiErrorCode.BAD_REQUEST, "stage ∈ draft | release")
         }
-        index.getRepo(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo $id 不存在")
+        index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
 
         val doc = exportService.reconstructOpenApi(id, stage)
         val md = MarkdownExporter.export(doc)
@@ -51,7 +53,8 @@ class DocumentController(
         val mdTmp = try {
             Files.createTempFile("spechub-doc", ".md").also { Files.writeString(it, md) }
         } catch (e: IOException) {
-            throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "写入临时 md 失败：${e.message}")
+            log.warn("写入临时 md 失败：{}", e.message)
+            throw ApiException(ApiErrorCode.INTERNAL, "写入临时文件失败")
         }
         val outPath = props.artifactsPath().resolve("docs").resolve("repo-$id-${format}-$stage.$format")
         Files.createDirectories(outPath.parent)
@@ -62,16 +65,16 @@ class DocumentController(
             val exit = proc.waitFor()
             if (exit != 0) {
                 val err = proc.inputStream.bufferedReader().readText().take(240)
-                throw ResponseStatusException(HttpStatus.BAD_GATEWAY, "pandoc 转换失败（退出码 $exit）：$err")
+                throw ApiException(ApiErrorCode.UPSTREAM_ERROR, "pandoc 转换失败（退出码 $exit）：$err")
             }
         } catch (e: IOException) {
-            throw ResponseStatusException(
-                HttpStatus.SERVICE_UNAVAILABLE,
+            throw ApiException(
+                ApiErrorCode.SERVICE_UNAVAILABLE,
                 "服务端未安装 pandoc，无法生成 $format（软依赖：安装 pandoc 后此能力即解锁）",
             )
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
-            throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "pandoc 被中断")
+            throw ApiException(ApiErrorCode.INTERNAL, "pandoc 被中断")
         } finally {
             Files.deleteIfExists(mdTmp)
         }
@@ -79,7 +82,8 @@ class DocumentController(
         val out = try {
             Files.readAllBytes(outPath)
         } catch (e: IOException) {
-            throw ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "读取产物失败：${e.message?.take(120)}")
+            log.warn("读取导出产物失败：{}", e.message)
+            throw ApiException(ApiErrorCode.INTERNAL, "读取导出产物失败")
         }
         val mediaType = if (format == "docx") "application/vnd.openxmlformats-officedocument.wordprocessingml.document" else "application/pdf"
         return ResponseEntity.ok()

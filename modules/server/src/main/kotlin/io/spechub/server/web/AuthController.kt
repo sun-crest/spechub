@@ -4,6 +4,8 @@ import io.spechub.spec.index.Role
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.index.UserRecord
 import io.spechub.server.config.SpecHubProperties
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -14,7 +16,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.server.ResponseStatusException
 
 /*
  * I4 —— RBAC 身份与成员管理（替换 H6 的 admin-token 占位，二者兼容）。
@@ -76,13 +77,13 @@ class AuthController(
     @PostMapping("/login")
     fun login(@RequestBody body: LoginRequest): StatusResponse {
         if (!auth.authEnabled) {
-            throw ResponseStatusException(HttpStatus.CONFLICT, "后端未启用鉴权（未配 spechub.admin-token），无需登录")
+            throw ApiException(ApiErrorCode.AUTH_NOT_ENABLED, "后端未启用鉴权（未配 spechub.admin-token），无需登录")
         }
         // 兼容 H6：只传 token → 视为 admin 登录
         val user = auth.userForToken(body.token)
-            ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "令牌无效")
+            ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "令牌无效")
         if (body.username != null && body.username.isNotBlank() && body.username != user.username) {
-            throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户名与令牌不匹配")
+            throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "用户名与令牌不匹配")
         }
         return StatusResponse(true, true, user.username)
     }
@@ -125,10 +126,10 @@ class AuthController(
         requireManager(req, "创建用户")
         val username = body.username.trim()
         if (username.isBlank() || !Role.ALL.contains(body.role)) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "username 非空；role ∈ owner/admin/editor/viewer")
+            throw ApiException(ApiErrorCode.BAD_REQUEST, "username 非空；role ∈ owner/admin/editor/viewer")
         }
         if (index.findByUsername(username) != null) {
-            throw ResponseStatusException(HttpStatus.CONFLICT, "用户 $username 已存在")
+            throw ApiException(ApiErrorCode.CONFLICT, "用户 $username 已存在")
         }
         val token = AuthService.generateToken()
         val user = index.createUser(username, body.displayName.ifBlank { username }, AuthService.sha256(token))
@@ -141,9 +142,9 @@ class AuthController(
     @PostMapping("/users/{id}/role")
     fun setRole(req: HttpServletRequest, @PathVariable id: Long, @RequestBody body: UpdateRoleRequest): UserView {
         requireManager(req, "改角色")
-        if (!Role.ALL.contains(body.role)) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "role ∈ owner/admin/editor/viewer")
-        val user = index.findUserById(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "用户 $id 不存在")
-        if (user.isPlatformAdmin) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "平台 admin 角色不可改")
+        if (!Role.ALL.contains(body.role)) throw ApiException(ApiErrorCode.BAD_REQUEST, "role ∈ owner/admin/editor/viewer")
+        val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
+        if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "平台 admin 角色不可改")
         val projectId = index.projectIdByName(RepoController.DEFAULT_PROJECT)
         if (projectId != null) index.setMembership(id, projectId, body.role)
         index.addChangelog(repoId = null, apiId = null, actor = currentActor(req), action = "user.role", detail = "用户 ${user.username} → $body.role")
@@ -153,7 +154,7 @@ class AuthController(
     @PostMapping("/users/{id}/token")
     fun resetToken(req: HttpServletRequest, @PathVariable id: Long): CreateUserResponse {
         requireManager(req, "重置令牌")
-        val user = index.findUserById(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "用户 $id 不存在")
+        val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         val token = AuthService.generateToken()
         // 无公开 updateToken 字段 → 删除重建不可取（保留 id/role）。这里用内部更新：
         index.updateUserToken(id, AuthService.sha256(token))
@@ -165,9 +166,9 @@ class AuthController(
     fun deleteUser(req: HttpServletRequest, @PathVariable id: Long) {
         val actor = auth.currentUser(req)
         requireManager(req, "删除用户")
-        val user = index.findUserById(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "用户 $id 不存在")
-        if (user.isPlatformAdmin) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "不能删除平台 admin")
-        if (actor != null && actor.id == id) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "不能删除自己")
+        val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
+        if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除平台 admin")
+        if (actor != null && actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")
         index.deleteUser(id)
         index.addChangelog(repoId = null, apiId = null, actor = currentActor(req), action = "user.delete", detail = "删除用户 ${user.username}")
     }
@@ -177,11 +178,11 @@ class AuthController(
     private fun requireManager(req: HttpServletRequest, op: String) {
         val user = auth.currentUser(req)
         if (!auth.authEnabled) return // 未启用鉴权：成员管理暂无意义，放行操作（管理 API 用于启鉴权后端）
-        if (user == null) throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "$op 需要登录")
+        if (user == null) throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
         val projectId = index.projectIdByName(RepoController.DEFAULT_PROJECT)
         val role = auth.effectiveRole(user, projectId)
         if (!(user.isPlatformAdmin || Role.rank(role) >= Role.rank(Role.ADMIN))) {
-            throw ResponseStatusException(HttpStatus.FORBIDDEN, "$op 需要 admin 及以上（当前 ${role ?: "无项目权限"}）")
+            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要 admin 及以上（当前 ${role ?: "无项目权限"}）")
         }
     }
 

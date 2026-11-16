@@ -4,6 +4,8 @@ import io.spechub.spec.index.ReviewRecord
 import io.spechub.spec.index.ReviewStatus
 import io.spechub.spec.index.Role
 import io.spechub.spec.index.SpecIndexStore
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
@@ -14,7 +16,6 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.server.ResponseStatusException
 
 /*
  * I8 —— 评审审批流（§6.4 决策 3「写操作皆审」落地）：
@@ -70,14 +71,14 @@ class ReviewController(
     @GetMapping
     fun list(@RequestParam status: String? = null, @RequestParam repoId: Long? = null): List<ReviewView> {
         if (status != null && !ReviewStatus.ALL.contains(status)) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "status ∈ ${ReviewStatus.ALL}")
+            throw ApiException(ApiErrorCode.BAD_REQUEST, "status ∈ ${ReviewStatus.ALL}")
         }
         return index.listReviews(repoId, status).map(::toView)
     }
 
     @GetMapping("/{id}")
     fun detail(@PathVariable id: Long): ReviewDetail {
-        val r = index.getReview(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "评审 $id 不存在")
+        val r = index.getReview(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评审 $id 不存在")
         val current = index.getRepo(r.repoId)?.let { repo ->
             try { writer.readSpec(repo, r.path) } catch (e: Exception) { null }
         }
@@ -92,10 +93,10 @@ class ReviewController(
     fun approve(@PathVariable id: Long, request: HttpServletRequest): ReviewView {
         val r = requirePending(id)
         auth.requireRepoRole(request, r.repoId, Role.EDITOR, "审批评审")
-        val actor = auth.currentUser(request) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "审批需要登录")
+        val actor = auth.currentUser(request) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "审批需要登录")
         requireOtherReviewer(actor.username, r.requester, actor.isPlatformAdmin)
 
-        val repo = index.getRepo(r.repoId) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo ${r.repoId} 不存在")
+        val repo = index.getRepo(r.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${r.repoId} 不存在")
         val written = writer.writeSpec(repo, r.path, r.newContent)
         val ing = ingestor.ingest(repo, urlTokens.get(r.repoId))
         index.resolveReview(r.id!!, ReviewStatus.APPROVED, actor.username)
@@ -109,7 +110,7 @@ class ReviewController(
     fun reject(@PathVariable id: Long, request: HttpServletRequest, @RequestBody(required = false) body: RejectRequest?) {
         val r = requirePending(id)
         auth.requireRepoRole(request, r.repoId, Role.EDITOR, "打回评审")
-        val actor = auth.currentUser(request) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "打回需要登录")
+        val actor = auth.currentUser(request) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "打回需要登录")
         requireOtherReviewer(actor.username, r.requester, actor.isPlatformAdmin)
         index.resolveReview(r.id!!, ReviewStatus.REJECTED, actor.username, body?.reason)
         index.addChangelog(r.repoId, null, actor.username, "review.reject",
@@ -119,9 +120,9 @@ class ReviewController(
     // ── 内部 ───────────────────────────────────────────────────────────────
 
     private fun requirePending(id: Long): ReviewRecord {
-        val r = index.getReview(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "评审 $id 不存在")
+        val r = index.getReview(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评审 $id 不存在")
         if (r.status != ReviewStatus.PENDING) {
-            throw ResponseStatusException(HttpStatus.CONFLICT, "评审 $id 已处理（${r.status}）")
+            throw ApiException(ApiErrorCode.CONFLICT, "评审 $id 已处理（${r.status}）")
         }
         return r
     }
@@ -129,7 +130,7 @@ class ReviewController(
     /** 评审人必须他人：requester 本人不可批/打回自己的提交（平台 admin 可自批排障） */
     private fun requireOtherReviewer(actor: String, requester: String, isAdmin: Boolean) {
         if (actor == requester && !isAdmin) {
-            throw ResponseStatusException(HttpStatus.FORBIDDEN, "需其他成员评审（不能批自己的提交）")
+            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "需其他成员评审（不能批自己的提交）")
         }
     }
 

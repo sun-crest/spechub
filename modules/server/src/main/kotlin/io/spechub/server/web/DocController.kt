@@ -2,8 +2,9 @@ package io.spechub.server.web
 
 import io.spechub.spec.index.CommentRecord
 import io.spechub.spec.index.SpecIndexStore
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
-import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -11,7 +12,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.server.ResponseStatusException
 
 /*
  * K1/K2/K3 —— Doc 域（AI 文档层，§5.7 两域隔离）：列表/详情/全文检索 + 轻评论。
@@ -43,19 +43,19 @@ class DocController(
 
     @GetMapping("/{id}")
     fun detail(@PathVariable id: Long): io.spechub.spec.index.DocRecord =
-        index.getDoc(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "doc $id 不存在")
+        index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
 
     @GetMapping("/{id}/comments")
     fun comments(@PathVariable id: Long): List<DocCommentView> {
-        index.getDoc(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "doc $id 不存在")
+        index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
         return index.listCommentsForDoc(id).map(::toView)
     }
 
     @PostMapping("/{id}/comments")
     fun addComment(@PathVariable id: Long, @RequestBody body: DocCommentBody, request: HttpServletRequest): DocCommentView {
         val user = auth.requireAuthenticated(request, "发表文档评论")
-        if (body.body.isBlank()) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "评论内容不能为空")
-        val doc = index.getDoc(id) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "doc $id 不存在")
+        if (body.body.isBlank()) throw ApiException(ApiErrorCode.BAD_REQUEST, "评论内容不能为空")
+        val doc = index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
         val comment = index.addComment(doc.repoId, apiId = null, docId = doc.id, method = "", path = "", author = user.username, body = body.body.trim())
         index.addChangelog(doc.repoId, null, user.username, "doc.comment", "评论文档 ${doc.title}：${body.body.trim().take(40)}")
         return toView(comment)

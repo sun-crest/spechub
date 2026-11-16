@@ -9,14 +9,14 @@ import io.spechub.spec.parser.ParseResult
 import io.spechub.spec.parser.PostmanImporter
 import io.spechub.spec.parser.SpecParser
 import io.spechub.server.ingest.Ingestor
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
-import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.server.ResponseStatusException
 
 /*
  * J1/J2 —— 导入：把存量文档（Postman collection / Swagger 2.0）经归一化管道收编进平台。
@@ -56,9 +56,9 @@ class ImportController(
     @PostMapping("/{type}")
     fun import(@PathVariable type: String, @RequestBody body: ImportRequest, request: HttpServletRequest): ImportResponse {
         if (type !in setOf("postman", "swagger2")) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "type ∈ postman | swagger2")
+            throw ApiException(ApiErrorCode.BAD_REQUEST, "type ∈ postman | swagger2")
         }
-        if (body.content.isBlank()) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "content 不能为空")
+        if (body.content.isBlank()) throw ApiException(ApiErrorCode.BAD_REQUEST, "content 不能为空")
         auth.requireAuthenticated(request, "导入")
 
         val result = when (type) {
@@ -68,11 +68,11 @@ class ImportController(
         }
         val doc = when (result) {
             is ParseResult.Success -> result.doc
-            is ParseResult.Failure -> throw ResponseStatusException(
-                HttpStatus.BAD_REQUEST,
+            is ParseResult.Failure -> throw ApiException(
+                ApiErrorCode.IMPORT_INVALID,
                 "导入内容无法解析：${result.issues.joinToString("; ") { it.message }}",
             )
-            null -> throw ResponseStatusException(HttpStatus.BAD_REQUEST, "未知导入类型")
+            null -> throw ApiException(ApiErrorCode.BAD_REQUEST, "未知导入类型")
         }
 
         val apiCount = doc.paths.values.sumOf { it.operations().size }
@@ -81,7 +81,7 @@ class ImportController(
         var written: WrittenInfo? = null
         body.repoId?.let { repoId ->
             auth.requireRepoRole(request, repoId, Role.EDITOR, "导入写回")
-            val repo = index.getRepo(repoId) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "repo $repoId 不存在")
+            val repo = index.getRepo(repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $repoId 不存在")
             val path = body.path?.takeIf { it.endsWith(".yaml") || it.endsWith(".yml") }
                 ?: "specs/import/$type-${System.currentTimeMillis()}.yaml"
             val wr = writer.writeSpec(repo, path, specYaml)
