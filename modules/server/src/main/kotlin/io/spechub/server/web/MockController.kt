@@ -1,11 +1,14 @@
 package io.spechub.server.web
 
+import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.MockRuleRecord
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.mock.MockEngine
 import jakarta.servlet.http.HttpServletRequest
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
@@ -54,7 +57,7 @@ class MockController(
     // ── 规则 CRUD（I2 value / pattern / script 三档；规则 UI 编辑见后续批次）──────
 
     data class RuleRequest(
-        val fieldPattern: String,
+        @field:NotBlank val fieldPattern: String,
         val ruleType: String,
         val ruleValue: String = "",
         val apiId: Long? = null,
@@ -67,10 +70,13 @@ class MockController(
     }
 
     @PostMapping("/api/repos/{id}/mock/rules")
-    fun addRule(@PathVariable id: Long, @RequestBody req: RuleRequest, request: jakarta.servlet.http.HttpServletRequest): MockRuleRecord {
+    fun addRule(@PathVariable id: Long, @RequestBody @Valid req: RuleRequest, request: jakarta.servlet.http.HttpServletRequest): MockRuleRecord {
         auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "配置 mock 规则")
-        if (req.fieldPattern.isBlank() || !VALID_TYPES.contains(req.ruleType)) {
-            throw ApiException(ApiErrorCode.BAD_REQUEST, "fieldPattern 非空；ruleType ∈ value/pattern/script")
+        if (!VALID_TYPES.contains(req.ruleType)) {
+            throw ApiException(
+                ApiErrorCode.VALIDATION, "ruleType ∈ value/pattern/script",
+                listOf(ApiErrorBody.FieldError("ruleType", "ruleType ∈ value/pattern/script")),
+            )
         }
         index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         val rule = index.upsertMockRule(

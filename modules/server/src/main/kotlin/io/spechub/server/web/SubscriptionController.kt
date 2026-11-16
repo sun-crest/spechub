@@ -6,6 +6,8 @@ import io.spechub.spec.index.SubscriptionRecord
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -34,18 +36,15 @@ class SubscriptionController(
 
     data class SubscribeRequest(
         val repoId: Long,
-        val method: String,
-        val path: String,
-        val team: String,
+        @field:NotBlank val method: String,
+        @field:NotBlank val path: String,
+        @field:NotBlank val team: String,
         val notifyUrl: String = "",
     )
 
     @PostMapping
-    fun subscribe(@RequestBody body: SubscribeRequest, request: HttpServletRequest): SubscriptionRecord {
+    fun subscribe(@RequestBody @Valid body: SubscribeRequest, request: HttpServletRequest): SubscriptionRecord {
         auth.requireAuthenticated(request, "订阅")
-        if (body.team.isBlank() || body.method.isBlank() || body.path.isBlank()) {
-            throw ApiException(ApiErrorCode.BAD_REQUEST, "team / method / path 不能为空")
-        }
         index.getRepo(body.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${body.repoId} 不存在")
         // api_id 尽力关联（method+path 命中当前投影则填，便于详情展示；非 FK）
         val apiId = index.listApis(body.repoId, method = body.method.uppercase(), keyword = body.path.removePrefix("/"))

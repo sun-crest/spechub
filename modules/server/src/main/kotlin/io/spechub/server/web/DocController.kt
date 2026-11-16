@@ -5,6 +5,8 @@ import io.spechub.spec.index.SpecIndexStore
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -27,7 +29,7 @@ class DocController(
     private val auth: AuthService,
 ) {
 
-    data class DocCommentBody(val body: String)
+    data class DocCommentBody(@field:NotBlank val body: String)
 
     data class DocCommentView(
         val id: Long,
@@ -52,9 +54,8 @@ class DocController(
     }
 
     @PostMapping("/{id}/comments")
-    fun addComment(@PathVariable id: Long, @RequestBody body: DocCommentBody, request: HttpServletRequest): DocCommentView {
+    fun addComment(@PathVariable id: Long, @RequestBody @Valid body: DocCommentBody, request: HttpServletRequest): DocCommentView {
         val user = auth.requireAuthenticated(request, "发表文档评论")
-        if (body.body.isBlank()) throw ApiException(ApiErrorCode.BAD_REQUEST, "评论内容不能为空")
         val doc = index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
         val comment = index.addComment(doc.repoId, apiId = null, docId = doc.id, method = "", path = "", author = user.username, body = body.body.trim())
         index.addChangelog(doc.repoId, null, user.username, "doc.comment", "评论文档 ${doc.title}：${body.body.trim().take(40)}")

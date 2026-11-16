@@ -1,10 +1,13 @@
 package io.spechub.server.web
 
-import io.spechub.server.web.common.ApiErrorCode
-import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.model.Operation
 import io.spechub.spec.model.io.SpecModelIO
+import io.spechub.server.web.common.ApiErrorBody
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 import org.slf4j.LoggerFactory
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -33,7 +36,7 @@ class TryController(private val index: SpecIndexStore) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     data class TryRequest(
-        val baseUrl: String,
+        @field:NotBlank val baseUrl: String,
         val pathParams: Map<String, String> = emptyMap(),
         val queryParams: Map<String, String> = emptyMap(),
         val headers: Map<String, String> = emptyMap(),
@@ -49,12 +52,12 @@ class TryController(private val index: SpecIndexStore) {
     )
 
     @PostMapping("/apis/{id}/try")
-    fun tryIt(@PathVariable id: Long, @RequestBody req: TryRequest): TryResponse {
+    fun tryIt(@PathVariable id: Long, @RequestBody @Valid req: TryRequest): TryResponse {
         val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
 
         val base = req.baseUrl.trim()
         if (!base.startsWith("http://") && !base.startsWith("https://")) {
-            throw ApiException(ApiErrorCode.BAD_REQUEST, "baseUrl 仅允许 http(s) 协议")
+            throw ApiException(ApiErrorCode.VALIDATION, "baseUrl 仅允许 http(s) 协议", listOf(ApiErrorBody.FieldError("baseUrl", "baseUrl 仅允许 http(s) 协议")))
         }
 
         var path = api.path

@@ -5,6 +5,8 @@ import io.spechub.spec.index.SpecIndexStore
 import io.spechub.server.ingest.Ingestor
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -28,7 +30,7 @@ class RepoController(
 ) {
 
     data class RegisterRepoRequest(
-        val url: String,
+        @field:NotBlank val url: String,
         val branch: String? = null,
         val token: String? = null,
     )
@@ -42,9 +44,8 @@ class RepoController(
     )
 
     @PostMapping("/repos")
-    fun register(@RequestBody req: RegisterRepoRequest, request: jakarta.servlet.http.HttpServletRequest): RegisterResponse {
+    fun register(@RequestBody @Valid req: RegisterRepoRequest, request: jakarta.servlet.http.HttpServletRequest): RegisterResponse {
         auth.requireProjectRole(request, index.projectIdByName(DEFAULT_PROJECT), io.spechub.spec.index.Role.EDITOR, "注册仓库")
-        if (req.url.isBlank()) throw ApiException(ApiErrorCode.BAD_REQUEST, "url 不能为空")
         val repo = index.insertRepo(DEFAULT_PROJECT, req.url.trim(), req.branch?.ifEmpty { null } ?: "main")
         if (req.token != null && req.token.isNotBlank()) {
             urlTokens.put(repo.id, injectToken(req.url.trim(), req.token.trim()))

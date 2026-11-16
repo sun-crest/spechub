@@ -4,6 +4,7 @@ import io.spechub.spec.index.ReviewRecord
 import io.spechub.spec.index.ReviewStatus
 import io.spechub.spec.index.Role
 import io.spechub.spec.index.SpecIndexStore
+import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
@@ -71,7 +72,7 @@ class ReviewController(
     @GetMapping
     fun list(@RequestParam status: String? = null, @RequestParam repoId: Long? = null): List<ReviewView> {
         if (status != null && !ReviewStatus.ALL.contains(status)) {
-            throw ApiException(ApiErrorCode.BAD_REQUEST, "status ∈ ${ReviewStatus.ALL}")
+            throw ApiException(ApiErrorCode.VALIDATION, "status ∈ ${ReviewStatus.ALL}", listOf(ApiErrorBody.FieldError("status", "status ∈ ${ReviewStatus.ALL}")))
         }
         return index.listReviews(repoId, status).map(::toView)
     }

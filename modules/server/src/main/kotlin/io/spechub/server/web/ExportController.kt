@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.SpecIndexStore
@@ -34,10 +35,13 @@ class ExportController(
     @GetMapping("/{format}")
     fun export(@PathVariable id: Long, @PathVariable format: String, @RequestParam stage: String = Stage.DRAFT): ResponseEntity<String> {
         if (format !in setOf("openapi31", "openapi30", "postman", "markdown", "html")) {
-            throw ApiException(ApiErrorCode.BAD_REQUEST, "format ∈ openapi31 | openapi30 | postman | markdown | html")
+            throw ApiException(
+                ApiErrorCode.VALIDATION, "format ∈ openapi31 | openapi30 | postman | markdown | html",
+                listOf(ApiErrorBody.FieldError("format", "format ∈ openapi31 | openapi30 | postman | markdown | html")),
+            )
         }
         if (stage !in setOf(Stage.DRAFT, Stage.RELEASE)) {
-            throw ApiException(ApiErrorCode.BAD_REQUEST, "stage ∈ draft | release")
+            throw ApiException(ApiErrorCode.VALIDATION, "stage ∈ draft | release", listOf(ApiErrorBody.FieldError("stage", "stage ∈ draft | release")))
         }
         index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
 

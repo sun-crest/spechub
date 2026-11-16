@@ -9,9 +9,12 @@ import io.spechub.spec.parser.ParseResult
 import io.spechub.spec.parser.PostmanImporter
 import io.spechub.spec.parser.SpecParser
 import io.spechub.server.ingest.Ingestor
+import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -37,7 +40,7 @@ class ImportController(
 ) {
 
     data class ImportRequest(
-        val content: String,
+        @field:NotBlank val content: String,
         val repoId: Long? = null,
         val path: String? = null,
     )
@@ -54,11 +57,10 @@ class ImportController(
     )
 
     @PostMapping("/{type}")
-    fun import(@PathVariable type: String, @RequestBody body: ImportRequest, request: HttpServletRequest): ImportResponse {
+    fun import(@PathVariable type: String, @RequestBody @Valid body: ImportRequest, request: HttpServletRequest): ImportResponse {
         if (type !in setOf("postman", "swagger2")) {
-            throw ApiException(ApiErrorCode.BAD_REQUEST, "type ∈ postman | swagger2")
+            throw ApiException(ApiErrorCode.VALIDATION, "type ∈ postman | swagger2", listOf(ApiErrorBody.FieldError("type", "type ∈ postman | swagger2")))
         }
-        if (body.content.isBlank()) throw ApiException(ApiErrorCode.BAD_REQUEST, "content 不能为空")
         auth.requireAuthenticated(request, "导入")
 
         val result = when (type) {

@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.SpecIndexStore
@@ -39,10 +40,10 @@ class DocumentController(
         @RequestParam stage: String = Stage.DRAFT,
     ): ResponseEntity<ByteArray> {
         if (format !in setOf("docx", "pdf")) {
-            throw ApiException(ApiErrorCode.BAD_REQUEST, "format ∈ docx | pdf")
+            throw ApiException(ApiErrorCode.VALIDATION, "format ∈ docx | pdf", listOf(ApiErrorBody.FieldError("format", "format ∈ docx | pdf")))
         }
         if (stage !in setOf(Stage.DRAFT, Stage.RELEASE)) {
-            throw ApiException(ApiErrorCode.BAD_REQUEST, "stage ∈ draft | release")
+            throw ApiException(ApiErrorCode.VALIDATION, "stage ∈ draft | release", listOf(ApiErrorBody.FieldError("stage", "stage ∈ draft | release")))
         }
         index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
 

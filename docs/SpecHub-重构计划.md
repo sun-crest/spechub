@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：R1 已完成（2026-11-16 实测通过：server 全量测试绿，新增 `ErrorContractTest` 5 例）；R2–R12 待执行。
+> **日期**：2026-11-16　**状态**：R1/R2 已完成（2026-11-16 实测通过：server 全量 42 用例绿，含 `ErrorContractTest` 5 例 + `ValidationContractTest` 6 例）；R3–R12 待执行。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -55,6 +55,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **改动** | ① 请求 DTO 声明 `@field:NotBlank/@field:Size/@field:Pattern`（**`@field:` 前缀，挂在 getter 上会静默失效**）；② Controller 写参数加 `@Valid`/类级 `@Validated`；③ `Role.ALL.contains` 型枚举校验移到「注解 + Service 判定抛 `ApiException(VALIDATION_*)`」；④ 校验失败由 R1 advice 出 `fieldErrors` |
 | **测试** | 每个被改端点补「参数非法 → `fieldErrors` 非空」用例 |
 | **验收** | 新代码零手写散装校验；缺参/空串/类型错统一 400 + `fieldErrors` |
+| **状态** | ✅ 2026-11-16 完成：9 个请求 DTO 加 `@field:NotBlank` + `@Valid`（Login/CreateUser/UpdateRole/Comment/DocComment/Import/Subscribe/Rule/Register/Promote/WriteSpec/Try）；枚举值域类校验（role/type/status/ruleType/format/stage/baseUrl 协议/path 扩展名）统一升级为 `VALIDATION` 错误体 + `fieldErrors`；手写散装 `isBlank` 校验清零（残留 3 处为合法内部判空）；新增 `ValidationContractTest` 6 例 + server 全量回归绿 |
 
 ---
 

@@ -1,6 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.server.ingest.Ingestor
+import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.ApiRecord
@@ -14,6 +15,8 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 
 /** 只读查询扩展 + 写回端点的装配（F 组 MCP 工具集的 HTTP 后端） */
 @RestController
@@ -44,7 +47,7 @@ class ApiQueryController(
 
     // ── 写回 · F 组 create_api / update_api（R1-C）─────────────────────────
 
-    data class WriteSpecRequest(val path: String, val content: String)
+    data class WriteSpecRequest(@field:NotBlank val path: String, val content: String)
 
     data class WriteSpecResponse(
         val repoId: Long,
@@ -72,10 +75,13 @@ class ApiQueryController(
     }
 
     @PutMapping("/repos/{id}/spec")
-    fun writeSpec(@PathVariable id: Long, @RequestBody req: WriteSpecRequest, request: jakarta.servlet.http.HttpServletRequest): WriteSpecResponse {
+    fun writeSpec(@PathVariable id: Long, @RequestBody @Valid req: WriteSpecRequest, request: jakarta.servlet.http.HttpServletRequest): WriteSpecResponse {
         auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "写回 spec")
-        if (req.path.isBlank() || !(req.path.endsWith(".yaml") || req.path.endsWith(".yml") || req.path.endsWith(".json"))) {
-            throw ApiException(ApiErrorCode.BAD_REQUEST, "path 须为 specs 下的 .yaml/.yml/.json 文件")
+        if (!(req.path.endsWith(".yaml") || req.path.endsWith(".yml") || req.path.endsWith(".json"))) {
+            throw ApiException(
+                ApiErrorCode.VALIDATION, "path 须为 specs 下的 .yaml/.yml/.json 文件",
+                listOf(ApiErrorBody.FieldError("path", "path 须为 .yaml/.yml/.json")),
+            )
         }
         val repo = index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         val path = req.path.trim()

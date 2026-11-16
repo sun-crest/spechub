@@ -3,9 +3,12 @@ package io.spechub.server.web
 import io.spechub.spec.index.CommentRecord
 import io.spechub.spec.index.Role
 import io.spechub.spec.index.SpecIndexStore
+import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -30,7 +33,7 @@ class CommentController(
     private val auth: AuthService,
 ) {
 
-    data class CommentBody(val body: String)
+    data class CommentBody(@field:NotBlank val body: String)
 
     data class CommentView(
         val id: Long,
@@ -50,9 +53,8 @@ class CommentController(
     }
 
     @PostMapping("/apis/{id}/comments")
-    fun add(@PathVariable id: Long, @RequestBody body: CommentBody, request: HttpServletRequest): CommentView {
+    fun add(@PathVariable id: Long, @RequestBody @Valid body: CommentBody, request: HttpServletRequest): CommentView {
         val user = auth.requireAuthenticated(request, "发表评论")
-        if (body.body.isBlank()) throw ApiException(ApiErrorCode.BAD_REQUEST, "评论内容不能为空")
         val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
         val comment = index.addComment(api.repoId, api.id, null, api.method, api.path, user.username, body.body.trim())
         index.addChangelog(api.repoId, api.id, user.username, "comment", "评论 ${api.method} ${api.path}：${body.body.trim().take(60)}")

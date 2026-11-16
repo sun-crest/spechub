@@ -4,9 +4,12 @@ import io.spechub.spec.index.Role
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.index.UserRecord
 import io.spechub.server.config.SpecHubProperties
+import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -37,7 +40,7 @@ class AuthController(
     private val auth: AuthService,
 ) {
 
-    data class LoginRequest(val username: String? = null, val token: String)
+    data class LoginRequest(val username: String? = null, @field:NotBlank val token: String)
 
     data class StatusResponse(val authEnabled: Boolean, val authenticated: Boolean, val username: String? = null)
 
@@ -62,9 +65,9 @@ class AuthController(
         val createdAt: String? = null,
     )
 
-    data class CreateUserRequest(val username: String, val displayName: String = "", val role: String = Role.VIEWER)
+    data class CreateUserRequest(@field:NotBlank val username: String, val displayName: String = "", val role: String = Role.VIEWER)
 
-    data class UpdateRoleRequest(val role: String)
+    data class UpdateRoleRequest(@field:NotBlank val role: String)
 
     data class CreateUserResponse(val user: UserView, val token: String)
 
@@ -75,7 +78,7 @@ class AuthController(
     }
 
     @PostMapping("/login")
-    fun login(@RequestBody body: LoginRequest): StatusResponse {
+    fun login(@RequestBody @Valid body: LoginRequest): StatusResponse {
         if (!auth.authEnabled) {
             throw ApiException(ApiErrorCode.AUTH_NOT_ENABLED, "后端未启用鉴权（未配 spechub.admin-token），无需登录")
         }
@@ -122,11 +125,15 @@ class AuthController(
     }
 
     @PostMapping("/users")
-    fun createUser(req: HttpServletRequest, @RequestBody body: CreateUserRequest): CreateUserResponse {
+    fun createUser(req: HttpServletRequest, @RequestBody @Valid body: CreateUserRequest): CreateUserResponse {
         requireManager(req, "创建用户")
         val username = body.username.trim()
-        if (username.isBlank() || !Role.ALL.contains(body.role)) {
-            throw ApiException(ApiErrorCode.BAD_REQUEST, "username 非空；role ∈ owner/admin/editor/viewer")
+        if (!Role.ALL.contains(body.role)) {
+            throw ApiException(
+                ApiErrorCode.VALIDATION,
+                "role ∈ ${Role.ALL}",
+                listOf(ApiErrorBody.FieldError("role", "role ∈ ${Role.ALL}")),
+            )
         }
         if (index.findByUsername(username) != null) {
             throw ApiException(ApiErrorCode.CONFLICT, "用户 $username 已存在")
@@ -140,9 +147,11 @@ class AuthController(
     }
 
     @PostMapping("/users/{id}/role")
-    fun setRole(req: HttpServletRequest, @PathVariable id: Long, @RequestBody body: UpdateRoleRequest): UserView {
+    fun setRole(req: HttpServletRequest, @PathVariable id: Long, @RequestBody @Valid body: UpdateRoleRequest): UserView {
         requireManager(req, "改角色")
-        if (!Role.ALL.contains(body.role)) throw ApiException(ApiErrorCode.BAD_REQUEST, "role ∈ owner/admin/editor/viewer")
+        if (!Role.ALL.contains(body.role)) {
+            throw ApiException(ApiErrorCode.VALIDATION, "role ∈ ${Role.ALL}", listOf(ApiErrorBody.FieldError("role", "role ∈ ${Role.ALL}")))
+        }
         val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "平台 admin 角色不可改")
         val projectId = index.projectIdByName(RepoController.DEFAULT_PROJECT)

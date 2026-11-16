@@ -4,6 +4,8 @@ import io.spechub.spec.index.ChangelogAction
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -26,7 +28,7 @@ class ReleaseController(
     private val auth: AuthService,
 ) {
 
-    data class PromoteRequest(val path: String)
+    data class PromoteRequest(@field:NotBlank val path: String)
 
     data class PromoteResponse(
         val repoId: Long,
@@ -38,9 +40,8 @@ class ReleaseController(
     )
 
     @PostMapping("/repos/{id}/promote")
-    fun promote(@PathVariable id: Long, @RequestBody req: PromoteRequest, request: jakarta.servlet.http.HttpServletRequest): PromoteResponse {
+    fun promote(@PathVariable id: Long, @RequestBody @Valid req: PromoteRequest, request: jakarta.servlet.http.HttpServletRequest): PromoteResponse {
         auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "发布 release")
-        if (req.path.isBlank()) throw ApiException(ApiErrorCode.BAD_REQUEST, "path 不能为空")
         val promoted = index.promotePath(id, req.path.trim())
             ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 的 ${req.path} 无版本可发布（先摄取）")
         index.addChangelog(
