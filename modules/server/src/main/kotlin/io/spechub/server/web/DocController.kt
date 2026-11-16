@@ -31,7 +31,7 @@ class DocController(
 
     data class DocCommentBody(@field:NotBlank val body: String)
 
-    data class DocCommentView(
+    data class DocCommentResponse(
         val id: Long,
         val docId: Long?,
         val author: String,
@@ -48,13 +48,13 @@ class DocController(
         index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
 
     @GetMapping("/{id}/comments")
-    fun comments(@PathVariable id: Long): List<DocCommentView> {
+    fun comments(@PathVariable id: Long): List<DocCommentResponse> {
         index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
-        return index.listCommentsForDoc(id).map(::toView)
+        return index.listCommentsForDoc(id).map(::toResponse)
     }
 
     @PostMapping("/{id}/comments")
-    fun addComment(@PathVariable id: Long, @RequestBody @Valid body: DocCommentBody, request: HttpServletRequest): DocCommentView {
+    fun addComment(@PathVariable id: Long, @RequestBody @Valid body: DocCommentBody, request: HttpServletRequest): DocCommentResponse {
         val user = auth.requireAuthenticated(request, "发表文档评论")
         val doc = index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
         val comment = index.addCommentWithChangelog(
@@ -63,10 +63,10 @@ class DocController(
             actor = user.username, action = "doc.comment",
             detail = "评论文档 ${doc.title}：${body.body.trim().take(40)}",
         )
-        return toView(comment)
+        return toResponse(comment)
     }
 
-    private fun toView(c: CommentRecord): DocCommentView = DocCommentView(
+    private fun toResponse(c: CommentRecord): DocCommentResponse = DocCommentResponse(
         id = checkNotNull(c.id) { "文档评论记录缺 id" }, docId = c.docId, author = c.author, body = c.body, createdAt = c.createdAt,
     )
 }

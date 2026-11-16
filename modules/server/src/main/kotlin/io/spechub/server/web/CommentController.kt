@@ -35,7 +35,7 @@ class CommentController(
 
     data class CommentBody(@field:NotBlank val body: String)
 
-    data class CommentView(
+    data class CommentResponse(
         val id: Long,
         val apiId: Long?,
         val repoId: Long,
@@ -47,13 +47,13 @@ class CommentController(
     )
 
     @GetMapping("/apis/{id}/comments")
-    fun comments(@PathVariable id: Long): List<CommentView> {
+    fun comments(@PathVariable id: Long): List<CommentResponse> {
         val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
-        return index.listCommentsForEndpoint(api.repoId, api.method, api.path).map(::toView)
+        return index.listCommentsForEndpoint(api.repoId, api.method, api.path).map(::toResponse)
     }
 
     @PostMapping("/apis/{id}/comments")
-    fun add(@PathVariable id: Long, @RequestBody @Valid body: CommentBody, request: HttpServletRequest): CommentView {
+    fun add(@PathVariable id: Long, @RequestBody @Valid body: CommentBody, request: HttpServletRequest): CommentResponse {
         val user = auth.requireAuthenticated(request, "发表评论")
         val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
         val comment = index.addCommentWithChangelog(
@@ -62,7 +62,7 @@ class CommentController(
             actor = user.username, action = "comment",
             detail = "评论 ${api.method} ${api.path}：${body.body.trim().take(60)}",
         )
-        return toView(comment)
+        return toResponse(comment)
     }
 
     @DeleteMapping("/comments/{id}")
@@ -84,7 +84,7 @@ class CommentController(
         )
     }
 
-    private fun toView(c: CommentRecord): CommentView = CommentView(
+    private fun toResponse(c: CommentRecord): CommentResponse = CommentResponse(
         id = checkNotNull(c.id) { "评论记录缺 id" }, apiId = c.apiId, repoId = c.repoId, method = c.method, path = c.path,
         author = c.author, body = c.body, createdAt = c.createdAt,
     )

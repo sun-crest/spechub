@@ -43,7 +43,7 @@ class ReviewController(
     private val specWriteService: SpecWriteService,
 ) {
 
-    data class ReviewView(
+    data class ReviewResponse(
         val id: Long,
         val repoId: Long,
         val path: String,
@@ -55,7 +55,7 @@ class ReviewController(
         val resolvedAt: String? = null,
     )
 
-    data class ReviewDetail(
+    data class ReviewDetailResponse(
         val id: Long,
         val repoId: Long,
         val path: String,
@@ -73,20 +73,20 @@ class ReviewController(
     data class RejectRequest(val reason: String? = null)
 
     @GetMapping
-    fun list(@RequestParam status: String? = null, @RequestParam repoId: Long? = null): List<ReviewView> {
+    fun list(@RequestParam status: String? = null, @RequestParam repoId: Long? = null): List<ReviewResponse> {
         if (status != null && !ReviewStatus.ALL.contains(status)) {
             throw ApiException(ApiErrorCode.VALIDATION, "status ∈ ${ReviewStatus.ALL}", listOf(ApiErrorBody.FieldError("status", "status ∈ ${ReviewStatus.ALL}")))
         }
-        return index.listReviews(repoId, status).map(::toView)
+        return index.listReviews(repoId, status).map(::toResponse)
     }
 
     @GetMapping("/{id}")
-    fun detail(@PathVariable id: Long): ReviewDetail {
+    fun detail(@PathVariable id: Long): ReviewDetailResponse {
         val r = index.getReview(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评审 $id 不存在")
         val current = index.getRepo(r.repoId)?.let { repo ->
             try { writer.readSpec(repo, r.path) } catch (e: Exception) { null }
         }
-        return ReviewDetail(
+        return ReviewDetailResponse(
             id = checkNotNull(r.id) { "评审记录缺 id" }, repoId = r.repoId, path = r.path, status = r.status, requester = r.requester,
             newContent = r.newContent, currentContent = current, oldHash = r.oldHash,
             reviewer = r.reviewer, rejectReason = r.rejectReason, createdAt = r.createdAt,
@@ -94,8 +94,8 @@ class ReviewController(
     }
 
     @PostMapping("/{id}/approve")
-    fun approve(@PathVariable id: Long, request: HttpServletRequest): ReviewView =
-        toView(specWriteService.approve(id, auth.currentUser(request)))
+    fun approve(@PathVariable id: Long, request: HttpServletRequest): ReviewResponse =
+        toResponse(specWriteService.approve(id, auth.currentUser(request)))
 
     @PostMapping("/{id}/reject")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -105,7 +105,7 @@ class ReviewController(
 
     // ── 内部 ───────────────────────────────────────────────────────────────
 
-    private fun toView(r: ReviewRecord): ReviewView = ReviewView(
+    private fun toResponse(r: ReviewRecord): ReviewResponse = ReviewResponse(
         id = checkNotNull(r.id) { "评审记录缺 id" }, repoId = r.repoId, path = r.path, status = r.status, requester = r.requester,
         reviewer = r.reviewer, rejectReason = r.rejectReason, createdAt = r.createdAt, resolvedAt = r.resolvedAt,
     )

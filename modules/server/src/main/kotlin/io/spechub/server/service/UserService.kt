@@ -111,7 +111,7 @@ class UserService(
 
     private fun actorName(actor: UserRecord?): String = actor?.username ?: "anonymous"
 
-    /** 用户 + 其在项目上的角色（Controller 据此转 UserView） */
+    /** 用户 + 其在项目上的角色（Controller 据此转 UserResponse） */
     data class UserSummary(val user: UserRecord, val role: String?)
 
     /** 创建/重置令牌的结果：用户快照 + 一次性明文 token */

@@ -56,7 +56,7 @@ class AuthController(
         val canManage: Boolean = false,
     )
 
-    data class UserView(
+    data class UserResponse(
         val id: Long,
         val username: String,
         val displayName: String,
@@ -69,7 +69,7 @@ class AuthController(
 
     data class UpdateRoleRequest(@field:NotBlank val role: String)
 
-    data class CreateUserResponse(val user: UserView, val token: String)
+    data class CreateUserResponse(val user: UserResponse, val token: String)
 
     @GetMapping("/status")
     fun status(req: HttpServletRequest): StatusResponse {
@@ -111,10 +111,10 @@ class AuthController(
     // ── 成员管理（需要 default project admin+ 或平台 admin；MVP 单项目 default） ──
 
     @GetMapping("/users")
-    fun users(req: HttpServletRequest): List<UserView> {
+    fun users(req: HttpServletRequest): List<UserResponse> {
         val projectId = defaultProjectId()
         auth.requireProjectRole(req, projectId, Role.ADMIN, "查看成员")
-        return userService.listUsers(projectId).map(::toView)
+        return userService.listUsers(projectId).map(::toResponse)
     }
 
     @PostMapping("/users")
@@ -128,14 +128,14 @@ class AuthController(
             projectId = projectId,
             actor = auth.currentUser(req),
         )
-        return CreateUserResponse(toView(created.user), created.token)
+        return CreateUserResponse(toResponse(created.user), created.token)
     }
 
     @PostMapping("/users/{id}/role")
-    fun setRole(req: HttpServletRequest, @PathVariable id: Long, @RequestBody @Valid body: UpdateRoleRequest): UserView {
+    fun setRole(req: HttpServletRequest, @PathVariable id: Long, @RequestBody @Valid body: UpdateRoleRequest): UserResponse {
         val projectId = defaultProjectId()
         auth.requireProjectRole(req, projectId, Role.ADMIN, "改角色")
-        return toView(userService.setRole(id, body.role, projectId, auth.currentUser(req)))
+        return toResponse(userService.setRole(id, body.role, projectId, auth.currentUser(req)))
     }
 
     @PostMapping("/users/{id}/token")
@@ -143,7 +143,7 @@ class AuthController(
         val projectId = defaultProjectId()
         auth.requireProjectRole(req, projectId, Role.ADMIN, "重置令牌")
         val created = userService.resetToken(id, projectId)
-        return CreateUserResponse(toView(created.user), created.token)
+        return CreateUserResponse(toResponse(created.user), created.token)
     }
 
     @DeleteMapping("/users/{id}")
@@ -158,7 +158,7 @@ class AuthController(
 
     private fun defaultProjectId(): Long? = index.projectIdByName(RepoController.DEFAULT_PROJECT)
 
-    private fun toView(summary: UserService.UserSummary): UserView = UserView(
+    private fun toResponse(summary: UserService.UserSummary): UserResponse = UserResponse(
         id = checkNotNull(summary.user.id) { "用户记录缺 id" },
         username = summary.user.username,
         displayName = summary.user.displayName,

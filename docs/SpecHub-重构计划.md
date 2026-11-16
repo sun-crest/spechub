@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：R1–R7 已完成（2026-11-16 实测通过：全量 104 用例绿）；R8–R12 待执行。
+> **日期**：2026-11-16　**状态**：R1–R8 已完成（2026-11-16 实测通过：全量 104 用例绿）；R9–R12 待执行。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -123,6 +123,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **现状证据** | `UserView/CommentView/DocCommentView/ReviewView/ReviewDetail` + `toView` |
 | **改动** | 统一改 `UserResponse/CommentResponse/DocCommentResponse/ReviewResponse/ReviewDetailResponse`；`toView→toResponse`；跨文件共享的独立成文件（§4.2 阈值）。**JSON 字段不变**，纯改名 |
 | **验收** | main 侧无 `*View`/`toView` 残留；既有测试通过（无行为变更） |
+| **状态** | ✅ 2026-11-16 完成：`UserView→UserResponse`、`CommentView→CommentResponse`、`DocCommentView→DocCommentResponse`、`ReviewView→ReviewResponse`、`ReviewDetail→ReviewDetailResponse`，`toView→toResponse`；均为 Controller 内嵌套 DTO、无跨文件共享，故未拆独立文件；JSON 字段与行为未变；`modules/*/src/main` grep `*View`/`toView` 归零；全量 104 用例绿 |
 
 #### R9 · 日志纪律 + 请求日志　`[强]`（规范 §6）
 
