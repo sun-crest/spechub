@@ -248,8 +248,10 @@ class MockEngine(internal val index: SpecIndexStore) {
     private fun resolveRef(s: Schema, schemas: Map<String, Schema>): Schema? {
         var current = s
         var hops = 0
-        while (current.ref != null && hops < 12) {
-            val name = current.ref!!.substringAfterLast("/")
+        while (hops < 12) {
+            // 循环条件拆分：ref 为空即停，避免对可空 ref 做非空断言
+            val ref = current.ref ?: break
+            val name = ref.substringAfterLast("/")
             val target = schemas[name] ?: return null
             current = target
             hops++

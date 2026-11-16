@@ -71,7 +71,8 @@ class CommentController(
         val actor = auth.requireAuthenticated(request, "删除评论")
         val comment = index.getComment(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评论 $id 不存在")
         val projectId = index.getRepo(comment.repoId)?.projectId
-        val role = if (actor.isPlatformAdmin) Role.OWNER else projectId?.let { index.membershipRole(actor.id!!, it) }
+        // 平台 admin 恒 owner；普通用户按 membership（effectiveRole 已含 null 判定）
+        val role = auth.effectiveRole(actor, projectId)
         val isAuthor = actor.username == comment.author
         val isManager = Role.rank(role) >= Role.rank(Role.ADMIN)
         if (!isAuthor && !isManager && !actor.isPlatformAdmin) {
@@ -84,7 +85,7 @@ class CommentController(
     }
 
     private fun toView(c: CommentRecord): CommentView = CommentView(
-        id = c.id!!, apiId = c.apiId, repoId = c.repoId, method = c.method, path = c.path,
+        id = checkNotNull(c.id) { "评论记录缺 id" }, apiId = c.apiId, repoId = c.repoId, method = c.method, path = c.path,
         author = c.author, body = c.body, createdAt = c.createdAt,
     )
 }

@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：R1–R6 已完成（2026-11-16 实测通过：全量 104 用例绿）；R7–R12 待执行。
+> **日期**：2026-11-16　**状态**：R1–R7 已完成（2026-11-16 实测通过：全量 104 用例绿）；R8–R12 待执行。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -114,6 +114,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **现状证据** | main 侧 38 处 `!!`（[ReviewController.kt](../modules/server/src/main/kotlin/io/spechub/server/web/ReviewController.kt) 5、[CommentController.kt](../modules/server/src/main/kotlin/io/spechub/server/web/CommentController.kt) 2、[DocController.kt](../modules/server/src/main/kotlin/io/spechub/server/web/DocController.kt) 1 等，多为 `record.id!!`） |
 | **改动** | 逐处评估：SQLite 必有 id → `checkNotNull(x){"原因"}`；编译器已确认非空的 → 删除；`user.id!!` → 走已含 null 判定的 `effectiveRole` 签名 |
 | **验收** | main 侧 `grep "!!"` 归零（kernel 确需处留注释说明） |
+| **状态** | ✅ 2026-11-16 完成：main 侧 `!!` 全量归零（存量实际 5 处，R4/R5 重构已顺带消除大部分）：`CommentController` 删除权限改走 `auth.effectiveRole(actor, projectId)`（消除 `actor.id!!`），评论/Doc 评论 `id!!` 改 `checkNotNull`；kernel `PostmanImporter` 改局部非空绑定、`MockEngine.resolveRef` 拆循环条件；全量 104 用例绿 |
 
 #### R8 · 出参 DTO 统一 `*Response`　`[强]`（规范 §4.1、§13 第 5 项）
 

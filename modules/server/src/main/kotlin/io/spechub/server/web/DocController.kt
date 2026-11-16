@@ -67,6 +67,6 @@ class DocController(
     }
 
     private fun toView(c: CommentRecord): DocCommentView = DocCommentView(
-        id = c.id!!, docId = c.docId, author = c.author, body = c.body, createdAt = c.createdAt,
+        id = checkNotNull(c.id) { "文档评论记录缺 id" }, docId = c.docId, author = c.author, body = c.body, createdAt = c.createdAt,
     )
 }

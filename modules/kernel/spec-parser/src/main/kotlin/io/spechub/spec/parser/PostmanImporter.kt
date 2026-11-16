@@ -139,14 +139,15 @@ object PostmanImporter {
     }
 
     private fun buildRequestBody(body: ObjectNode): ObjectNode? {
-        when (body.get("mode")?.asString()) {
+        // mode 缺失/未知 → 不构造请求体（与下方 else 分支等价）
+        val mode = body.get("mode")?.asString() ?: return null
+        when (mode) {
             "raw" -> {
                 val content = NODE.objectNode().set("application/json", NODE.objectNode().set("schema", NODE.objectNode()))
                 return NODE.objectNode().set("content", content)
             }
             "urlencoded", "formdata" -> {
                 val props = NODE.objectNode()
-                val mode = body.get("mode")!!.asString()
                 val arr = body.get(mode) as? ArrayNode ?: return null
                 for (i in 0 until arr.size()) {
                     val p = arr.get(i) ?: continue
