@@ -48,16 +48,37 @@ class SpecIndexStore(private val db: IndexDb) {
 
     fun insertRepo(projectName: String, url: String, branch: String = "main"): RepoRecord =
         db.transaction { conn ->
-            val pid = projectIdByName(conn, projectName)
-                ?: insertProject(conn, projectName)
-            // 同 URL 幂等返回既存
-            getRepoByUrl(conn, pid, url)?.let { return@transaction it }
-            val id = conn.insert(
-                "INSERT INTO repo (project_id, url, branch, sync_status) VALUES (?,?,?,?)",
-                pid, url, branch, SyncStatus.NEW,
-            )
-            RepoRecord(id, pid, url, branch, SyncStatus.NEW)
+            insertRepo(conn, projectName, url, branch)
         }
+
+    /**
+     * R9 —— 注册仓库 + changelog 同一事务（§6.2「创建仓库 = changelog + INFO」）。
+     * 同 URL 幂等返回既存，仍留一条注册记录（操作可回看）。
+     */
+    fun insertRepoWithChangelog(
+        projectName: String,
+        url: String,
+        branch: String,
+        actor: String,
+        action: String,
+        detail: String,
+    ): RepoRecord = db.transaction { conn ->
+        val repo = insertRepo(conn, projectName, url, branch)
+        conn.insertChangelog(repo.id, null, actor, action, detail)
+        repo
+    }
+
+    private fun insertRepo(conn: Connection, projectName: String, url: String, branch: String): RepoRecord {
+        val pid = projectIdByName(conn, projectName)
+            ?: insertProject(conn, projectName)
+        // 同 URL 幂等返回既存
+        getRepoByUrl(conn, pid, url)?.let { return it }
+        val id = conn.insert(
+            "INSERT INTO repo (project_id, url, branch, sync_status) VALUES (?,?,?,?)",
+            pid, url, branch, SyncStatus.NEW,
+        )
+        return RepoRecord(id, pid, url, branch, SyncStatus.NEW)
+    }
 
     fun listRepos(): List<RepoRecord> = db.transaction { conn ->
         conn.select(

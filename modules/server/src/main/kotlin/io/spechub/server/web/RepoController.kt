@@ -46,8 +46,10 @@ class RepoController(
     @PostMapping("/repos")
     fun register(@RequestBody @Valid req: RegisterRepoRequest, request: jakarta.servlet.http.HttpServletRequest): RegisterResponse {
         auth.requireProjectRole(request, index.projectIdByName(DEFAULT_PROJECT), Role.EDITOR, "注册仓库")
-        // R5：注册 + token 注入 + 首次摄取统一在 SpecWriteService
-        val outcome = specWriteService.registerRepo(DEFAULT_PROJECT, req.url, req.branch, req.token)
+        // R5：注册 + token 注入 + 首次摄取统一在 SpecWriteService；R9：注册 changelog 与 INFO 双记录
+        val outcome = specWriteService.registerRepo(
+            DEFAULT_PROJECT, req.url, req.branch, req.token, auth.currentActor(request),
+        )
         return RegisterResponse(
             repo = outcome.repo,
             apiCount = outcome.ingest.apiCount,

@@ -4,6 +4,7 @@ import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.index.SubscriptionRecord
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
 /*
@@ -15,6 +16,8 @@ import org.springframework.stereotype.Service
  */
 @Service
 class SubscriptionService(private val index: SpecIndexStore) {
+
+    private val log = LoggerFactory.getLogger(javaClass)
 
     /** 订阅（幂等 upsert）+ apiId 尽力关联 + changelog */
     fun subscribe(
@@ -42,6 +45,7 @@ class SubscriptionService(private val index: SpecIndexStore) {
             action = "subscription",
             detail = "$team 订阅 $normalizedMethod $path",
         )
+        log.info("订阅 repo={} {} {} team={} actor={}", repoId, normalizedMethod, path, normalizedTeam, actor)
         return sub
     }
 
@@ -56,5 +60,6 @@ class SubscriptionService(private val index: SpecIndexStore) {
             action = "subscription.delete",
             detail = "取消订阅：${sub.team} ${sub.method} ${sub.path}",
         )
+        log.info("取消订阅 id={} repo={} {} {} team={} actor={}", id, sub.repoId, sub.method, sub.path, sub.team, actor)
     }
 }

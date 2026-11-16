@@ -8,6 +8,7 @@ import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -39,6 +40,8 @@ class AuthController(
     private val auth: AuthService,
     private val userService: UserService,
 ) {
+
+    private val log = LoggerFactory.getLogger(javaClass)
 
     data class LoginRequest(val username: String? = null, @field:NotBlank val token: String)
 
@@ -88,6 +91,8 @@ class AuthController(
         if (body.username != null && body.username.isNotBlank() && body.username != user.username) {
             throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "用户名与令牌不匹配")
         }
+        // R9 审计：认证事件只记 username，不记凭据本身（§6.1）
+        log.info("登录成功 user={}", user.username)
         return StatusResponse(true, true, user.username)
     }
 

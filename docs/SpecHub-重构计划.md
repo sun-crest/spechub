@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：R1–R8 已完成（2026-11-16 实测通过：全量 104 用例绿）；R9–R12 待执行。
+> **日期**：2026-11-16　**状态**：R1–R9 已完成（2026-11-16 实测通过：全量 105 用例绿）；R10–R12 待执行。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -132,6 +132,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **现状证据** | 仅 [ApplicationInit.kt](../modules/server/src/main/kotlin/io/spechub/server/ingest/ApplicationInit.kt)、[ReindexRunner.kt](../modules/server/src/main/kotlin/io/spechub/server/ingest/ReindexRunner.kt) 有 slf4j；无请求访问日志 |
 | **改动** | ① 新增 `RequestLogFilter`：`method path status durationMs`（**不记请求体/响应体/token**）；② 关键编排落 INFO（`writeOrQueue/approve/import/register`，与 changelog 互补不替代）；③ 审计一致核对 |
 | **验收** | 每个 HTTP 请求一条访问日志；token 关键字日志零出现（grep 审计） |
+| **状态** | ✅ 2026-11-16 完成：新增 `RequestLogFilter`（`@Order(HIGHEST_PRECEDENCE)` 先于鉴权，401/403 也记录；只记 `method path status durationMs`，`requestURI` 不含 query，不记 body/Authorization/token）；`SpecWriteService` 补 `writeOrQueue/approve/reject/import/register` INFO，`UserService` 补创建/改角色/重置令牌/删除，`SubscriptionService` 补订阅/取消，`AuthController` 补登录成功（仅 username）；注册仓库补 `insertRepoWithChangelog` 同事务 changelog，达成 §6.2「创建仓库 = changelog + INFO」双记录；新增 `RequestLogFilterTest` 断言单条日志且不含 token/body；全量 105 用例绿 |
 
 #### R10 · 配置分层　`[推]`（规范 §7）
 

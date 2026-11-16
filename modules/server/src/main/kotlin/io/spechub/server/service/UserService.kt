@@ -7,6 +7,7 @@ import io.spechub.server.web.AuthService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
 /*
@@ -24,6 +25,8 @@ import org.springframework.stereotype.Service
 class UserService(
     private val index: SpecIndexStore,
 ) {
+
+    private val log = LoggerFactory.getLogger(javaClass)
 
     /** 成员列表：附带指定项目上的角色（projectId 为 null 时角色为空） */
     fun listUsers(projectId: Long?): List<UserSummary> =
@@ -53,6 +56,7 @@ class UserService(
             action = "user.create",
             detail = "创建用户 $name（$role）",
         )
+        log.info("创建用户 user={} role={} actor={}", name, role, actorName(actor))
         return CreatedUser(UserSummary(user, roleOf(user.id, projectId)), token)
     }
 
@@ -69,6 +73,7 @@ class UserService(
             action = "user.role",
             detail = "用户 ${user.username} → $role",
         )
+        log.info("改角色 user={} role={} actor={}", user.username, role, actorName(actor))
         return UserSummary(user, roleOf(id, projectId))
     }
 
@@ -77,6 +82,7 @@ class UserService(
         val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         val token = AuthService.generateToken()
         index.updateUserToken(id, AuthService.sha256(token))
+        log.info("重置用户令牌 user={}", user.username)
         return CreatedUser(UserSummary(user, roleOf(user.id, projectId)), token)
     }
 
@@ -91,6 +97,7 @@ class UserService(
             action = "user.delete",
             detail = "删除用户 ${user.username}",
         )
+        log.info("删除用户 user={} actor={}", user.username, actorName(actor))
     }
 
     // ── 内部 ───────────────────────────────────────────────────────────────

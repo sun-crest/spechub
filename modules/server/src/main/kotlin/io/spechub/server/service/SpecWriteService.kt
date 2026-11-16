@@ -12,6 +12,7 @@ import io.spechub.server.web.SpecWriter
 import io.spechub.server.web.UrlTokenStore
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
 /*
@@ -36,6 +37,8 @@ class SpecWriteService(
     private val auth: AuthService,
 ) {
 
+    private val log = LoggerFactory.getLogger(javaClass)
+
     /**
      * 写回入口：未启用鉴权 → 直写 + 摄取；启用鉴权 → 入评审队列（不碰真源）。
      * [actor] 为当前操作者用户名（匿名/未启用时可为 anonymous）。
@@ -45,6 +48,10 @@ class SpecWriteService(
         if (!auth.authEnabled) {
             val written = writer.writeSpec(repo, path, content)
             val ing = ingestor.ingest(repo, urlTokens.get(repo.id))
+            log.info(
+                "spec 直写 repo={} path={} commit={} apiCount={}",
+                repo.id, path, written.commit.take(8), ing.apiCount,
+            )
             return WriteOutcome(
                 repoId = repo.id, path = path, commit = written.commit, branch = written.branch,
                 apiCount = ing.apiCount, message = "已提交 ${written.commit.take(8)}",
@@ -58,6 +65,7 @@ class SpecWriteService(
             actor = actor, action = "review.create",
             detail = { r -> "提交评审 #${r.id}：$path（$actor 提交，等待审批）" },
         )
+        log.info("spec 入评审 repo={} path={} review={} requester={}", repo.id, path, review.id, actor)
         return WriteOutcome(
             repoId = repo.id, path = path, commit = "", branch = repo.branch, apiCount = 0,
             reviewId = review.id, status = ReviewStatus.PENDING,
@@ -84,6 +92,10 @@ class SpecWriteService(
             actor = reviewer.username, action = "review.approve",
             detail = "批准评审 #$reviewId：${review.path} → commit ${written.commit.take(8)}（${ing.apiCount} 个接口）",
         )
+        log.info(
+            "评审批准 review={} repo={} path={} commit={} apiCount={} reviewer={}",
+            reviewId, review.repoId, review.path, written.commit.take(8), ing.apiCount, reviewer.username,
+        )
         return index.getReview(reviewId)
             ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评审 $reviewId 不存在")
     }
@@ -99,6 +111,7 @@ class SpecWriteService(
             actor = reviewer.username, action = "review.reject",
             detail = "打回评审 #$reviewId：${review.path}${reason?.let { "（$it）" } ?: ""}",
         )
+        log.info("评审打回 review={} repo={} path={} reviewer={}", reviewId, review.repoId, review.path, reviewer.username)
     }
 
     /**
@@ -110,17 +123,28 @@ class SpecWriteService(
         val path = requestedPath?.takeIf { it.endsWith(".yaml") || it.endsWith(".yml") }
             ?: "specs/import/$type-${System.currentTimeMillis()}.yaml"
         val written = writer.writeSpec(repo, path, content)
-        ingestor.ingest(repo, urlTokens.get(repoId))
+        val ing = ingestor.ingest(repo, urlTokens.get(repoId))
+        log.info("导入写回 repo={} path={} commit={} apiCount={}", repoId, path, written.commit.take(8), ing.apiCount)
         return ImportWritten(repoId, path, written.commit.take(12), written.branch)
     }
 
     /** 注册仓库并立即摄取（token 仅内存注入，不落库）；同步返回统计。 */
-    fun registerRepo(projectName: String, url: String, branch: String?, token: String?): RepoRegistered {
-        val repo = index.insertRepo(projectName, url.trim(), branch?.ifEmpty { null } ?: "main")
+    fun registerRepo(projectName: String, url: String, branch: String?, token: String?, actor: String): RepoRegistered {
+        val branchName = branch?.ifEmpty { null } ?: "main"
+        val cleanUrl = url.trim()
+        val repo = index.insertRepoWithChangelog(
+            projectName = projectName,
+            url = cleanUrl,
+            branch = branchName,
+            actor = actor,
+            action = "repo.register",
+            detail = "注册仓库 $cleanUrl（分支 $branchName）",
+        )
         if (token != null && token.isNotBlank()) {
             urlTokens.putWithToken(repo.id, url, token)
         }
         val ing = ingestor.ingest(repo, urlTokens.get(repo.id))
+        log.info("仓库注册 repo={} url={} apiCount={}", repo.id, repo.url, ing.apiCount)
         return RepoRegistered(repo, ing)
     }
 
