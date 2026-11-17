@@ -59,14 +59,14 @@
 
 ### A0 · 前置对齐与 ADR 修正（S）
 
-- [ ] 确认并记录：`app_user` 当前已是全局身份（无 `org_id`，`username` 全局唯一），ADR §10 的「去掉 `app_user.org_id`」改为「就地升级为全局身份 + 新增 `org_membership`」。
-- [ ] 确认阶段 A 范围：只加 `org_membership`，不加 `email` / `mfa_enabled` / 密码登录（留阶段 C）。
-- [ ] 确认 `repo_binding.connection_id` 在阶段 A 允许为空；现有仓库先给 `managed` / `local` binding，外部 connection 留 D1。
-- [ ] 确认项目 slug 规则：小写、`[a-z0-9-]`、长度 2–64、组织内唯一。
-- [ ] 确认语义：`visibility` 默认 `private`；不可见资源统一 404；`internal` 非成员只读 release。
-- [ ] 确认项目删除策略：先归档、再删除；删除需 owner 二次确认并写 changelog。
+- [x] 确认并记录：`app_user` 当前已是全局身份（无 `org_id`，`username` 全局唯一），ADR §10 的「去掉 `app_user.org_id`」改为「就地升级为全局身份 + 新增 `org_membership`」。
+- [x] 确认阶段 A 范围：只加 `org_membership`，不加 `email` / `mfa_enabled` / 密码登录（留阶段 C）。
+- [x] 确认 `repo_binding.connection_id` 在阶段 A 允许为空；现有仓库先给 `managed` / `local` binding，外部 connection 留 D1。
+- [x] 确认项目 slug 规则：小写、`[a-z0-9-]`、长度 2–64、组织内唯一。
+- [x] 确认语义：`visibility` 默认 `private`；不可见资源统一 404；`internal` 非成员只读 release。
+- [x] 确认项目删除策略：先归档、再删除；删除需 owner 二次确认并写 changelog。
 
-**产出**：ADR §10 措辞修正 + 本节勾选完成。
+**状态**：✅ 2026-11-17 完成；决策已同步到 ADR §4.1 / §7.4 / §9 / §10。
 
 ### A1 · 管理库 V3 迁移（L）
 
@@ -261,15 +261,17 @@ A1 → A2 → A3 → A4 →（A‑1 门禁）→ A5/A6/A7 → A8 → A9/A10
 
 ---
 
-## 6. 前置假设与待确认
+## 6. 前置假设（A0 已确认）
 
-| 项 | 建议 | 影响 |
+| 项 | 结论 | 影响 |
 |---|---|---|
 | `org_membership` 是否在 A 落 | **是**（只加表，不加密码/邮箱） | 影响 A1/A3 |
 | `repo_binding.connection_id` 是否允许空 | **允许**，D1 再补外部 connection | 影响 A1/A7 |
 | 项目删除策略 | **先归档、再删除** | 影响 A5 |
 | `app_user` 是否已全局 | **是**（当前无 `org_id`） | 影响 A0/A1 |
 | `connection_id` 为空时摄取如何取 remote | 用 `repo.url` 兜底 | 影响 A2/A7 |
+
+以上各项已于 2026-11-17 确认，对应 ADR §4.1 / §7.4 / §9 / §10 的修正。
 
 ---
 

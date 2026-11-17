@@ -123,10 +123,11 @@ org_domain(id, org_id, domain, verification_token, verified_at)
 platform_operator(id, email, name, status, mfa_enabled, created_at)
 platform_role(operator_id, role)  -- support | billing | admin | superadmin
 
--- 全局用户身份（邮箱全局唯一；密码用 Argon2id，token 只存 hash）
-app_user(id, email, display_name, password_hash, mfa_enabled,
+-- 全局用户身份（阶段 A 沿用 username + token；email/password/mfa 阶段 C 引入）
+app_user(id, username, email, display_name, password_hash, mfa_enabled,
          status, created_at)
--- UNIQUE (lower(email))
+-- UNIQUE (lower(username))
+-- UNIQUE (lower(email))：阶段 C 起
 
 -- 组织成员关系（一个用户可加入多个组织）
 org_membership(id, user_id, org_id, org_role, status, created_at)
@@ -145,6 +146,7 @@ platform_audit(id, operator_id, org_id, action, target, reason, created_at)
 project(id, org_id, name, slug, description, visibility,
         owner_id, archived, created_at)
 -- UNIQUE (org_id, slug)
+-- slug：小写 [a-z0-9-]，长度 2–64，组织内唯一
 -- visibility ∈ private | internal | public
 
 -- 项目成员（现有表补 org/约束）
@@ -172,6 +174,7 @@ repo_binding(id, repo_id, kind, connection_id,
              external_repo_id, remote_url, branch,
              status, created_at, retired_at)
 -- kind ∈ managed | external
+-- connection_id 阶段 A 可空（managed/local 不强制外部 connection）
 -- status ∈ candidate | active | retired
 -- 约束：UNIQUE (repo_id) WHERE status='active'
 --       （PG 部分索引；MySQL 用可空标志位 + 唯一索引）
@@ -454,7 +457,7 @@ pending_verification → active → suspended → archived → deleted
 - `active`：正常使用；
 - `suspended`：保留数据，停写/停摄取（欠费、滥用、安全事件）；
 - `archived`：只读，可导出；
-- `deleted`：宽限期后删除，保留导出包与审计记录；
+- `deleted`：宽限期后删除；删除前必须 `archived`，且由 `org_admin` / owner 二次确认；保留导出包与审计记录；
 - 状态变更需 `platform_operator`（或 `org_admin` 发起删除）并写审计。
 
 ### 7.5 break-glass 支持访问
@@ -545,7 +548,7 @@ pending_verification → active → suspended → archived → deleted
 
 | 阶段 | 目标 | 关键交付 | 退出标准 |
 |---|---|---|---|
-| **A · 多项目骨架** | 把单项目 demo 变成多项目平台 | `org` + `project` CRUD + `visibility` + 所有读端点过滤 + 多项目成员 API/UI + 仓库注册带 `projectId` + 表加 `org_id` + `git_connection` + **`repo_binding`（managed/local，单主约束）** | 两个项目、用户只在 A：列表/详情/搜索/导出均看不到 B；注册仓库归属正确；每个 repo 恰好一个 active binding；dev 免登录仍可用 |
+| **A · 多项目骨架** | 把单项目 demo 变成多项目平台 | `org` + `org_membership` + `project` CRUD + `visibility` + 所有读端点过滤 + 多项目成员 API/UI + 仓库注册带 `projectId` + 表加 `org_id` + `git_connection` + **`repo_binding`（managed/local，`connection_id` 可空，单主约束）**；email/mfa/密码留阶段 C | 两个项目、用户只在 A：列表/详情/搜索/导出均看不到 B；注册仓库归属正确；每个 repo 恰好一个 active binding；dev 免登录仍可用 |
 | **B · 团队** | 跨团队订阅落地 | `team` + 成员 + `subscription.team_id` 迁移 + 团队管理页 + 通知按团队投递 | 团队改名不影响订阅；通知只发给团队成员 |
 | **C · 账号与审计** | 可运维的身份体系 | 密码/OIDC、账号禁用、token 过期、服务账号、管理动作审计查询 | 禁用用户所有 token 立即失效；服务账号无法跨项目访问 |
 | **D1 · 平台控制面** | 可售卖、可运营 | 平台 operator 控制面（组织开通/暂停/配额/审计）、销售/邀请制开通、break-glass、RLS、每租户索引/存储、BYO git 全连接器 + **binding 迁移（candidate/verify/flip/回滚）**、PR-first、可选 `repo_mirror`、租户生命周期与导出 | 运营可开通/暂停组织；operator 默认看不到租户内容；break-glass 有授权与审计；两个 org 在 DB/搜索/存储/Webhook 全隔离 |
@@ -580,13 +583,14 @@ waitlist（申请制） → 邀请 50 家 → 灰度 10% → 50% → 100%
 ## 10. 迁移
 
 1. 启动时创建默认 `org`（名称可配置，默认 `default`）：自托管部署下把现有 `platform_admin` 映射为默认 org 的 `org_admin`；**SaaS 不把租户用户映射为 `platform_operator`**，运营账号独立创建。
-2. 现有 `app_user` 升级为全局身份 + 新增 `org_membership`：
-   - 去掉 `app_user.org_id` / `is_org_admin`，补 `email` / `mfa_enabled`；邮箱全局唯一；
-   - 现有 username 若含 `@` 直接作为邮箱，否则生成 `<username>@local` 占位并强制首次登录设置邮箱；
-   - `org_membership(user_id, org_id, org_role)` 由现有 `app_user.org_id` + `is_org_admin` 生成；
-   - token hash 保留，迁移后旧 token 继续有效。
-3. 现有 `default` 项目保留，补齐 `org_id`、`visibility=private`、`owner_id`（admin 用户）。
-4. 为现有 `repo` 创建首个 `active` binding：按现有 URL 创建 `local`（本地目录）或 `external` connection，`external_repo_id` 暂用 URL 的确定性 hash；`repo` 只保留逻辑名称，托管位置（connection、URL、branch、external ID）迁入 `repo_binding`。
+2. 现有 `app_user` 就地升级为全局身份 + 新增 `org_membership`：
+   - 当前 `app_user` 已是全局（无 `org_id`，`username` 全局唯一），阶段 A 保留 `username` + `token_hash`；
+   - `email` / `password_hash` / `mfa_enabled` 留到阶段 C 引入，不在 A 迁移；
+   - 新增 `org_membership(user_id, org_id, org_role)`：所有现有用户加入默认 org，`is_platform_admin=1` → `org_admin`，其余 → `org_member`；
+   - `app_user.is_platform_admin` 在阶段 A 保留以兼容旧 admin-token，阶段 C 迁移到 `org_membership.org_role` 后移除；
+   - token hash 原样保留，迁移后旧 token 继续有效。
+3. 现有 `default` 项目保留，补齐 `org_id`、`slug=default`、`visibility=private`、`owner_id`（admin 用户）。
+4. 为现有 `repo` 创建首个 `active` binding：阶段 A 先给 `managed` / `local` binding，`connection_id` 允许为空；`external_repo_id` 暂用 URL 的确定性 hash；`repo` 只保留逻辑名称，托管位置（connection、URL、branch、external ID）迁入 `repo_binding`。
 5. `subscription.team` 迁移为 `team` 行 + `team_id`；同名合并。
 6. `review`、`comment`、`mock_rule`、`changelog`、`notification`、`release` 补 `org_id`。
 7. 所有迁移按现有纪律分 vendor（PostgreSQL / MySQL）维护 Flyway；不破坏现有数据，不做重置。
