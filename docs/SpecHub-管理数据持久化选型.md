@@ -255,7 +255,7 @@ modules/mock/
 - [x] `comment.doc_id`、`mock_rule.api_id` 去跨边界 FK，改稳定寻址。✅ 2026-11-17：DDL 去 FK（两列降为展示快照）；旧库 `migrate` 原地重建（rename → create → copy → drop，数据保留）；文档评论改 `repo_id + path` 稳定寻址；`IndexDbMigrationTest` 覆盖。
 - [x] `membership.project_id`、`comment.repo_id`、`subscription.repo_id`、`notification.repo_id`、`review.repo_id`、`changelog.repo_id` 随 `project` / `repo` 归管理库而成为管理库内部外键。✅ 2026-11-17：`project`/`repo` 已迁管理库；投影库对应表已删，`repo_id` 全部降为逻辑列（旧库原地重建保数据）。
 - [x] 投影库删除 `project` / `repo` 表；`api` / `schema` / `doc` / `version` 的 `repo_id` 改为逻辑列（无 FK）。✅ 2026-11-17（随 Phase 2 project/repo 迁移完成）。
-- [ ] 发布状态迁管理库（`release` 表：`repo_id + path + spec_hash + released_at`），投影 `version.stage` 改为重建时重放的派生值。
+- [x] 发布状态迁管理库（`release` 表：`repo_id + path + spec_hash + released_at`），投影 `version.stage` 改为重建时重放的派生值。✅ 2026-11-17：`ReleaseService` + `V2__release.sql`（双 vendor）；`ReleaseController` 先落管理库再投影 promote；`Ingestor` 摄取完成后 replay；`ReleaseServiceTest` 覆盖幂等 / 重建恢复 / 跳过不存在 hash。
 - [x] 补「清空投影 → 从 git 重扫 → 管理数据仍在」的重建测试。✅ 2026-11-17：`IngestorE2ETest` 覆盖 7 类管理数据，已启用转绿。
 
 ### Phase 2 · 物理拆分两个数据源

@@ -46,12 +46,21 @@ class ProjectionStore(private val db: IndexDb) {
      * 并把当前 draft 投影复制一份为 release 快照（消费者默认读 release，draft 继续演进互不影响）。
      * @return 升级为 release 的版本；该 path 无任何版本时返回 null。
      */
-    fun promotePath(repoId: Long, path: String): VersionRecord? = db.transaction { conn ->
-        val latest = conn.select(
-            "SELECT * FROM version WHERE repo_id=? AND path=? ORDER BY id DESC LIMIT 1",
-            repoId, path,
-        ) { r -> VersionRecord(r.long("id"), r.long("repo_id"), r["path"] as String, r["spec_hash"] as String, r["stage"] as String) }.firstOrNull()
-            ?: return@transaction null
+    fun promotePath(repoId: Long, path: String, specHash: String? = null): VersionRecord? = db.transaction { conn ->
+        // specHash 指定用于投影重建后按管理库 release 记录重放；null = 取最新 draft
+        val latest = (
+            if (specHash == null) {
+                conn.select(
+                    "SELECT * FROM version WHERE repo_id=? AND path=? ORDER BY id DESC LIMIT 1",
+                    repoId, path,
+                ) { r -> VersionRecord(r.long("id"), r.long("repo_id"), r["path"] as String, r["spec_hash"] as String, r["stage"] as String) }.firstOrNull()
+            } else {
+                conn.select(
+                    "SELECT * FROM version WHERE repo_id=? AND path=? AND spec_hash=? ORDER BY id DESC LIMIT 1",
+                    repoId, path, specHash,
+                ) { r -> VersionRecord(r.long("id"), r.long("repo_id"), r["path"] as String, r["spec_hash"] as String, r["stage"] as String) }.firstOrNull()
+            }
+            ) ?: return@transaction null
 
         // 同 path 其它版本降 draft（单一 release 语义：release 永远是「某个 spec 文件的最近一次发布」）
         conn.exec("UPDATE version SET stage=? WHERE repo_id=? AND path=? AND id!=?", Stage.DRAFT, repoId, path, latest.id)

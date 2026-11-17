@@ -76,7 +76,7 @@ class IngestorE2ETest {
         val db = IndexDb(temp.resolve("idx.db")).also { it.migrate() }
         val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, props())
+        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, { _, _ -> }, props())
 
         val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
         val result = ingestor.ingest(repo)
@@ -101,7 +101,7 @@ class IngestorE2ETest {
         val db = IndexDb(temp.resolve("idx2.db")).also { it.migrate() }
         val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, props())
+        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, { _, _ -> }, props())
         val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
 
         ingestor.ingest(repo)
@@ -128,7 +128,7 @@ class IngestorE2ETest {
         val db = IndexDb(temp.resolve("idx-rebuild.db")).also { it.migrate() }
         val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, props())
+        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, { _, _ -> }, props())
         val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
         ingestor.ingest(repo)
 

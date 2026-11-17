@@ -5,6 +5,7 @@ import io.spechub.spec.index.IndexDb
 import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.ingest.Ingestor
+import io.spechub.server.service.ReleaseService
 import io.spechub.server.service.RepoService
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
@@ -49,11 +50,12 @@ class KernelConfig(private val props: SpecHubProperties) {
     fun projectionStore(): ProjectionStore = ProjectionStore(indexDb())
 
     @Bean
-    fun ingestor(repoService: RepoService): Ingestor = Ingestor(
+    fun ingestor(repoService: RepoService, releaseService: ReleaseService): Ingestor = Ingestor(
         gitStore(),
         projectionStore(),
         platformStore(),
         { repoId, status, error -> repoService.updateSyncStatus(repoId, status, error) },
+        { repoId, projection -> releaseService.replay(repoId, projection) },
         props,
     )
 

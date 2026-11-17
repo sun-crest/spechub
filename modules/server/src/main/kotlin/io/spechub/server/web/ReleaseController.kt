@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import io.spechub.server.service.ReleaseService
 import io.spechub.server.service.RepoService
 
 /*
@@ -29,6 +30,7 @@ class ReleaseController(
     private val projection: ProjectionStore,
     private val platform: PlatformStore,
     private val repoService: RepoService,
+    private val releaseService: ReleaseService,
     private val auth: AuthService,
 ) {
 
@@ -46,8 +48,13 @@ class ReleaseController(
     @PostMapping("/repos/{id}/promote")
     fun promote(@PathVariable id: Long, @RequestBody @Valid req: PromoteRequest, request: jakarta.servlet.http.HttpServletRequest): PromoteResponse {
         auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "发布 release")
-        val promoted = projection.promotePath(id, req.path.trim())
-            ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 的 ${req.path} 无版本可发布（先摄取）")
+        val path = req.path.trim()
+        val latest = projection.listVersionsOfPath(id, path).firstOrNull()
+            ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 的 $path 无版本可发布（先摄取）")
+        // 先落管理库 release 真源，再重放投影（跨库非原子；两步均幂等，失败可重试）
+        releaseService.promote(id, path, latest.specHash)
+        val promoted = projection.promotePath(id, path, latest.specHash)
+            ?: throw IllegalStateException("release 记录已写入，但投影 promote 失败：repo=$id path=$path hash=${latest.specHash}")
         platform.addChangelog(
             repoId = id, apiId = null, actor = "spechub-bot", action = ChangelogAction.PROMOTE,
             detail = "发布 ${promoted.path} → release（版本 #${promoted.id}，specHash ${promoted.specHash.take(12)}…）",

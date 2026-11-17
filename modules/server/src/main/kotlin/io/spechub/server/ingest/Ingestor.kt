@@ -28,6 +28,8 @@ class Ingestor(
     private val platform: PlatformStore,
     /** 同步状态回写管理库（repo 已迁管理库；以函数注入避免 kernel-级测试依赖 Spring Data） */
     private val updateSyncStatus: (repoId: Long, status: String, error: String?) -> Unit,
+    /** 摄取完成后重放发布状态（release 标记在管理库；投影重建后恢复 release 快照） */
+    private val replayReleases: (repoId: Long, projection: ProjectionStore) -> Unit,
     private val props: SpecHubProperties,
 ) {
 
@@ -100,6 +102,7 @@ class Ingestor(
             projection.replaceDocsForRepo(repo.id, docs)
 
             val result = IngestResult(repo.id, apis.size, schemas.size, versionCount, docs.size, messages)
+            replayReleases(repo.id, projection)
             updateSyncStatus(repo.id, SyncStatus.OK, null)
             result
         } catch (e: Exception) {
