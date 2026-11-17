@@ -23,7 +23,12 @@ class MockRuleService(
 
     @Transactional
     fun upsert(rule: MockRuleRecord): MockRuleRecord {
-        val existing = rules.findMatching(rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType)
+        val apiId = rule.apiId
+        val existing = if (apiId == null) {
+            rules.findProjectLevel(rule.repoId, rule.fieldPattern, rule.ruleType)
+        } else {
+            rules.findMatchingWithApi(rule.repoId, apiId, rule.fieldPattern, rule.ruleType)
+        }
         val saved = if (existing != null) {
             rules.save(existing.copy(ruleValue = rule.ruleValue))
         } else {

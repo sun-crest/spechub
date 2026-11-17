@@ -35,6 +35,7 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation("org.testcontainers:testcontainers-postgresql")
+    testImplementation("org.testcontainers:testcontainers-mysql")
     // Boot 4 / Spring 7：starter-test 把 spring-test 与 json-path 按 runtime 传递，编译端须显式声明才可见
     testImplementation("org.springframework:spring-test")
     testImplementation("com.jayway.jsonpath:json-path")
@@ -46,6 +47,10 @@ tasks.test {
     // @SpringBootTest 各测试类已用 @TempDir + @DynamicPropertySource 保证投影目录全新且互不共享
     // （TestDbIsolation），兼得幂等与无 SQLite 跨 context 锁；仍单 worker 稳妥
     maxParallelForks = 1
+    // 管理库矩阵：默认 PostgreSQL；`-Dspechub.test.db=mysql` 跑 MySQL 8.4
+    systemProperty("spechub.test.db", System.getProperty("spechub.test.db", "postgresql"))
+    // MySQL DATETIME(6) ↔ Instant 正确往返依赖 JVM UTC（选型文档 §8.2）
+    systemProperty("user.timezone", "UTC")
 }
 
 tasks.bootJar {

@@ -1,6 +1,6 @@
--- Phase 2：发布状态迁入管理库（release 标记无法从 git 重建）
+-- Phase 2：发布状态迁入管理库（release 标记无法从 git 重建；表名避开 MySQL 保留字 release）
 -- 投影层 version.stage 改为重建时按本表重放的派生值。
-CREATE TABLE release (
+CREATE TABLE release_marker (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     repo_id BIGINT NOT NULL,
     path VARCHAR(512) NOT NULL,

@@ -220,9 +220,9 @@ modules/mock/
 2. **类型映射**：统一 `BIGINT IDENTITY`、`VARCHAR`、`TEXT`/`LONGTEXT`、`BOOLEAN`/`TINYINT(1)`、`TIMESTAMPTZ`/`DATETIME(6)`。
 3. **时间**：统一 UTC；**JVM 必须 UTC**（`-Duser.timezone=UTC`，容器部署默认 UTC）——MySQL `DATETIME(6)` 在非 UTC JVM 下 `Instant` 往返漂移（spike 实测 8 小时），JVM UTC 后一致；MySQL 服务端另配 `--default-time-zone=+00:00`，Connector/J 配置 `connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true`。备选 `TIMESTAMP(6)`：不依赖 JVM 时区，但有 2038 上限。PG 用 `timestamptz`，JDBC 按 `Instant` 读取（微秒精度往返一致）。
 4. **大小写/collation**：显式设计；用户名不敏感唯一在 PG 用 `lower()` 唯一索引，MySQL 用 CI 索引；`token_hash` 用区分大小写/二进制比较。
-5. **命名**：小写 snake_case；避开 `schema`、`version` 等潜在保留字。
+5. **命名**：小写 snake_case；避开 `schema`、`version`、`release` 等潜在保留字（发布表实际名 `release_marker`，MySQL 中 `release` 是保留字）；参与唯一键/索引的列用 `VARCHAR(512)` 而非 `TEXT`（MySQL 1170）。
 6. **SQL**：禁方言函数、方言 upsert、方言分页语法；分页用 `LIMIT/OFFSET`。
-7. **测试**：Testcontainers 同时跑 PostgreSQL 18.x 与 MySQL 8.4.x（固定小版本）；Testcontainers 2.0 坐标为 `testcontainers-*`，需显式 `platform("org.testcontainers:testcontainers-bom:2.0.5")`（Boot 4 BOM 未将模块版本传递到 Gradle）；共享容器 + 每类 schema/database 隔离。CI 双库矩阵（仓库当前无 CI，需先建骨架）。
+7. **测试**：Testcontainers 同时跑 PostgreSQL 18.x 与 MySQL 8.4.x（固定小版本）；默认 PostgreSQL，`-Dspechub.test.db=mysql` 切 MySQL；测试 JVM 固定 `user.timezone=UTC`。Testcontainers 2.0 坐标为 `testcontainers-*`，需显式 `platform("org.testcontainers:testcontainers-bom:2.0.5")`（Boot 4 BOM 未将模块版本传递到 Gradle）；共享容器 + 每类 schema/database 隔离。CI 双库矩阵（仓库当前无 CI，需先建骨架）。
 8. **备份**：只备份管理库；投影库可重建。
 
 ---
@@ -270,7 +270,7 @@ modules/mock/
 - [x] review 迁管理库（`ReviewService`：创建 / 组合查询 / 审批状态流转）。✅ 2026-11-17：`ReviewServiceTest` 覆盖。
 - [x] mock_rule 迁管理库 + `MockRuleSource` 端口（mock 模块不再依赖管理域类型）。✅ 2026-11-17：`MockRuleService` 实现端口注入 MockEngine；`MockRuleServiceTest` 覆盖幂等 upsert / 项目级与接口级并存。
 - [x] changelog 迁管理库（`ChangelogService`；所有写路径审计留痕）。✅ 2026-11-17：同步删除 `PlatformStore` 与 SQLite 全部过渡表——投影库只剩 `version/api/schema/doc`。`ChangelogServiceTest` 覆盖组合查询；`IndexDbMigrationTest` 验证旧库清理。
-- [ ] 双库（MySQL）集成测试矩阵接入。
+- [x] 双库（MySQL）集成测试矩阵接入。✅ 2026-11-17：`TestManagementDb` 按 `-Dspechub.test.db=mysql` 切换（共享容器 + 每类独立 database）；MySQL 8.4.11 与 PostgreSQL 18.6 全量用例均通过。
 
 ### Phase 3 · 事务与原子性
 - 管理域 Service 加 `@Transactional`；多表写本地事务。

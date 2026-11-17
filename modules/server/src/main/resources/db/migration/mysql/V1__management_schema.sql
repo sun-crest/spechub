@@ -12,7 +12,7 @@ CREATE TABLE project (
 CREATE TABLE repo (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     project_id BIGINT NOT NULL,
-    url TEXT NOT NULL,
+    url VARCHAR(512) NOT NULL,
     branch VARCHAR(128) NOT NULL DEFAULT 'main',
     sync_status VARCHAR(32) NOT NULL DEFAULT 'new',
     last_error TEXT,
@@ -63,7 +63,7 @@ CREATE TABLE subscription (
     repo_id BIGINT NOT NULL,
     api_id BIGINT,
     method VARCHAR(16) NOT NULL,
-    path TEXT NOT NULL,
+    path VARCHAR(512) NOT NULL,
     team VARCHAR(128) NOT NULL,
     notify_url TEXT NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
