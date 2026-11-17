@@ -53,6 +53,8 @@ class Ingestor(
             val schemas = LinkedHashMap<String, SchemaRecord>()
             var versionCount = 0
 
+            // 逐文件 upsertVersion/latestSpecHash：N = spec 文件数，耗时以 git 读取为主，
+            // 且每文件 hash 判定相互独立（单文件失败可跳过继续），故不合并为批量写（编码规范 §5.1 例外）。
             for (file in findSpecFiles(repoDir, branch)) {
                 val content = git.readFile(repoDir, branch, file)
                 if (!content.success) {
@@ -180,7 +182,10 @@ class Ingestor(
             .DocRecord(repoId = 0, path = path, title = title.trim(), markdown = body, relatedApis = related)
     }
 
-    /** I7：某接口结构变化 → 对其每个订阅方落一条通知（消费团队可查/后续挂 webhook） */
+    /**
+     * I7：某接口结构变化 → 对其每个订阅方落一条通知（消费团队可查/后续挂 webhook）。
+     * 逐团队独立写：每条是独立审计事件、不在事务内，单条失败不应影响其它团队（编码规范 §5.1 例外）。
+     */
     private fun notifySubscribers(
         repoId: Long,
         method: String,

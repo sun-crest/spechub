@@ -3,6 +3,7 @@ package io.spechub.server.service
 import io.spechub.server.repository.ReleaseEntity
 import io.spechub.server.repository.ReleaseRepository
 import io.spechub.spec.index.ProjectionStore
+import io.spechub.spec.index.ReleaseSpec
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -42,13 +43,15 @@ class ReleaseService(
 
     fun list(repoId: Long): List<ReleaseEntity> = releases.findAllByRepoId(repoId)
 
-    /** 投影重建后重放 release 快照（幂等；hash 不存在则跳过） */
+    /**
+     * 投影重建后重放 release 快照（幂等；hash 不存在则跳过）。
+     * 整批交投影库单事务执行：N 个发布标记只提交一次，避免逐项连接/事务/fsync（编码规范 §5.1）。
+     */
     fun replay(
         repoId: Long,
         projection: ProjectionStore,
     ) {
-        for (release in releases.findAllByRepoId(repoId)) {
-            projection.promotePath(repoId, release.path, release.specHash)
-        }
+        val specs = releases.findAllByRepoId(repoId).map { ReleaseSpec(it.path, it.specHash) }
+        projection.promotePaths(repoId, specs)
     }
 }

@@ -81,10 +81,10 @@ class UserService(
         return saved.toRecord()
     }
 
-    /** 删除用户（先删成员关系，满足 FK RESTRICT） */
+    /** 删除用户（先删成员关系，满足 FK RESTRICT；集合式删除，避免循环内逐条往返） */
     @Transactional
     fun deleteUser(id: Long) {
-        memberships.findAllByUserId(id).forEach { memberships.delete(it) }
+        memberships.deleteAllByUserId(id)
         users.deleteById(id)
     }
 

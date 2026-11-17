@@ -23,6 +23,12 @@ data class VersionRecord(
     val stage: String,
 )
 
+/** 发布重放项：管理库发布标记（path → 已发布的 spec_hash），供投影重建后批量恢复 release 快照 */
+data class ReleaseSpec(
+    val path: String,
+    val specHash: String,
+)
+
 data class ApiRecord(
     val id: Long? = null,
     val repoId: Long,

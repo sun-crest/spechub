@@ -92,6 +92,29 @@ class ReleaseServiceTest : TestDbIsolation() {
     }
 
     @Test
+    fun `replay 批量恢复多个路径 - 缺失 hash 单独跳过`() {
+        val repo = repoService.register("default", "file:///release-batch-${UUID.randomUUID()}", "main")
+        val okPath = "specs/batch-ok.yaml"
+        val missingPath = "specs/batch-missing.yaml"
+        val hash = "hash-batch-ok"
+
+        seedProjection(repo.id, okPath, hash)
+        releaseService.promote(repo.id, okPath, hash)
+        releaseService.promote(repo.id, missingPath, "hash-absent-in-projection")
+        assertNotNull(projection.promotePath(repo.id, okPath, hash), "首次发布应有投影")
+
+        // 模拟投影重建：清空 version（级联清 api/schema/doc），再按当前内容重建 draft
+        db.execute("DELETE FROM version")
+        seedProjection(repo.id, okPath, hash)
+        assertEquals(0, projection.listApis(repo.id, stage = Stage.RELEASE).size, "重建后 release 尚未重放")
+
+        // 单事务批量重放：存在的 hash 恢复，缺失的跳过，不因单项缺失中断整批
+        releaseService.replay(repo.id, projection)
+        assertEquals(1, projection.listApis(repo.id, stage = Stage.RELEASE).size, "存在的 hash 应恢复")
+        assertEquals(1, projection.listApis(repo.id, stage = Stage.DRAFT).size, "draft 不受影响")
+    }
+
+    @Test
     fun `replay 跳过不存在的 specHash - 不抛错`() {
         val repo = repoService.register("default", "file:///release-missing-${UUID.randomUUID()}", "main")
         val path = "specs/missing.yaml"
