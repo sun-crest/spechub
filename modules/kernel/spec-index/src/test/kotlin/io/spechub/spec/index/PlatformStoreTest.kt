@@ -7,7 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/** 尚未迁管理库的过渡管理域：changelog / mock_rule / review。 */
+/** 尚未迁管理库的过渡管理域：changelog / mock_rule。 */
 class PlatformStoreTest {
 
     @TempDir
@@ -43,30 +43,5 @@ class PlatformStoreTest {
         assertEquals("B", platform.listMockRules(repoId).single().ruleValue, "更新值")
         platform.deleteMockRule(checkNotNull(r1.id) { "mock rule upsert 应回填 id" })
         assertEquals(0, platform.listMockRules(repoId).size)
-    }
-
-    // ── review ───────────────────────────────────────────────────────────────
-
-    @Test
-    fun `review 创建查询与审批状态流转`() {
-        val (platform, _) = stores()
-        val repoId = 1L
-
-        val r1 = platform.createReview(repoId, "specs/pet/openapi.yaml", "new content v2", "diff...", "hash123", "alice")
-        val r2 = platform.createReview(repoId, "specs/pet/openapi.yaml", "new content v3", "diff...", "hash456", "bob")
-        assertEquals(ReviewStatus.PENDING, r1.status, "新评审默认 pending")
-        assertEquals(2, platform.listReviews(repoId).size)
-        assertEquals(2, platform.listReviews(status = ReviewStatus.PENDING).size)
-
-        platform.resolveReview(r1.id!!, ReviewStatus.APPROVED, "reviewer")
-        val approved = platform.getReview(r1.id)!!
-        assertEquals(ReviewStatus.APPROVED, approved.status)
-        assertEquals("reviewer", approved.reviewer, "审批人记录")
-        assertNotNull(approved.resolvedAt, "审批时间戳")
-        assertEquals(1, platform.listReviews(status = ReviewStatus.APPROVED).size)
-
-        platform.resolveReview(r2.id!!, ReviewStatus.REJECTED, "reviewer", "缺 required 字段")
-        assertEquals("缺 required 字段", platform.getReview(r2.id)!!.rejectReason, "打回理由")
-        assertEquals(0, platform.listReviews(repoId = repoId, status = ReviewStatus.PENDING).size, "两条均处理后无待审")
     }
 }

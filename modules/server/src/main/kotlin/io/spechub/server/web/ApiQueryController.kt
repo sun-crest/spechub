@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
+import io.spechub.server.service.ReviewService
 import io.spechub.server.service.RepoService
 
 /** 只读查询扩展 + 写回端点的装配（F 组 MCP 工具集的 HTTP 后端） */
@@ -27,6 +28,7 @@ class ApiQueryController(
     private val projection: ProjectionStore,
     private val platform: PlatformStore,
     private val repoService: RepoService,
+    private val reviewService: ReviewService,
     private val writer: SpecWriter,
     private val ingestor: Ingestor,
     private val urlTokens: UrlTokenStore,
@@ -99,7 +101,7 @@ class ApiQueryController(
 
         // 启鉴权 →「写操作皆审」（§6.4 决策 3）：先入评审队列，approve 后才落真源
         val actor = auth.currentUser(request)?.username ?: "anonymous"
-        val review = platform.createReview(
+        val review = reviewService.create(
             repoId = id, path = path, newContent = req.content,
             diff = "", oldHash = projection.latestSpecHash(id, path), requester = actor,
         )

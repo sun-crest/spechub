@@ -267,7 +267,8 @@ modules/mock/
 - [x] project / repo 迁管理库（`RepoService`）；投影库删除 project/repo 表，`repo_id` 降为逻辑列；旧库迁移原地重建管理表保数据。✅ 2026-11-17：`Ingestor` 同步状态回写改为函数注入；RepoController/Ingestor/Polling/Reindex/ApplicationInit/AuthService 与 12 个 Controller 全部切换；`RepoServiceTest` 覆盖。
 - [x] subscription / notification 迁管理库（`SubscriptionService`；Ingestor 经 `IngestHooks` 端口写入通知）。✅ 2026-11-17：订阅幂等、通知历史不随取消清空；`SubscriptionServiceTest` 覆盖。
 - [x] comment 迁管理库（`CommentService`；接口评论 repo+method+path、文档评论 repo+path 稳定寻址）。✅ 2026-11-17：`CommentServiceTest` 覆盖。
-- [ ] 其余管理域迁移：review、mock_rule、changelog（含 `MockRuleSource` 端口）。
+- [x] review 迁管理库（`ReviewService`：创建 / 组合查询 / 审批状态流转）。✅ 2026-11-17：`ReviewServiceTest` 覆盖。
+- [ ] 其余管理域迁移：mock_rule、changelog（含 `MockRuleSource` 端口）。
 - [ ] 双库（MySQL）集成测试矩阵接入。
 
 ### Phase 3 · 事务与原子性
