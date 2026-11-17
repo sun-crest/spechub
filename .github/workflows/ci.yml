@@ -1,11 +1,11 @@
 name: CI
 
+# 只在发布 release 时执行双库矩阵（发布门禁）；日常开发用本地 ./gradlew check。
+# 也可在 Actions 页面手动触发（workflow_dispatch）。
 on:
-  push:
-    branches:
-      - main
-      - "refactor/**"
-  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
