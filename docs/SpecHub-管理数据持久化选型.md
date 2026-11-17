@@ -279,9 +279,9 @@ modules/mock/
 - [ ] 遗留：并发 upsert 重复键捕获、changelog 与业务写合并事务（见审计 §4，不阻塞验收）。
 
 ### Phase 4 · 双库与运维
-- CI 双库 Testcontainers 矩阵（PG 18.x + MySQL 8.4.x；当前仓库无 CI 流水线，需先建 CI 骨架）。
-- 备份/恢复演练；支持矩阵文档。
-- 监控：连接池、慢查询、迁移状态。
+- [x] CI 双库 Testcontainers 矩阵。✅ 2026-11-17：`.github/workflows/ci.yml`（`postgresql` / `mysql` matrix + bootJar）。
+- [x] 备份/恢复演练；支持矩阵文档。✅ 2026-11-17：`scripts/backup-db.sh` / `restore-db.sh`；本地演练（备份 → 删除 → 恢复，数据一致）；[运维手册](SpecHub-运维手册.md)。
+- [x] 监控：连接池、慢查询、迁移状态。✅ 2026-11-17：actuator 暴露 `health/metrics/flyway`；compose PG 慢查询日志参数。
 
 ---
 

@@ -54,6 +54,8 @@ services:
       - "${SPECHUB_DB_PORT:-5432}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
+    # 慢查询（>500ms）与锁等待进容器日志；MySQL 替代部署用 --slow_query_log=1 --long_query_time=0.5
+    command: ["postgres", "-c", "log_min_duration_statement=500", "-c", "log_lock_waits=on"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U spechub -d spechub"]
       interval: 10s
