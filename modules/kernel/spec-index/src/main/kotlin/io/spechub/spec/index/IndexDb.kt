@@ -6,13 +6,14 @@ import java.sql.Connection
 import java.sql.DriverManager
 
 /*
- * IndexDb —— SQLite 连接 / 迁移 / 事务执行器。
+ * IndexDb —— SQLite 连接 / 迁移 / 事务执行器（投影层专用）。
  *
  * 定位（§6.4 决策 7）：SQLite 只是真源 git 的可重建投影（索引），一切业务写最终落 git 文件；
  * 索引随时可从 git 全量重建，损坏/丢失不构成数据事故。因此：
  * - 全表声明幂等 DDL（migrate 即建）；不做破坏性迁移版本表自找麻烦，重建纪律兜底。
  * - 每操作独立连接（WAL 并发读 + 单写安全），事务块为单位提交。
- * - 引用完整性 foreign_keys 开启（ON DELETE CASCADE 清理 repo 下投影）。
+ * - Phase 2 起管理数据（用户/项目/仓库/评论/订阅/评审/mock 规则/changelog/发布状态）全部在管理库；
+ *   本库只保留版本快照与 api/schema/doc 投影，repo_id 均为逻辑列（无跨库外键）。
  */
 
 class IndexDb(private val path: Path) {
@@ -23,31 +24,34 @@ class IndexDb(private val path: Path) {
         Files.createDirectories(path.toAbsolutePath().parent)
     }
 
-    /** 应用全部 DDL（幂等，可安全多次调用）。
-     *  旧库升级：P0 库的 api/schema 表无 stage 列（I6 加列 + 改复合幂等键，SQLite 无法 ADD COLUMN 改 UNIQUE），
-     *  按 §6.4 决策 7「索引可重建」纪律先 drop 再随 DDL 重建（投影可从 git 全量重建，不构成数据事故）。
-     *  顺序注意：引用 stage 的索引必须先于 DDL 完成表重建，否则旧表缺列建索引报错。
-     *  I5：comment 需 method/path 稳定寻址列且 api_id 去 FK（投影重建不级联删）；旧表缺列则连 changelog 重建。 */
+    /**
+     * 应用全部 DDL（幂等，可安全多次调用）。
+     * 旧库升级：P0 库的 api/schema 表无 stage 列（I6 加列 + 改复合幂等键，SQLite 无法 ADD COLUMN 改 UNIQUE），
+     * 按 §6.4 决策 7「索引可重建」纪律先 drop 再随 DDL 重建（投影可从 git 全量重建，不构成数据事故）。
+     */
     fun migrate() {
         transaction { conn ->
             if (!hasColumn(conn, "api", "stage") || !hasColumn(conn, "schema", "stage")) {
                 conn.exec(listOf("DROP TABLE IF EXISTS api", "DROP TABLE IF EXISTS schema"))
             }
-            if (!hasColumn(conn, "comment", "method")) {
-                conn.exec(listOf("DROP TABLE IF EXISTS comment", "DROP TABLE IF EXISTS changelog"))
-            }
-            // Phase 1/2 边界修复：管理表去掉全部跨边界外键（doc/api 是可重建投影；repo 已迁管理库）。
-            // 管理表不能 DROP（丢数据）→ 原地重建：rename → create → copy → drop。
-            rebuildWithoutForeignKeys(conn, "comment", setOf("doc", "repo"), IndexSchema.COMMENT_DDL)
-            rebuildWithoutForeignKeys(conn, "mock_rule", setOf("api", "repo"), IndexSchema.MOCK_RULE_DDL)
-            rebuildWithoutForeignKeys(conn, "changelog", setOf("repo"), IndexSchema.CHANGELOG_DDL)
-            rebuildWithoutForeignKeys(conn, "subscription", setOf("repo"), IndexSchema.SUBSCRIPTION_DDL)
-            rebuildWithoutForeignKeys(conn, "notification", setOf("repo"), IndexSchema.NOTIFICATION_DDL)
-            rebuildWithoutForeignKeys(conn, "review", setOf("repo"), IndexSchema.REVIEW_DDL)
 
-            // Phase 2：project/repo/app_user/membership 已迁管理库 → 投影库删除这些表。
-            // 旧投影表（api/schema/doc/version）仍带 repo FK → DROP 重建（投影可重建）。
-            if (tableExists(conn, "repo")) {
+            // Phase 2 收尾：管理域全部迁入管理库 → 清理 SQLite 过渡表（含旧 project/repo）。
+            // 先于 project/repo 删除（旧表带有指向它们的外键）。
+            val hadLegacyRepo = tableExists(conn, "repo")
+            conn.exec(
+                listOf(
+                    "DROP TABLE IF EXISTS comment",
+                    "DROP TABLE IF EXISTS mock_rule",
+                    "DROP TABLE IF EXISTS changelog",
+                    "DROP TABLE IF EXISTS subscription",
+                    "DROP TABLE IF EXISTS notification",
+                    "DROP TABLE IF EXISTS review",
+                    "DROP TABLE IF EXISTS membership",
+                    "DROP TABLE IF EXISTS app_user",
+                ),
+            )
+            if (hadLegacyRepo) {
+                // 旧投影表（api/schema/doc/version）带 repo 外键 → 一并 DROP 重建（投影可重建）
                 conn.exec(
                     listOf(
                         "DROP TABLE IF EXISTS doc",
@@ -57,15 +61,7 @@ class IndexDb(private val path: Path) {
                     ),
                 )
             }
-            // 过渡管理表先于 project/repo 删除，避免外键依赖
-            conn.exec(
-                listOf(
-                    "DROP TABLE IF EXISTS membership",
-                    "DROP TABLE IF EXISTS app_user",
-                    "DROP TABLE IF EXISTS repo",
-                    "DROP TABLE IF EXISTS project",
-                ),
-            )
+            conn.exec(listOf("DROP TABLE IF EXISTS repo", "DROP TABLE IF EXISTS project"))
             conn.exec(IndexSchema.DDL_STATEMENTS)
 
             // 全文检索 FTS5（K2）：环境（sqlite-jdbc FTS5 编译开关）支持则建 doc_fts trigram 虚拟表
@@ -98,58 +94,9 @@ class IndexDb(private val path: Path) {
         return false
     }
 
-    /** 表是否存在（迁移期检测；PRAGMA 对不存在的表返回空集，先判存在再查外键） */
+    /** 表是否存在（迁移期检测旧库结构） */
     private fun tableExists(conn: java.sql.Connection, table: String): Boolean =
         conn.queryObj("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table) != null
-
-    /** 是否存在指向 target 表的外键（PRAGMA foreign_key_list 的 table 列为被引用表名） */
-    private fun hasForeignKeyTo(conn: java.sql.Connection, table: String, target: String): Boolean {
-        if (!tableExists(conn, table)) return false
-        val st = conn.prepareStatement("PRAGMA foreign_key_list(${table})")
-        try {
-            val rs = st.executeQuery()
-            try {
-                while (rs.next()) if (rs.getString("table") == target) return true
-            } finally {
-                rs.close()
-            }
-        } finally {
-            st.close()
-        }
-        return false
-    }
-
-    /**
-     * 去掉管理表指向投影表/已迁表的全部外键：原地重建并保留所有行（rename → create → copy → drop）。
-     * SQLite 不支持 ALTER TABLE DROP CONSTRAINT；管理表也不能像投影表那样 DROP 重建。
-     */
-    private fun rebuildWithoutForeignKeys(conn: java.sql.Connection, table: String, targets: Set<String>, ddl: String) {
-        if (!tableExists(conn, table)) return
-        if (targets.none { hasForeignKeyTo(conn, table, it) }) return
-        val temp = "${table}_old"
-        val cols = mutableListOf<String>()
-        val st = conn.prepareStatement("PRAGMA table_info(${table})")
-        try {
-            val rs = st.executeQuery()
-            try {
-                while (rs.next()) cols += rs.getString("name")
-            } finally {
-                rs.close()
-            }
-        } finally {
-            st.close()
-        }
-        val colList = cols.joinToString(", ")
-        conn.exec(
-            listOf(
-                "DROP TABLE IF EXISTS ${temp}",
-                "ALTER TABLE ${table} RENAME TO ${temp}",
-                ddl,
-                "INSERT INTO ${table} (${colList}) SELECT ${colList} FROM ${temp}",
-                "DROP TABLE ${temp}",
-            ),
-        )
-    }
 
     /** 在一个事务内执行块，成功提交 / 异常回滚并抛 */
     fun <T> transaction(block: (Connection) -> T): T =
@@ -217,106 +164,10 @@ class IndexDb(private val path: Path) {
     }
 }
 
-/** 表结构真源（幂等 DDL）。列名一律 snake_case；时间一律 ISO-8601 文本。 */
+/** 投影表结构真源（幂等 DDL）。列名一律 snake_case；时间一律 ISO-8601 文本。 */
 object IndexSchema {
 
-    /**
-     * Mock 规则（I2，§6.3 MockRule：pattern / value / script 三档）。
-     * api_id 仅为展示快照（非 FK）：投影重建 DELETE+INSERT 时不得级联删除管理数据。
-     */
-    val MOCK_RULE_DDL: String = """
-        CREATE TABLE IF NOT EXISTS mock_rule (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL,
-            api_id INTEGER,
-            field_pattern TEXT NOT NULL,
-            rule_type TEXT NOT NULL,
-            rule_value TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        )
-    """.trimIndent()
-
-    /**
-     * 评论（I5：挂在接口/文档/仓库下的轻评论；作者 = app_user.username）。
-     * api_id / doc_id 仅为展示快照（非 FK）：api/doc 是可重建投影，
-     * 评论用 repo_id + method + path 稳定寻址，不随投影重建级联删除。
-     */
-    val COMMENT_DDL: String = """
-        CREATE TABLE IF NOT EXISTS comment (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL,
-            api_id INTEGER,
-            doc_id INTEGER,
-            method TEXT NOT NULL DEFAULT '',
-            path TEXT NOT NULL DEFAULT '',
-            author TEXT NOT NULL,
-            body TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        )
-    """.trimIndent()
-
-    /** 变更记录（api_id 为快照；repo_id 逻辑引用管理库） */
-    val CHANGELOG_DDL: String = """
-        CREATE TABLE IF NOT EXISTS changelog (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER,
-            api_id INTEGER,
-            actor TEXT NOT NULL,
-            action TEXT NOT NULL,
-            detail TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        )
-    """.trimIndent()
-
-    /** 订阅（repo + method + path 稳定寻址；api_id 快照） */
-    val SUBSCRIPTION_DDL: String = """
-        CREATE TABLE IF NOT EXISTS subscription (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL,
-            api_id INTEGER,
-            method TEXT NOT NULL,
-            path TEXT NOT NULL,
-            team TEXT NOT NULL,
-            notify_url TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            UNIQUE(repo_id, method, path, team)
-        )
-    """.trimIndent()
-
-    /** 变更通知（repo_id 逻辑引用管理库） */
-    val NOTIFICATION_DDL: String = """
-        CREATE TABLE IF NOT EXISTS notification (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            team TEXT NOT NULL,
-            repo_id INTEGER NOT NULL,
-            method TEXT NOT NULL,
-            path TEXT NOT NULL,
-            summary TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        )
-    """.trimIndent()
-
-    /** 评审审批流（repo_id 逻辑引用管理库） */
-    val REVIEW_DDL: String = """
-        CREATE TABLE IF NOT EXISTS review (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL,
-            path TEXT NOT NULL,
-            new_content TEXT NOT NULL,
-            diff TEXT NOT NULL DEFAULT '',
-            old_hash TEXT,
-            status TEXT NOT NULL DEFAULT 'pending',
-            requester TEXT NOT NULL,
-            reviewer TEXT,
-            reject_reason TEXT,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            resolved_at TEXT
-        )
-    """.trimIndent()
-
     val DDL_STATEMENTS: List<String> = listOf(
-        // 投影层不再有 project/repo：二者已迁管理库（Phase 2），投影表 repo_id 为逻辑列
-
         // 文档发布快照（P2 I6 draft/release 双层版本底座；specHash 幂等）
         """
         CREATE TABLE IF NOT EXISTS version (
@@ -374,24 +225,10 @@ object IndexSchema {
         )
         """.trimIndent(),
 
-        MOCK_RULE_DDL,
-        CHANGELOG_DDL,
-        SUBSCRIPTION_DDL,
-        NOTIFICATION_DDL,
-        REVIEW_DDL,
-        COMMENT_DDL,
-
         // 查询索引
         "CREATE INDEX IF NOT EXISTS idx_version_spec_hash ON version(spec_hash)",
         "CREATE INDEX IF NOT EXISTS idx_api_method_path ON api(method, path)",
         "CREATE INDEX IF NOT EXISTS idx_api_tag ON api(tag)",
         "CREATE INDEX IF NOT EXISTS idx_api_stage ON api(stage)",
-        "CREATE INDEX IF NOT EXISTS idx_mock_rule_repo ON mock_rule(repo_id)",
-        "CREATE INDEX IF NOT EXISTS idx_changelog_repo ON changelog(repo_id, created_at)",
-        "CREATE INDEX IF NOT EXISTS idx_comment_api ON comment(api_id, created_at)",
-        "CREATE INDEX IF NOT EXISTS idx_comment_repo ON comment(repo_id, created_at)",
-        "CREATE INDEX IF NOT EXISTS idx_subscription_endpoint ON subscription(repo_id, method, path)",
-        "CREATE INDEX IF NOT EXISTS idx_notification_team ON notification(team, created_at)",
-        "CREATE INDEX IF NOT EXISTS idx_review_repo_status ON review(repo_id, status)",
     )
 }

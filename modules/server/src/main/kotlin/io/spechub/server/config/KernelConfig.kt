@@ -2,7 +2,6 @@ package io.spechub.server.config
 
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.index.IndexDb
-import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.ingest.IngestHooks
 import io.spechub.server.ingest.Ingestor
@@ -44,10 +43,6 @@ class KernelConfig(private val props: SpecHubProperties) {
         return db
     }
 
-    /** 管理域 DAO（Phase 2 迁入独立管理库；当前与投影同库） */
-    @Bean
-    fun platformStore(): PlatformStore = PlatformStore(indexDb())
-
     /** 投影域 DAO（SQLite，可重建） */
     @Bean
     fun projectionStore(): ProjectionStore = ProjectionStore(indexDb())
@@ -60,7 +55,6 @@ class KernelConfig(private val props: SpecHubProperties) {
     ): Ingestor = Ingestor(
         gitStore(),
         projectionStore(),
-        platformStore(),
         IngestHooks(
             updateSyncStatus = { repoId, status, error -> repoService.updateSyncStatus(repoId, status, error) },
             replayReleases = { repoId, projection -> releaseService.replay(repoId, projection) },

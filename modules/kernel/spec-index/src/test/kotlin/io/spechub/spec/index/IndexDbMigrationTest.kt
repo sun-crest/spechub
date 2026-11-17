@@ -7,85 +7,41 @@ import java.sql.DriverManager
 import kotlin.test.assertEquals
 
 /**
- * 旧库迁移：comment.doc_id / mock_rule.api_id 曾是指向投影表的外键（ON DELETE CASCADE），
- * migrate 必须原地重建管理表并保留全部行，而不是 DROP 丢数据。
+ * 旧库迁移（Phase 2 收尾）：管理域已全部迁管理库，旧 SQLite 过渡表与旧 project/repo 必须被清理，
+ * 投影表（version/api/schema/doc）重建为空（可从 git 全量重建）。
  */
 class IndexDbMigrationTest {
 
     @TempDir
     lateinit var temp: Path
 
-    private val legacyCommentDdl = """
-        CREATE TABLE comment (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-            api_id INTEGER,
-            doc_id INTEGER REFERENCES doc(id) ON DELETE CASCADE,
-            method TEXT NOT NULL DEFAULT '',
-            path TEXT NOT NULL DEFAULT '',
-            author TEXT NOT NULL,
-            body TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT ''
-        )
-    """.trimIndent()
-
-    private val legacyMockRuleDdl = """
-        CREATE TABLE mock_rule (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-            api_id INTEGER REFERENCES api(id) ON DELETE CASCADE,
-            field_pattern TEXT NOT NULL,
-            rule_type TEXT NOT NULL,
-            rule_value TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT ''
-        )
-    """.trimIndent()
-
     @Test
-    fun `旧库外键 migrate 原地重建 - 管理数据保留且外键移除`() {
+    fun `旧库迁移 - 清理过渡管理表与旧 project-repo，投影表重建为空`() {
         val path = temp.resolve("legacy.db")
         DriverManager.getConnection("jdbc:sqlite:$path").use { conn ->
             conn.createStatement().use { st ->
                 st.execute("PRAGMA foreign_keys=ON")
-                // 旧版 project/repo（Phase 2 前投影库自带）
-                st.execute(
-                    """
-                    CREATE TABLE project (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL,
-                        created_at TEXT NOT NULL DEFAULT '',
-                        UNIQUE(name)
-                    )
-                    """.trimIndent(),
-                )
-                st.execute(
-                    """
-                    CREATE TABLE repo (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
-                        url TEXT NOT NULL,
-                        branch TEXT NOT NULL DEFAULT 'main',
-                        sync_status TEXT NOT NULL DEFAULT 'new',
-                        last_error TEXT,
-                        created_at TEXT NOT NULL DEFAULT '',
-                        UNIQUE(project_id, url)
-                    )
-                    """.trimIndent(),
-                )
-                // 当前 DDL 建齐其余表，再把两张管理表替换成带跨边界外键的旧版
-                IndexSchema.DDL_STATEMENTS.forEach(st::execute)
-                st.execute("DROP TABLE comment")
-                st.execute("DROP TABLE mock_rule")
-                st.execute(legacyCommentDdl)
-                st.execute(legacyMockRuleDdl)
-                // 前置数据（满足旧外键）
+                // 旧版表结构（含跨边界外键）
+                st.execute("CREATE TABLE project (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)")
+                st.execute("CREATE TABLE repo (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL REFERENCES project(id))")
+                st.execute("CREATE TABLE version (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_id INTEGER NOT NULL REFERENCES repo(id), path TEXT)")
+                st.execute("CREATE TABLE api (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_id INTEGER NOT NULL REFERENCES repo(id), version_id INTEGER REFERENCES version(id))")
+                st.execute("CREATE TABLE schema (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_id INTEGER NOT NULL REFERENCES repo(id), version_id INTEGER REFERENCES version(id), stage TEXT)")
+                st.execute("CREATE TABLE doc (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_id INTEGER NOT NULL REFERENCES repo(id), version_id INTEGER REFERENCES version(id))")
+                st.execute("CREATE TABLE comment (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_id INTEGER NOT NULL REFERENCES repo(id), doc_id INTEGER REFERENCES doc(id))")
+                st.execute("CREATE TABLE mock_rule (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_id INTEGER NOT NULL REFERENCES repo(id), api_id INTEGER REFERENCES api(id))")
+                st.execute("CREATE TABLE changelog (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_id INTEGER REFERENCES repo(id))")
+                st.execute("CREATE TABLE subscription (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_id INTEGER NOT NULL REFERENCES repo(id))")
+                st.execute("CREATE TABLE notification (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_id INTEGER NOT NULL REFERENCES repo(id))")
+                st.execute("CREATE TABLE review (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_id INTEGER NOT NULL REFERENCES repo(id))")
+                st.execute("CREATE TABLE app_user (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT)")
+                st.execute("CREATE TABLE membership (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER REFERENCES app_user(id), project_id INTEGER REFERENCES project(id))")
+                // 旧数据（迁移时按存量重置丢弃）
                 st.execute("INSERT INTO project (id, name) VALUES (1, 'default')")
-                st.execute("INSERT INTO repo (id, project_id, url, branch, sync_status) VALUES (1, 1, 'u', 'main', 'ok')")
-                st.execute("INSERT INTO version (id, repo_id, path, spec_hash, stage) VALUES (1, 1, 'specs/a.yaml', 'h', 'draft')")
-                st.execute("INSERT INTO api (id, repo_id, version_id, method, path, spec_json, stage) VALUES (1, 1, 1, 'GET', '/x', '{}', 'draft')")
-                st.execute("INSERT INTO doc (id, repo_id, version_id, path, title, markdown) VALUES (1, 1, 1, 'docs/a.md', 't', 'm')")
-                st.execute("INSERT INTO comment (id, repo_id, api_id, doc_id, method, path, author, body) VALUES (1, 1, 1, 1, '', 'docs/a.md', 'alice', '文档评论')")
-                st.execute("INSERT INTO mock_rule (id, repo_id, api_id, field_pattern, rule_type, rule_value) VALUES (1, 1, 1, 'name', 'value', 'x')")
+                st.execute("INSERT INTO repo (id, project_id) VALUES (1, 1)")
+                st.execute("INSERT INTO version (id, repo_id, path) VALUES (1, 1, 'specs/a.yaml')")
+                st.execute("INSERT INTO api (id, repo_id, version_id) VALUES (1, 1, 1)")
+                st.execute("INSERT INTO comment (id, repo_id, doc_id) VALUES (1, 1, NULL)")
             }
         }
 
@@ -94,36 +50,19 @@ class IndexDbMigrationTest {
         DriverManager.getConnection("jdbc:sqlite:$path").use { conn ->
             conn.createStatement().use { st ->
                 st.execute("PRAGMA foreign_keys=ON")
-                // 数据保留（原地重建，不是 DROP 重建）
-                st.executeQuery("SELECT body FROM comment WHERE id=1").use { rs ->
-                    rs.next()
-                    assertEquals("文档评论", rs.getString(1), "评论行应保留")
+                for (table in listOf(
+                    "project", "repo", "comment", "mock_rule", "changelog",
+                    "subscription", "notification", "review", "app_user", "membership",
+                )) {
+                    assertEquals(false, tableExists(st, table), "迁移后不应存在旧表 $table")
                 }
-                st.executeQuery("SELECT rule_value FROM mock_rule WHERE id=1").use { rs ->
-                    rs.next()
-                    assertEquals("x", rs.getString(1), "mock 规则行应保留")
+                for (table in listOf("version", "api", "schema", "doc")) {
+                    assertEquals(true, tableExists(st, table), "投影表 $table 应重建")
                 }
-                // 外键已移除：comment / mock_rule 不再引用 doc / api / repo
-                assertEquals(emptyList(), foreignKeyTargets(st, "comment").filter { it in setOf("doc", "api", "repo") }, "comment 不应再有跨边界 FK")
-                assertEquals(emptyList(), foreignKeyTargets(st, "mock_rule").filter { it in setOf("doc", "api", "repo") }, "mock_rule 不应再有跨边界 FK")
-                // project / repo 已迁管理库：投影库不再有这两张表
-                assertEquals(false, tableExists(st, "project"), "project 已迁管理库")
-                assertEquals(false, tableExists(st, "repo"), "repo 已迁管理库")
-                // 删除投影行不再级联删管理数据
-                st.execute("DELETE FROM doc")
-                st.execute("DELETE FROM api")
-                st.executeQuery("SELECT COUNT(*) FROM comment").use { rs -> rs.next(); assertEquals(1, rs.getInt(1), "评论不应被级联删除") }
-                st.executeQuery("SELECT COUNT(*) FROM mock_rule").use { rs -> rs.next(); assertEquals(1, rs.getInt(1), "mock 规则不应被级联删除") }
+                st.executeQuery("SELECT COUNT(*) FROM version").use { rs -> rs.next(); assertEquals(0, rs.getInt(1), "投影表应为空（从 git 重建）") }
+                st.executeQuery("SELECT COUNT(*) FROM api").use { rs -> rs.next(); assertEquals(0, rs.getInt(1)) }
             }
         }
-    }
-
-    private fun foreignKeyTargets(st: java.sql.Statement, table: String): List<String> {
-        val targets = mutableListOf<String>()
-        st.executeQuery("PRAGMA foreign_key_list($table)").use { rs ->
-            while (rs.next()) targets += rs.getString("table")
-        }
-        return targets
     }
 
     private fun tableExists(st: java.sql.Statement, table: String): Boolean =

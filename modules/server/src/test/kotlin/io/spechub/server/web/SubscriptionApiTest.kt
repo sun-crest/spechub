@@ -125,11 +125,7 @@ class SubscriptionApiTest : TestDbIsolation() {
 
     @BeforeEach
     fun cleanProjection() {
-        // 订阅/通知在管理库；投影清理仍在 SQLite
-        jdbc.update("DELETE FROM notification")
-        jdbc.update("DELETE FROM subscription")
-        db.execute("DELETE FROM changelog")
-        db.execute("DELETE FROM mock_rule")
+        clearManagementTables(jdbc)
         db.execute("DELETE FROM version")
         db.execute("DELETE FROM schema")
         db.execute("DELETE FROM api")

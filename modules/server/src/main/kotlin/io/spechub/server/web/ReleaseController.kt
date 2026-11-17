@@ -1,7 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.ChangelogAction
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.ChangelogService
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
@@ -28,7 +28,7 @@ import io.spechub.server.service.RepoService
 @RequestMapping("/api")
 class ReleaseController(
     private val projection: ProjectionStore,
-    private val platform: PlatformStore,
+    private val changelogService: ChangelogService,
     private val repoService: RepoService,
     private val releaseService: ReleaseService,
     private val auth: AuthService,
@@ -55,7 +55,7 @@ class ReleaseController(
         releaseService.promote(id, path, latest.specHash)
         val promoted = projection.promotePath(id, path, latest.specHash)
             ?: throw IllegalStateException("release 记录已写入，但投影 promote 失败：repo=$id path=$path hash=${latest.specHash}")
-        platform.addChangelog(
+        changelogService.add(
             repoId = id, apiId = null, actor = "spechub-bot", action = ChangelogAction.PROMOTE,
             detail = "发布 ${promoted.path} → release（版本 #${promoted.id}，specHash ${promoted.specHash.take(12)}…）",
         )
@@ -72,11 +72,11 @@ class ReleaseController(
     }
 
     @GetMapping("/repos/{id}/changelog")
-    fun changelog(@PathVariable id: Long, @RequestParam limit: Int = 50) = platform.listChangelogs(repoId = id, apiId = null, limit = limit)
+    fun changelog(@PathVariable id: Long, @RequestParam limit: Int = 50) = changelogService.list(repoId = id, apiId = null, limit = limit)
 
     @GetMapping("/changelog")
-    fun globalChangelog(@RequestParam limit: Int = 50) = platform.listChangelogs(repoId = null, apiId = null, limit = limit)
+    fun globalChangelog(@RequestParam limit: Int = 50) = changelogService.list(repoId = null, apiId = null, limit = limit)
 
     @GetMapping("/apis/{id}/changelog")
-    fun apiChangelog(@PathVariable id: Long) = platform.listChangelogs(repoId = null, apiId = id, limit = 50)
+    fun apiChangelog(@PathVariable id: Long) = changelogService.list(repoId = null, apiId = id, limit = 50)
 }

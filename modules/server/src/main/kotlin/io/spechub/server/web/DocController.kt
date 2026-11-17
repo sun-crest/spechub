@@ -1,7 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.CommentRecord
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.ChangelogService
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.service.CommentService
 import io.spechub.server.web.common.ApiErrorCode
@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/docs")
 class DocController(
     private val projection: ProjectionStore,
-    private val platform: PlatformStore,
+    private val changelogService: ChangelogService,
     private val commentService: CommentService,
     private val auth: AuthService,
 ) {
@@ -63,7 +63,7 @@ class DocController(
         val user = auth.requireAuthenticated(request, "发表文档评论")
         val doc = projection.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
         val comment = commentService.add(doc.repoId, apiId = null, docId = doc.id, method = "", path = doc.path, author = user.username, body = body.body.trim())
-        platform.addChangelog(doc.repoId, null, user.username, "doc.comment", "评论文档 ${doc.title}：${body.body.trim().take(40)}")
+        changelogService.add(doc.repoId, null, user.username, "doc.comment", "评论文档 ${doc.title}：${body.body.trim().take(40)}")
         return toView(comment)
     }
 

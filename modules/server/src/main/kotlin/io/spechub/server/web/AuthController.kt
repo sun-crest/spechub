@@ -1,7 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.Role
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.ChangelogService
 import io.spechub.spec.index.UserRecord
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.service.UserService
@@ -38,7 +38,7 @@ import io.spechub.server.service.RepoService
 @RequestMapping("/api/auth")
 class AuthController(
     private val props: SpecHubProperties,
-    private val platform: PlatformStore,
+    private val changelogService: ChangelogService,
     private val repoService: RepoService,
     private val users: UserService,
     private val auth: AuthService,
@@ -146,7 +146,7 @@ class AuthController(
         val projectId = repoService.projectIdByName(RepoController.DEFAULT_PROJECT)
         // 用户 + 成员在管理库同一事务内创建；changelog 仍在投影库，跨库不做分布式事务
         val user = users.createUserWithMembership(username, body.displayName, AuthService.sha256(token), projectId, body.role)
-        platform.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.create", detail = "创建用户 $username（$body.role）")
+        changelogService.add(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.create", detail = "创建用户 $username（$body.role）")
         return CreateUserResponse(toView(user, projectId), token)
     }
 
@@ -160,7 +160,7 @@ class AuthController(
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "平台 admin 角色不可改")
         val projectId = repoService.projectIdByName(RepoController.DEFAULT_PROJECT)
         if (projectId != null) users.setMembership(id, projectId, body.role)
-        platform.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.role", detail = "用户 ${user.username} → $body.role")
+        changelogService.add(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.role", detail = "用户 ${user.username} → $body.role")
         return toView(user, projectId)
     }
 
@@ -183,7 +183,7 @@ class AuthController(
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除平台 admin")
         if (actor != null && actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")
         users.deleteUser(id)
-        platform.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.delete", detail = "删除用户 ${user.username}")
+        changelogService.add(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.delete", detail = "删除用户 ${user.username}")
     }
 
     // ── 内部 ───────────────────────────────────────────────────────────────

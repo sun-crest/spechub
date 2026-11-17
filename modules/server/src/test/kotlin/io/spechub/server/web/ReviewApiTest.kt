@@ -46,6 +46,10 @@ class ReviewApiTest : TestDbIsolation() {
     @Autowired
     lateinit var db: IndexDb
 
+    /** 管理库 JdbcTemplate（管理域表清理） */
+    @Autowired
+    lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
+
     companion object {
 
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
@@ -124,11 +128,7 @@ class ReviewApiTest : TestDbIsolation() {
 
     @BeforeEach
     fun cleanProjection() {
-        db.execute("DELETE FROM review")
-        db.execute("DELETE FROM notification")
-        db.execute("DELETE FROM subscription")
-        db.execute("DELETE FROM changelog")
-        db.execute("DELETE FROM mock_rule")
+        clearManagementTables(jdbc)
         db.execute("DELETE FROM version")
         db.execute("DELETE FROM schema")
         db.execute("DELETE FROM api")

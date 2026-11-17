@@ -50,9 +50,7 @@ class CommentApiTest : TestDbIsolation() {
 
     @BeforeEach
     fun cleanProjection() {
-        jdbc.update("DELETE FROM comment")
-        db.execute("DELETE FROM changelog")
-        db.execute("DELETE FROM mock_rule")
+        clearManagementTables(jdbc)
         db.execute("DELETE FROM version")
         db.execute("DELETE FROM schema")
         db.execute("DELETE FROM api")

@@ -1,7 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.NotificationRecord
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.ChangelogService
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.SubscriptionRecord
 import io.spechub.server.web.common.ApiErrorCode
@@ -34,7 +34,7 @@ import io.spechub.server.service.SubscriptionService
 @RequestMapping("/api/subscriptions")
 class SubscriptionController(
     private val projection: ProjectionStore,
-    private val platform: PlatformStore,
+    private val changelogService: ChangelogService,
     private val repoService: RepoService,
     private val subscriptionService: SubscriptionService,
     private val auth: AuthService,
@@ -58,7 +58,7 @@ class SubscriptionController(
         val sub = subscriptionService.subscribe(
             body.repoId, apiId, body.method.uppercase(), body.path, body.team.trim(), body.notifyUrl.trim(),
         )
-        platform.addChangelog(body.repoId, apiId, auth.currentActor(request), "subscription",
+        changelogService.add(body.repoId, apiId, auth.currentActor(request), "subscription",
             "${body.team} 订阅 ${body.method.uppercase()} ${body.path}")
         return sub
     }
@@ -72,7 +72,7 @@ class SubscriptionController(
         auth.requireAuthenticated(request, "取消订阅")
         val sub = subscriptionService.get(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "订阅 $id 不存在")
         subscriptionService.unsubscribe(id)
-        platform.addChangelog(sub.repoId, sub.apiId, auth.currentActor(request), "subscription.delete", "取消订阅：${sub.team} ${sub.method} ${sub.path}")
+        changelogService.add(sub.repoId, sub.apiId, auth.currentActor(request), "subscription.delete", "取消订阅：${sub.team} ${sub.method} ${sub.path}")
     }
 
     @GetMapping("/notifications")

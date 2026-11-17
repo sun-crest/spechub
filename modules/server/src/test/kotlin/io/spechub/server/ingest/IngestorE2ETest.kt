@@ -4,13 +4,11 @@ import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
 import io.spechub.spec.index.IndexDb
-import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.RepoRecord
 import io.spechub.spec.index.SyncStatus
 import io.spechub.server.config.SpecHubProperties
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertAll
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -73,9 +71,8 @@ class IngestorE2ETest {
     fun `fetch 小仓摄取 → api 与 schema 入投影，幂等续跑 version 不重复`() {
         val origin = seedOrigin()
         val db = IndexDb(temp.resolve("idx.db")).also { it.migrate() }
-        val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, IngestHooks(), props())
+        val ingestor = Ingestor(git, projection, IngestHooks(), props())
 
         val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
         val result = ingestor.ingest(repo)
@@ -98,9 +95,8 @@ class IngestorE2ETest {
     fun `上游 push 新文档 → 增量摄取更新投影且保留新版本`() {
         val origin = seedOrigin()
         val db = IndexDb(temp.resolve("idx2.db")).also { it.migrate() }
-        val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, IngestHooks(), props())
+        val ingestor = Ingestor(git, projection, IngestHooks(), props())
         val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
 
         ingestor.ingest(repo)
@@ -125,17 +121,14 @@ class IngestorE2ETest {
     fun `清空投影后从 git 重扫 - 管理数据不丢失`() {
         val origin = seedOriginWithDocs()
         val db = IndexDb(temp.resolve("idx-rebuild.db")).also { it.migrate() }
-        val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, IngestHooks(), props())
+        val ingestor = Ingestor(git, projection, IngestHooks(), props())
         val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
         ingestor.ingest(repo)
 
-        // 管理数据（仍由 PlatformStore 承载的部分）：changelog
-        // 其余域（用户/成员、repo、订阅/通知、评论/评审、mock 规则）已迁管理库，不在投影重建影响面内。
+        // 管理数据已全部迁管理库（Phase 2），本测试只验证投影可重建
         val api = projection.listApis(repo.id).first { it.operationId == "listPets" }
         val doc = projection.listDocs(repo.id).first { it.path == "docs/pet/handover.md" }
-        platform.addChangelog(repo.id, api.id, "alice", "spec.write", "写回")
 
         clearProjection(db)
 
@@ -144,10 +137,6 @@ class IngestorE2ETest {
         assertEquals(2, result.apiCount, "投影应从 git 重建")
         assertEquals(1, projection.listDocs(repo.id).size, "doc 投影应从 git 重建")
 
-        // 管理数据全部仍在（assertAll：一次报告所有丢失项，避免逐个修才发现下一个）
-        assertAll(
-            { assertEquals(1, platform.listChangelogs(repo.id, null, limit = 10).size, "changelog 应保留") },
-        )
     }
 
     /** Phase 1 同库过渡：显式清空投影表。Phase 2 物理拆分后改为删除投影库文件。 */

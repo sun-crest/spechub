@@ -269,7 +269,7 @@ modules/mock/
 - [x] comment 迁管理库（`CommentService`；接口评论 repo+method+path、文档评论 repo+path 稳定寻址）。✅ 2026-11-17：`CommentServiceTest` 覆盖。
 - [x] review 迁管理库（`ReviewService`：创建 / 组合查询 / 审批状态流转）。✅ 2026-11-17：`ReviewServiceTest` 覆盖。
 - [x] mock_rule 迁管理库 + `MockRuleSource` 端口（mock 模块不再依赖管理域类型）。✅ 2026-11-17：`MockRuleService` 实现端口注入 MockEngine；`MockRuleServiceTest` 覆盖幂等 upsert / 项目级与接口级并存。
-- [ ] changelog 迁管理库（所有写路径的审计留痕，最后收口）。
+- [x] changelog 迁管理库（`ChangelogService`；所有写路径审计留痕）。✅ 2026-11-17：同步删除 `PlatformStore` 与 SQLite 全部过渡表——投影库只剩 `version/api/schema/doc`。`ChangelogServiceTest` 覆盖组合查询；`IndexDbMigrationTest` 验证旧库清理。
 - [ ] 双库（MySQL）集成测试矩阵接入。
 
 ### Phase 3 · 事务与原子性

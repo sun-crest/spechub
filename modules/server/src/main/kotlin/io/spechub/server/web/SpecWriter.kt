@@ -8,7 +8,7 @@ import io.spechub.server.config.SpecHubProperties
 import org.springframework.stereotype.Component
 import java.nio.file.Files
 import java.nio.file.Path
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.ChangelogService
 
 /*
  * 写回真源仓（R1-C 兜底形态，§6.2/§6.4 决策 1）：Web 直改 / 平台提交 = 在工作树克隆上改 spec
@@ -24,7 +24,7 @@ class SpecWriter(
     private val git: GitStore,
     private val props: SpecHubProperties,
     private val urlTokens: UrlTokenStore,
-    private val platform: PlatformStore,
+    private val changelogService: ChangelogService,
 ) {
     /** 平台提交身份（写入 commit 由这台机器统一署名，便于真源审计） */
     private val bot = Identity("spechub-bot", "specbot@spechub.test")
@@ -52,7 +52,7 @@ class SpecWriter(
         }
         git.push(work, "origin", repo.branch).require("push")
         val short = git.commitHash(work, "HEAD")
-        platform.addChangelog(
+        changelogService.add(
             repoId = repo.id, apiId = null, actor = bot.name,
             action = ChangelogAction.SPEC_WRITE,
             detail = "PUT spec $path → commit $short（${repo.branch}）; diff ${diffStat.ifEmpty { "（首次/无增量）" }}",

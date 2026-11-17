@@ -6,7 +6,7 @@ import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.ApiRecord
 import io.spechub.spec.index.ProjectRecord
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.ChangelogService
 import io.spechub.spec.index.ProjectionStore
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
@@ -26,7 +26,7 @@ import io.spechub.server.service.RepoService
 @RequestMapping("/api")
 class ApiQueryController(
     private val projection: ProjectionStore,
-    private val platform: PlatformStore,
+    private val changelogService: ChangelogService,
     private val repoService: RepoService,
     private val reviewService: ReviewService,
     private val writer: SpecWriter,
@@ -105,7 +105,7 @@ class ApiQueryController(
             repoId = id, path = path, newContent = req.content,
             diff = "", oldHash = projection.latestSpecHash(id, path), requester = actor,
         )
-        platform.addChangelog(repoId = id, apiId = null, actor = actor, action = "review.create",
+        changelogService.add(repoId = id, apiId = null, actor = actor, action = "review.create",
             detail = "提交评审 #${review.id}：$path（$actor 提交，等待审批）")
         return WriteSpecResponse(
             repo.id, path, commit = "", branch = repo.branch, apiCount = 0,

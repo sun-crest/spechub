@@ -4,7 +4,6 @@ import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.index.ApiRecord
 import io.spechub.spec.index.RepoRecord
 import io.spechub.spec.index.SchemaRecord
-import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.SyncStatus
 import io.spechub.spec.model.io.SpecHash
@@ -25,7 +24,6 @@ import java.nio.file.Path
 class Ingestor(
     private val git: GitStore,
     private val projection: ProjectionStore,
-    private val platform: PlatformStore,
     private val hooks: IngestHooks,
     private val props: SpecHubProperties,
 ) {

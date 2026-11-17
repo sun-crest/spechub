@@ -2,7 +2,7 @@ package io.spechub.server.web
 
 import io.spechub.spec.index.CommentRecord
 import io.spechub.spec.index.Role
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.ChangelogService
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
@@ -33,7 +33,7 @@ import io.spechub.server.service.RepoService
 @RequestMapping("/api")
 class CommentController(
     private val projection: ProjectionStore,
-    private val platform: PlatformStore,
+    private val changelogService: ChangelogService,
     private val repoService: RepoService,
     private val commentService: CommentService,
     private val auth: AuthService,
@@ -63,7 +63,7 @@ class CommentController(
         val user = auth.requireAuthenticated(request, "发表评论")
         val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
         val comment = commentService.add(api.repoId, api.id, null, api.method, api.path, user.username, body.body.trim())
-        platform.addChangelog(api.repoId, api.id, user.username, "comment", "评论 ${api.method} ${api.path}：${body.body.trim().take(60)}")
+        changelogService.add(api.repoId, api.id, user.username, "comment", "评论 ${api.method} ${api.path}：${body.body.trim().take(60)}")
         return toView(comment)
     }
 
@@ -80,7 +80,7 @@ class CommentController(
             throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "只能删除自己的评论或需 admin 及以上")
         }
         commentService.delete(id)
-        platform.addChangelog(comment.repoId, comment.apiId, actor.username, "comment.delete", "删除评论 #${comment.id}")
+        changelogService.add(comment.repoId, comment.apiId, actor.username, "comment.delete", "删除评论 #${comment.id}")
     }
 
     private fun toView(c: CommentRecord): CommentView = CommentView(

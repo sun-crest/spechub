@@ -4,7 +4,7 @@ import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.MockRuleRecord
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.ChangelogService
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.mock.MockEngine
 import jakarta.servlet.http.HttpServletRequest
@@ -36,7 +36,7 @@ import io.spechub.server.service.RepoService
 class MockController(
     private val engine: MockEngine,
     private val projection: ProjectionStore,
-    private val platform: PlatformStore,
+    private val changelogService: ChangelogService,
     private val repoService: RepoService,
     private val mockRuleService: MockRuleService,
     private val auth: AuthService,
@@ -88,7 +88,7 @@ class MockController(
         val rule = mockRuleService.upsert(
             MockRuleRecord(repoId = id, apiId = req.apiId, fieldPattern = req.fieldPattern.trim(), ruleType = req.ruleType, ruleValue = req.ruleValue),
         )
-        platform.addChangelog(repoId = id, apiId = req.apiId, actor = "spechub-bot", action = "mock.rule",
+        changelogService.add(repoId = id, apiId = req.apiId, actor = "spechub-bot", action = "mock.rule",
             detail = "Mock 规则 [${req.ruleType}] ${req.fieldPattern} = ${req.ruleValue.take(60)}")
         return rule
     }

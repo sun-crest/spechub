@@ -3,7 +3,7 @@ package io.spechub.server.web
 import io.spechub.spec.index.ReviewRecord
 import io.spechub.spec.index.ReviewStatus
 import io.spechub.spec.index.Role
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.ChangelogService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
@@ -35,7 +35,7 @@ import io.spechub.server.service.RepoService
 @RestController
 @RequestMapping("/api/reviews")
 class ReviewController(
-    private val platform: PlatformStore,
+    private val changelogService: ChangelogService,
     private val repoService: RepoService,
     private val reviewService: ReviewService,
     private val auth: AuthService,
@@ -105,7 +105,7 @@ class ReviewController(
         val written = writer.writeSpec(repo, r.path, r.newContent)
         val ing = ingestor.ingest(repo, urlTokens.get(r.repoId))
         reviewService.resolve(r.id!!, ReviewStatus.APPROVED, actor.username)
-        platform.addChangelog(r.repoId, null, actor.username, "review.approve",
+        changelogService.add(r.repoId, null, actor.username, "review.approve",
             "批准评审 #${r.id}：${r.path} → commit ${written.commit.take(8)}（${ing.apiCount} 个接口）")
         return toView(reviewService.get(id)!!)
     }
@@ -118,7 +118,7 @@ class ReviewController(
         val actor = auth.currentUser(request) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "打回需要登录")
         requireOtherReviewer(actor.username, r.requester, actor.isPlatformAdmin)
         reviewService.resolve(r.id!!, ReviewStatus.REJECTED, actor.username, body?.reason)
-        platform.addChangelog(r.repoId, null, actor.username, "review.reject",
+        changelogService.add(r.repoId, null, actor.username, "review.reject",
             "打回评审 #${r.id}：${r.path}${body?.reason?.let { "（$it）" } ?: ""}")
     }
 
