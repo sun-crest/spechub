@@ -1,0 +1,19 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{kt,kts}]
+ktlint_code_style = ktlint_official
+# 项目注释以中文为主、长行较多；先关闭行长规则，避免 R12 为纯格式翻动存量代码。
+max_line_length = off
+# 测试函数名使用反引号中文描述，function-naming 对 @Test 放行。
+ktlint_function_naming_ignore_when_annotated_with = Test
+
+[*.{yml,yaml,json,md}]
+indent_size = 2

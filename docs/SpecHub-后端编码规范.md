@@ -34,6 +34,9 @@ modules/
 
 - `[强]` **依赖只朝 kernel**：`server` / `mock` 可以依赖 `kernel:*`，kernel 模块之间按上表方向单向；kernel 内**禁止依赖 server / Spring / mock**。本决策是 §7.4/§6.4 的既有硬约束，改动需经过方案评审。
 - `[强]` kernel 模块**不引入 Spring 注解 / Web 容器 / 数据库框架**（可引入 jdbc 驱动实现层代码但仍保持零框架注解，现状 `IndexDb` 即如此）。
+- `[强]` **Jackson 运行时唯一是 Jackson 3（`tools.jackson`）**：业务代码（`modules/**/src/{main,test}`）禁止使用 Jackson 2 的 `databind/core/dataformat/datatype/module`；唯一例外是 `com.fasterxml.jackson.annotation`（Jackson 3 官方复用 2.x 注解，JSTEP-1）。
+  Jackson 2 只允许作为 **springdoc / knife4j next 的运行时传递依赖**：文档层 starter 用 `runtimeOnly` 引入，端点注解（`@Operation/@Tag/@Schema`）用 `compileOnly` 的 `swagger-annotations-jakarta`；禁止写成业务模块直接依赖，禁止引入 `spring-boot-jackson2` 或手工注册 `MappingJackson2HttpMessageConverter`（会与 Boot 4 默认 Jackson 3 入口竞争）。
+  强制手段：root `build.gradle.kts` 已从 `compileClasspath`/`testCompileClasspath` 排除 Jackson 2 实现包（annotations 保留），并提供 `./gradlew verifyNoJackson2Usage`（挂 `check`）。
 - `[推]` server 内部按职责分包：`web`（HTTP 入口）/ `service`（业务编排，新建）/ `config`（装配）/ `ingest`（后台摄取）。
 
 ### 1.2 分层边界
@@ -205,6 +208,7 @@ data class LoginRequest(
 - `[强]` 分支/状态值用 enum（`Role.*` 现状正确），禁止裸字符串散落比较；跨层传参用类型化对象而非 `Any`/`Map`。
 - `[强]` 遵守方案 A 第 4 条：**不写多余的 `!!`**；表达「应有但缺失」用 `checkNotNull(x) { "原因" }`。
 - `[推]` 引入 `ktlint`（或 detekt）做静态检查 + `.editorconfig` 对齐格式；CI 门禁。**这是低成本高收益项，优先于大多数手写规范。**
+  **R12 已落地**：ktlint 1.8.0（插件 14.2.0）+ 根 `.editorconfig`；本地 `./gradlew ktlintCheck`，CI 跑 `./gradlew check`。
 
 ---
 

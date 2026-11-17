@@ -19,7 +19,6 @@ import kotlin.test.assertTrue
 /** 评审域迁入管理库后的集成验证（创建 / 组合查询 / 审批状态流转）。 */
 @SpringBootTest
 class ReviewServiceTest : TestDbIsolation() {
-
     @Autowired
     lateinit var repoService: RepoService
 

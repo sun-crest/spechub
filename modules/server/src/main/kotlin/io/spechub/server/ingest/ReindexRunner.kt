@@ -14,7 +14,6 @@ class ReindexRunner(
     private val repoService: RepoService,
     private val urlTokens: UrlTokenStore,
 ) : ApplicationRunner {
-
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun run(args: ApplicationArguments) {
@@ -29,8 +28,15 @@ class ReindexRunner(
         for (repo in repos) {
             try {
                 val result = ingestor.ingest(repo, urlTokens.get(repo.id))
-                log.info("  repo#{} {} → api={} schema={} version={} messages={}",
-                    repo.id, repo.url, result.apiCount, result.schemaCount, result.versionCount, result.messages.size)
+                log.info(
+                    "  repo#{} {} → api={} schema={} version={} messages={}",
+                    repo.id,
+                    repo.url,
+                    result.apiCount,
+                    result.schemaCount,
+                    result.versionCount,
+                    result.messages.size,
+                )
             } catch (e: Exception) {
                 errors++
                 log.warn("  repo#{} {} 失败：{}", repo.id, repo.url, e.message?.take(200))

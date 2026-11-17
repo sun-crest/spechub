@@ -80,6 +80,9 @@ services:
       SPECHUB_DB_URL: jdbc:postgresql://db:5432/spechub
       SPECHUB_DB_USER: spechub
       SPECHUB_DB_PASSWORD: ${SPECHUB_DB_PASSWORD:-spechub}
+      # profile：默认 dev（鉴权关闭）；prod 时必须同时注入 SPECHUB_ADMIN_TOKEN（缺失→启动失败）
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SPECHUB_ADMIN_TOKEN: ${SPECHUB_ADMIN_TOKEN:-}
     ports:
       - "${SPECHUB_PORT:-8080}:8080"
     volumes:

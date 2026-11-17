@@ -13,5 +13,8 @@ data class ApiErrorBody(
     val instance: String?,
     val fieldErrors: List<FieldError>? = null,
 ) {
-    data class FieldError(val field: String, val message: String)
+    data class FieldError(
+        val field: String,
+        val message: String,
+    )
 }

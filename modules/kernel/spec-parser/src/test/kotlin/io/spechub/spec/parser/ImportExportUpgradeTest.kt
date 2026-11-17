@@ -3,13 +3,13 @@ package io.spechub.spec.parser
 import io.spechub.spec.model.io.SpecModelIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /** J1/J2 —— Postman collection 导入 + Swagger 2.0 结构化升级（验证归一化管道） */
 class ImportExportUpgradeTest {
-
-    private val swagger20 = """
+    private val swagger20 =
+        """
         {
           "swagger": "2.0",
           "info": { "title": "Pet Store 2.0", "version": "1.0.0" },
@@ -34,9 +34,10 @@ class ImportExportUpgradeTest {
           },
           "securityDefinitions": { "api_key": { "type": "apiKey", "name": "X-API-Key", "in": "header" } }
         }
-    """.trimIndent()
+        """.trimIndent()
 
-    private val postman = """
+    private val postman =
+        """
         {
           "info": { "name": "PMS API", "description": "pets manager" },
           "item": [
@@ -45,7 +46,7 @@ class ImportExportUpgradeTest {
             { "name": "create pet", "request": { "method": "POST", "url": { "raw": "http://localhost:8000/pets", "path": ["pets"] }, "body": { "mode": "urlencoded", "urlencoded": [ { "key": "name", "value": "dog" } ] } } }
           ]
         }
-    """.trimIndent()
+        """.trimIndent()
 
     @Test
     fun `J2 swagger-2-0 结构化升级 servers用definitions纯ref重写 body参数 安全方案`() {
@@ -61,7 +62,16 @@ class ImportExportUpgradeTest {
         // paths /pets GET+POST
         val pets = doc.paths["/pets"]!!
         assertEquals("listPets", pets.get?.operationId)
-        assertEquals("integer", pets.get?.parameters?.firstOrNull()?.schema?.typeNames()?.firstOrNull(), "query 参数内联 type → schema")
+        assertEquals(
+            "integer",
+            pets.get
+                ?.parameters
+                ?.firstOrNull()
+                ?.schema
+                ?.typeNames()
+                ?.firstOrNull(),
+            "query 参数内联 type → schema",
+        )
         // POST body 参数 → requestBody
         val rb = pets.post?.requestBody
         assertNotNull(rb, "in:body → requestBody")
@@ -86,11 +96,28 @@ class ImportExportUpgradeTest {
     @Test
     fun `J2 响应 schema 入 content 媒体类型`() {
         val result = SpecParser.parse(swagger20) as ParseResult.Success
-        val resp = result.doc.paths["/pets"]!!.post?.responses?.get("200")  // POST 是 201
+        val resp =
+            result.doc.paths["/pets"]!!
+                .post
+                ?.responses
+                ?.get("200") // POST 是 201
         // GET 200 → content json
-        val get200 = result.doc.paths["/pets"]!!.get?.responses?.get("200")
+        val get200 =
+            result.doc.paths["/pets"]!!
+                .get
+                ?.responses
+                ?.get("200")
         assertEquals("application/json", get200?.content?.keys?.firstOrNull(), "produces → content")
-        assertEquals("application/json", result.doc.paths["/pets"]!!.post?.responses?.get("201")?.content?.keys?.firstOrNull())
+        assertEquals(
+            "application/json",
+            result.doc.paths["/pets"]!!
+                .post
+                ?.responses
+                ?.get("201")
+                ?.content
+                ?.keys
+                ?.firstOrNull(),
+        )
     }
 
     @Test
@@ -106,8 +133,21 @@ class ImportExportUpgradeTest {
         val pets = doc.paths["/pets"]!!
         assertNotNull(pets.get, "GET /pets")
         assertNotNull(pets.post, "POST /pets 同 path 合并")
-        assertEquals("limit", pets.get?.parameters?.firstOrNull()?.name, "query 参数")
-        assertEquals("query", pets.get?.parameters?.firstOrNull()?.`in`)
+        assertEquals(
+            "limit",
+            pets.get
+                ?.parameters
+                ?.firstOrNull()
+                ?.name,
+            "query 参数",
+        )
+        assertEquals(
+            "query",
+            pets.get
+                ?.parameters
+                ?.firstOrNull()
+                ?.`in`,
+        )
 
         // {{petId}} → {petId} 模板
         assertTrue(doc.paths.containsKey("/pets/{petId}"), "路径变量 {{petId}} → /pets/{petId}，实际 ${doc.paths.keys}")
@@ -116,7 +156,14 @@ class ImportExportUpgradeTest {
         val rb = pets.post?.requestBody
         assertNotNull(rb)
         assertEquals("application/x-www-form-urlencoded", rb.content.keys.firstOrNull())
-        assertEquals("name", rb.firstSchema()?.properties?.keys?.firstOrNull())
+        assertEquals(
+            "name",
+            rb
+                .firstSchema()
+                ?.properties
+                ?.keys
+                ?.firstOrNull(),
+        )
     }
 
     @Test
@@ -133,7 +180,9 @@ class ImportExportUpgradeTest {
     @Test
     fun `J4 Markdown 导出 - 手册结构与 schema 摘要`() {
         val doc = (SpecParser.parse(swagger20) as ParseResult.Success).doc
-        val md = io.spechub.spec.parser.export.MarkdownExporter.export(doc)
+        val md =
+            io.spechub.spec.parser.export.MarkdownExporter
+                .export(doc)
         assertTrue(md.contains("# Pet Store 2.0"), "标题")
         assertTrue(md.contains("## /pets"), "path 锚")
         assertTrue(md.contains("GET"), "method 展开")
@@ -148,7 +197,9 @@ class ImportExportUpgradeTest {
     @Test
     fun `J4 HTML 门户导出 - 自包含单页可离线`() {
         val doc = (SpecParser.parse(swagger20) as ParseResult.Success).doc
-        val html = io.spechub.spec.parser.export.HtmlPortalExporter.export(doc)
+        val html =
+            io.spechub.spec.parser.export.HtmlPortalExporter
+                .export(doc)
         assertTrue(html.startsWith("<!doctype html>"), "根 doctype")
         assertTrue(html.contains("<details class=\"api"), "接口折叠块")
         assertTrue(html.contains("class=\"pill m-get\""), "方法色 pill")

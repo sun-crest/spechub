@@ -4,16 +4,16 @@ import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
 import io.spechub.spec.index.IndexDb
-import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.junit.jupiter.api.io.TempDir
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import org.springframework.boot.test.web.server.LocalServerPort
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
 import java.net.http.HttpClient
@@ -22,6 +22,7 @@ import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -39,7 +40,6 @@ import kotlin.test.assertTrue
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ReviewApiTest : TestDbIsolation() {
-
     @LocalServerPort
     var port: Int = 0
 
@@ -51,7 +51,6 @@ class ReviewApiTest : TestDbIsolation() {
     lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
 
     companion object {
-
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
         private val TEMPDIR: java.nio.file.Path = kotlin.io.path.createTempDirectory("spechub-test-" + System.nanoTime())
 
@@ -63,6 +62,7 @@ class ReviewApiTest : TestDbIsolation() {
             registry.add("spechub.sqlite-dir") { TEMPDIR.resolve("sqlite").toString() }
             registry.add("spechub.artifacts-dir") { TEMPDIR.resolve("artifacts").toString() }
         }
+
         private val json = JsonMapper.builder().build()
         private const val ADMIN = "review-admin-token"
         private lateinit var origin: String
@@ -102,9 +102,16 @@ class ReviewApiTest : TestDbIsolation() {
 
     private val client = HttpClient.newHttpClient()
 
-    private fun req(method: String, path: String, token: String? = null, body: String? = null): HttpResponse<String> {
-        val b = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
-            .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
+    private fun req(
+        method: String,
+        path: String,
+        token: String? = null,
+        body: String? = null,
+    ): HttpResponse<String> {
+        val b =
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port$path"))
+                .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
         if (body != null) b.header("Content-Type", "application/json")
         if (token != null) b.header("Authorization", "Bearer $token")
         return client.send(b.build(), HttpResponse.BodyHandlers.ofString())
@@ -144,8 +151,13 @@ class ReviewApiTest : TestDbIsolation() {
         val repoId = json.readTree(reg.body()).at("/repo/id").asLong()
 
         val before = head()
-        val put = req("PUT", "/api/repos/$repoId/spec", token = reqToken,
-            body = """{"path":"specs/pet/openapi.yaml","content":"openapi: 3.1.0\ninfo: { title: Pet Store v2, version: \"1.0.0\" }\npaths: {}\n"}""")
+        val put =
+            req(
+                "PUT",
+                "/api/repos/$repoId/spec",
+                token = reqToken,
+                body = """{"path":"specs/pet/openapi.yaml","content":"openapi: 3.1.0\ninfo: { title: Pet Store v2, version: \"1.0.0\" }\npaths: {}\n"}""",
+            )
         assertEquals(200, put.statusCode(), put.body())
         val putTree = json.readTree(put.body())
         val reviewId = putTree.at("/reviewId").asLong()
@@ -172,7 +184,15 @@ class ReviewApiTest : TestDbIsolation() {
 
         // pending 列表为空
         assertTrue(json.readTree(req("GET", "/api/reviews?status=pending", token = appToken).body()).size() == 0)
-        assertEquals(reqName, json.readTree(req("GET", "/api/reviews?status=approved", token = appToken).body()).get(0)?.at("/requester")?.asText(), "approved 列表带提交人")
+        assertEquals(
+            reqName,
+            json
+                .readTree(req("GET", "/api/reviews?status=approved", token = appToken).body())
+                .get(0)
+                ?.at("/requester")
+                ?.asText(),
+            "approved 列表带提交人",
+        )
     }
 
     @Test
@@ -183,15 +203,89 @@ class ReviewApiTest : TestDbIsolation() {
         val repoId = json.readTree(reg.body()).at("/repo/id").asLong()
 
         val before = head()
-        val put = req("PUT", "/api/repos/$repoId/spec", token = reqToken,
-            body = """{"path":"specs/pet/openapi.yaml","content":"broken content"}""")
+        val put =
+            req(
+                "PUT",
+                "/api/repos/$repoId/spec",
+                token = reqToken,
+                body = """{"path":"specs/pet/openapi.yaml","content":"broken content"}""",
+            )
         val reviewId = json.readTree(put.body()).at("/reviewId").asLong()
 
-        assertEquals(204, req("POST", "/api/reviews/$reviewId/reject", token = appToken,
-            body = """{"reason":"缺 required"}""").statusCode())
+        assertEquals(
+            204,
+            req(
+                "POST",
+                "/api/reviews/$reviewId/reject",
+                token = appToken,
+                body = """{"reason":"缺 required"}""",
+            ).statusCode(),
+        )
         val detail = req("GET", "/api/reviews/$reviewId", token = appToken)
         assertEquals("rejected", json.readTree(detail.body()).at("/status").asText())
         assertEquals("缺 required", json.readTree(detail.body()).at("/rejectReason").asText())
         assertEquals(before, head(), "打回后真源 HEAD 不变")
+    }
+
+    @Test
+    fun `approve 全链路状态一致 - review、version、changelog、投影`() {
+        val (reqToken, _) = createEditor("chain_requester")
+        val (appToken, appName) = createEditor("chain_approver")
+
+        val reg = req("POST", "/api/repos", token = ADMIN, body = """{"url":"file://$origin"}""")
+        val repoId = json.readTree(reg.body()).at("/repo/id").asLong()
+
+        val content =
+            """
+            openapi: 3.1.0
+            info: { title: Pet Store v3, version: "1.0.0" }
+            paths:
+              /pets:
+                get:
+                  operationId: listPets
+                  responses:
+                    "200": { description: ok }
+              /pets/{petId}:
+                delete:
+                  operationId: removePet
+                  parameters: [{ name: petId, in: path, required: true, schema: { type: integer } }]
+                  responses:
+                    "204": { description: removed }
+            """.trimIndent()
+        val put =
+            req(
+                "PUT",
+                "/api/repos/$repoId/spec",
+                token = reqToken,
+                body = """{"path":"specs/pet/openapi.yaml","content":${json.writeValueAsString(content)}}""",
+            )
+        assertEquals(200, put.statusCode(), put.body())
+        val reviewId = json.readTree(put.body()).at("/reviewId").asLong()
+
+        val approved = req("POST", "/api/reviews/$reviewId/approve", token = appToken)
+        assertEquals(200, approved.statusCode(), approved.body())
+        val approvedTree = json.readTree(approved.body())
+        assertEquals("approved", approvedTree.at("/status").asText())
+        assertEquals(appName, approvedTree.at("/reviewer").asText())
+        assertTrue(approvedTree.at("/resolvedAt").asText().isNotBlank(), "响应带审批时间")
+
+        // review 行：状态 / 审批人 / 时间一致
+        val reviewRow = jdbc.queryForMap("SELECT status, reviewer, resolved_at FROM review WHERE id=?", reviewId)
+        assertEquals("approved", reviewRow["status"])
+        assertEquals(appName, reviewRow["reviewer"])
+        assertNotNull(reviewRow["resolved_at"], "审批时间戳应落库")
+
+        // changelog：审批留痕 actor = 审批人，detail 带 commit
+        val logs = jdbc.queryForList("SELECT actor, detail FROM changelog WHERE repo_id=? AND action='review.approve'", repoId)
+        assertEquals(1, logs.size, "审批留痕 1 条")
+        assertEquals(appName, logs.single()["actor"])
+        assertTrue(logs.single()["detail"].toString().contains("commit"), "留痕带 commit")
+
+        // 摄取闭环：新增 version，新接口进入 draft 投影，repo 状态收尾为 ok
+        val versions = db.query("SELECT COUNT(*) AS c FROM version WHERE repo_id=? AND path='specs/pet/openapi.yaml'", repoId)
+        assertTrue((versions.single()["c"] as Number).toInt() >= 2, "审批后新增 version")
+        val apis = json.readTree(req("GET", "/api/repos/$repoId/apis", token = appToken).body())
+        assertTrue(apis.toString().contains("removePet"), "审批内容进入索引投影：$apis")
+        assertEquals("ok", jdbc.queryForObject("SELECT sync_status FROM repo WHERE id=?", String::class.java, repoId))
     }
 }

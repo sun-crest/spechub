@@ -11,7 +11,6 @@ import kotlin.test.assertEquals
  * 投影表（version/api/schema/doc）重建为空（可从 git 全量重建）。
  */
 class IndexDbMigrationTest {
-
     @TempDir
     lateinit var temp: Path
 
@@ -51,20 +50,36 @@ class IndexDbMigrationTest {
             conn.createStatement().use { st ->
                 st.execute("PRAGMA foreign_keys=ON")
                 for (table in listOf(
-                    "project", "repo", "comment", "mock_rule", "changelog",
-                    "subscription", "notification", "review", "app_user", "membership",
+                    "project",
+                    "repo",
+                    "comment",
+                    "mock_rule",
+                    "changelog",
+                    "subscription",
+                    "notification",
+                    "review",
+                    "app_user",
+                    "membership",
                 )) {
                     assertEquals(false, tableExists(st, table), "迁移后不应存在旧表 $table")
                 }
                 for (table in listOf("version", "api", "schema", "doc")) {
                     assertEquals(true, tableExists(st, table), "投影表 $table 应重建")
                 }
-                st.executeQuery("SELECT COUNT(*) FROM version").use { rs -> rs.next(); assertEquals(0, rs.getInt(1), "投影表应为空（从 git 重建）") }
-                st.executeQuery("SELECT COUNT(*) FROM api").use { rs -> rs.next(); assertEquals(0, rs.getInt(1)) }
+                st.executeQuery("SELECT COUNT(*) FROM version").use { rs ->
+                    rs.next()
+                    assertEquals(0, rs.getInt(1), "投影表应为空（从 git 重建）")
+                }
+                st.executeQuery("SELECT COUNT(*) FROM api").use { rs ->
+                    rs.next()
+                    assertEquals(0, rs.getInt(1))
+                }
             }
         }
     }
 
-    private fun tableExists(st: java.sql.Statement, table: String): Boolean =
-        st.executeQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='$table'").use { it.next() }
+    private fun tableExists(
+        st: java.sql.Statement,
+        table: String,
+    ): Boolean = st.executeQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='$table'").use { it.next() }
 }

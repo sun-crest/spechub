@@ -16,7 +16,6 @@ import kotlin.test.assertNotNull
 /** 项目/仓库域迁入管理库后的集成验证（Flyway + Spring Data JDBC + @Transactional）。 */
 @SpringBootTest
 class RepoServiceTest : TestDbIsolation() {
-
     @Autowired
     lateinit var repoService: RepoService
 

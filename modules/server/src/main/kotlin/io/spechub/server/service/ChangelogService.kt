@@ -15,31 +15,43 @@ import java.time.Instant
 class ChangelogService(
     private val changelogs: ChangelogRepository,
 ) {
-
-    fun add(repoId: Long?, apiId: Long?, actor: String, action: String, detail: String): ChangelogRecord {
-        val saved = changelogs.save(
-            ChangelogEntity(repoId = repoId, apiId = apiId, actor = actor, action = action, detail = detail, createdAt = Instant.now()),
-        )
+    fun add(
+        repoId: Long?,
+        apiId: Long?,
+        actor: String,
+        action: String,
+        detail: String,
+    ): ChangelogRecord {
+        val saved =
+            changelogs.save(
+                ChangelogEntity(repoId = repoId, apiId = apiId, actor = actor, action = action, detail = detail, createdAt = Instant.now()),
+            )
         return saved.toRecord()
     }
 
-    fun list(repoId: Long? = null, apiId: Long? = null, limit: Int = 50): List<ChangelogRecord> {
-        val entities = when {
-            repoId != null && apiId != null -> changelogs.findByRepoIdAndApiId(repoId, apiId, limit)
-            repoId != null -> changelogs.findByRepoId(repoId, limit)
-            apiId != null -> changelogs.findByApiId(apiId, limit)
-            else -> changelogs.findLatest(limit)
-        }
+    fun list(
+        repoId: Long? = null,
+        apiId: Long? = null,
+        limit: Int = 50,
+    ): List<ChangelogRecord> {
+        val entities =
+            when {
+                repoId != null && apiId != null -> changelogs.findByRepoIdAndApiId(repoId, apiId, limit)
+                repoId != null -> changelogs.findByRepoId(repoId, limit)
+                apiId != null -> changelogs.findByApiId(apiId, limit)
+                else -> changelogs.findLatest(limit)
+            }
         return entities.map { it.toRecord() }
     }
 
-    private fun ChangelogEntity.toRecord(): ChangelogRecord = ChangelogRecord(
-        id = id,
-        repoId = repoId,
-        apiId = apiId,
-        actor = actor,
-        action = action,
-        detail = detail,
-        createdAt = createdAt.toString(),
-    )
+    private fun ChangelogEntity.toRecord(): ChangelogRecord =
+        ChangelogRecord(
+            id = id,
+            repoId = repoId,
+            apiId = apiId,
+            actor = actor,
+            action = action,
+            detail = detail,
+            createdAt = createdAt.toString(),
+        )
 }

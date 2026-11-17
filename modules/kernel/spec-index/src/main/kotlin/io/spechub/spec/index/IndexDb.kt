@@ -16,8 +16,9 @@ import java.sql.DriverManager
  *   本库只保留版本快照与 api/schema/doc 投影，repo_id 均为逻辑列（无跨库外键）。
  */
 
-class IndexDb(private val path: Path) {
-
+class IndexDb(
+    private val path: Path,
+) {
     private val url: String = "jdbc:sqlite:${path.toAbsolutePath()}"
 
     init {
@@ -66,9 +67,11 @@ class IndexDb(private val path: Path) {
 
             // 全文检索 FTS5（K2）：环境（sqlite-jdbc FTS5 编译开关）支持则建 doc_fts trigram 虚拟表
             try {
-                conn.exec(listOf(
-                    "CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(title, body, tokenize='trigram')",
-                ))
+                conn.exec(
+                    listOf(
+                        "CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(title, body, tokenize='trigram')",
+                    ),
+                )
                 fts5Available = true
             } catch (e: java.sql.SQLException) {
                 fts5Available = false // 不支持 FTS5 → 检索回退 LIKE（中文子串仍可达）
@@ -79,8 +82,12 @@ class IndexDb(private val path: Path) {
     var fts5Available: Boolean = false
         private set
 
-    private fun hasColumn(conn: java.sql.Connection, table: String, column: String): Boolean {
-        val st = conn.prepareStatement("PRAGMA table_info(${table})")
+    private fun hasColumn(
+        conn: java.sql.Connection,
+        table: String,
+        column: String,
+    ): Boolean {
+        val st = conn.prepareStatement("PRAGMA table_info($table)")
         try {
             val rs = st.executeQuery()
             try {
@@ -95,19 +102,23 @@ class IndexDb(private val path: Path) {
     }
 
     /** 表是否存在（迁移期检测旧库结构） */
-    private fun tableExists(conn: java.sql.Connection, table: String): Boolean =
-        conn.queryObj("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table) != null
+    private fun tableExists(
+        conn: java.sql.Connection,
+        table: String,
+    ): Boolean = conn.queryObj("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table) != null
 
     /** 在一个事务内执行块，成功提交 / 异常回滚并抛 */
     fun <T> transaction(block: (Connection) -> T): T =
         DriverManager.getConnection(url).use { conn ->
             // 连接级 PRAGMA 必须在事务外生效（foreign_keys 在事务中更改会被 SQLite 静默忽略 → 级联失效）
-            conn.exec(listOf(
-                "PRAGMA foreign_keys=ON",
-                // 20s：多 @SpringBootTest context 顺序/并行初始化时偶发 SQLITE_BUSY（WAL 写锁竞争）容忍窗口
-                "PRAGMA busy_timeout=20000",
-                "PRAGMA journal_mode=WAL",
-            ))
+            conn.exec(
+                listOf(
+                    "PRAGMA foreign_keys=ON",
+                    // 20s：多 @SpringBootTest context 顺序/并行初始化时偶发 SQLITE_BUSY（WAL 写锁竞争）容忍窗口
+                    "PRAGMA busy_timeout=20000",
+                    "PRAGMA journal_mode=WAL",
+                ),
+            )
             conn.autoCommit = false
             try {
                 val result = block(conn)
@@ -122,7 +133,10 @@ class IndexDb(private val path: Path) {
         }
 
     /** 快速点到点执行（单条语句，事务块内） */
-    fun execute(sql: String, vararg params: Any?): Int =
+    fun execute(
+        sql: String,
+        vararg params: Any?,
+    ): Int =
         transaction { conn ->
             val st = conn.prepareStatement(sql)
             try {
@@ -133,7 +147,10 @@ class IndexDb(private val path: Path) {
             }
         }
 
-    fun query(sql: String, vararg params: Any?): List<Map<String, Any?>> =
+    fun query(
+        sql: String,
+        vararg params: Any?,
+    ): List<Map<String, Any?>> =
         transaction { conn ->
             val st = conn.prepareStatement(sql)
             try {
@@ -166,69 +183,65 @@ class IndexDb(private val path: Path) {
 
 /** 投影表结构真源（幂等 DDL）。列名一律 snake_case；时间一律 ISO-8601 文本。 */
 object IndexSchema {
-
-    val DDL_STATEMENTS: List<String> = listOf(
-        // 文档发布快照（P2 I6 draft/release 双层版本底座；specHash 幂等）
-        """
-        CREATE TABLE IF NOT EXISTS version (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL,
-            path TEXT NOT NULL,
-            spec_hash TEXT NOT NULL,
-            stage TEXT NOT NULL DEFAULT 'draft',
-            parsed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            UNIQUE(repo_id, path, spec_hash)
+    val DDL_STATEMENTS: List<String> =
+        listOf(
+            // 文档发布快照（P2 I6 draft/release 双层版本底座；specHash 幂等）
+            """
+            CREATE TABLE IF NOT EXISTS version (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repo_id INTEGER NOT NULL,
+                path TEXT NOT NULL,
+                spec_hash TEXT NOT NULL,
+                stage TEXT NOT NULL DEFAULT 'draft',
+                parsed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                UNIQUE(repo_id, path, spec_hash)
+            )
+            """.trimIndent(),
+            // 归一化接口条目（method+path 唯一；I6 加 stage 维度后同 repo 可并存 draft/release 双投影）
+            // 幂等读档区分：replaceApisForRepo 只清 draft，release 快照副本独立保留（§6.4 决策 5）
+            """
+            CREATE TABLE IF NOT EXISTS api (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repo_id INTEGER NOT NULL,
+                version_id INTEGER REFERENCES version(id) ON DELETE CASCADE,
+                method TEXT NOT NULL,
+                path TEXT NOT NULL,
+                operation_id TEXT,
+                tag TEXT,
+                summary TEXT,
+                spec_json TEXT NOT NULL,
+                stage TEXT NOT NULL DEFAULT 'draft',
+                UNIQUE(repo_id, method, path, stage)
+            )
+            """.trimIndent(),
+            // 项目级实体 schema（components.schemas 投影；api 的 $ref 指向由 spec_json 内可解析）
+            """
+            CREATE TABLE IF NOT EXISTS schema (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repo_id INTEGER NOT NULL,
+                version_id INTEGER REFERENCES version(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                spec_json TEXT NOT NULL,
+                stage TEXT NOT NULL DEFAULT 'draft',
+                UNIQUE(repo_id, name, stage)
+            )
+            """.trimIndent(),
+            // Doc 域（P2 K 组启用；占位建表保持实体齐全，见 §6.3）
+            """
+            CREATE TABLE IF NOT EXISTS doc (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repo_id INTEGER NOT NULL,
+                version_id INTEGER REFERENCES version(id) ON DELETE CASCADE,
+                path TEXT NOT NULL,
+                title TEXT NOT NULL,
+                markdown TEXT NOT NULL,
+                UNIQUE(repo_id, path)
+            )
+            """.trimIndent(),
+            // 查询索引
+            "CREATE INDEX IF NOT EXISTS idx_version_spec_hash ON version(spec_hash)",
+            "CREATE INDEX IF NOT EXISTS idx_api_method_path ON api(method, path)",
+            "CREATE INDEX IF NOT EXISTS idx_api_tag ON api(tag)",
+            "CREATE INDEX IF NOT EXISTS idx_api_stage ON api(stage)",
         )
-        """.trimIndent(),
-
-        // 归一化接口条目（method+path 唯一；I6 加 stage 维度后同 repo 可并存 draft/release 双投影）
-        // 幂等读档区分：replaceApisForRepo 只清 draft，release 快照副本独立保留（§6.4 决策 5）
-        """
-        CREATE TABLE IF NOT EXISTS api (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL,
-            version_id INTEGER REFERENCES version(id) ON DELETE CASCADE,
-            method TEXT NOT NULL,
-            path TEXT NOT NULL,
-            operation_id TEXT,
-            tag TEXT,
-            summary TEXT,
-            spec_json TEXT NOT NULL,
-            stage TEXT NOT NULL DEFAULT 'draft',
-            UNIQUE(repo_id, method, path, stage)
-        )
-        """.trimIndent(),
-
-        // 项目级实体 schema（components.schemas 投影；api 的 $ref 指向由 spec_json 内可解析）
-        """
-        CREATE TABLE IF NOT EXISTS schema (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL,
-            version_id INTEGER REFERENCES version(id) ON DELETE CASCADE,
-            name TEXT NOT NULL,
-            spec_json TEXT NOT NULL,
-            stage TEXT NOT NULL DEFAULT 'draft',
-            UNIQUE(repo_id, name, stage)
-        )
-        """.trimIndent(),
-
-        // Doc 域（P2 K 组启用；占位建表保持实体齐全，见 §6.3）
-        """
-        CREATE TABLE IF NOT EXISTS doc (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL,
-            version_id INTEGER REFERENCES version(id) ON DELETE CASCADE,
-            path TEXT NOT NULL,
-            title TEXT NOT NULL,
-            markdown TEXT NOT NULL,
-            UNIQUE(repo_id, path)
-        )
-        """.trimIndent(),
-
-        // 查询索引
-        "CREATE INDEX IF NOT EXISTS idx_version_spec_hash ON version(spec_hash)",
-        "CREATE INDEX IF NOT EXISTS idx_api_method_path ON api(method, path)",
-        "CREATE INDEX IF NOT EXISTS idx_api_tag ON api(tag)",
-        "CREATE INDEX IF NOT EXISTS idx_api_stage ON api(stage)",
-    )
 }

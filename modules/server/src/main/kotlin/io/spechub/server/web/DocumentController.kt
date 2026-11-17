@@ -1,12 +1,12 @@
 package io.spechub.server.web
 
+import io.spechub.server.config.SpecHubProperties
+import io.spechub.server.service.RepoService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
-import io.spechub.server.service.RepoService
 import io.spechub.spec.index.Stage
 import io.spechub.spec.parser.export.MarkdownExporter
-import io.spechub.server.config.SpecHubProperties
 import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PathVariable
@@ -51,21 +51,27 @@ class DocumentController(
         val md = MarkdownExporter.export(doc)
 
         // pandoc 软依赖：未安装 / 转换失败 → 友好报错（服务端安装 pandoc 即解锁）
-        val mdTmp = try {
-            Files.createTempFile("spechub-doc", ".md").also { Files.writeString(it, md) }
-        } catch (e: IOException) {
-            log.warn("写入临时 md 失败：{}", e.message)
-            throw ApiException(ApiErrorCode.INTERNAL, "写入临时文件失败")
-        }
-        val outPath = props.artifactsPath().resolve("docs").resolve("repo-$id-${format}-$stage.$format")
+        val mdTmp =
+            try {
+                Files.createTempFile("spechub-doc", ".md").also { Files.writeString(it, md) }
+            } catch (e: IOException) {
+                log.warn("写入临时 md 失败：{}", e.message)
+                throw ApiException(ApiErrorCode.INTERNAL, "写入临时文件失败")
+            }
+        val outPath = props.artifactsPath().resolve("docs").resolve("repo-$id-$format-$stage.$format")
         Files.createDirectories(outPath.parent)
         try {
-            val pb = ProcessBuilder("pandoc", mdTmp.toString(), "-f", "markdown", "-t", format, "-o", outPath.toString())
-                .redirectErrorStream(true)
+            val pb =
+                ProcessBuilder("pandoc", mdTmp.toString(), "-f", "markdown", "-t", format, "-o", outPath.toString())
+                    .redirectErrorStream(true)
             val proc = pb.start()
             val exit = proc.waitFor()
             if (exit != 0) {
-                val err = proc.inputStream.bufferedReader().readText().take(240)
+                val err =
+                    proc.inputStream
+                        .bufferedReader()
+                        .readText()
+                        .take(240)
                 throw ApiException(ApiErrorCode.UPSTREAM_ERROR, "pandoc 转换失败（退出码 $exit）：$err")
             }
         } catch (e: IOException) {
@@ -80,14 +86,16 @@ class DocumentController(
             Files.deleteIfExists(mdTmp)
         }
 
-        val out = try {
-            Files.readAllBytes(outPath)
-        } catch (e: IOException) {
-            log.warn("读取导出产物失败：{}", e.message)
-            throw ApiException(ApiErrorCode.INTERNAL, "读取导出产物失败")
-        }
+        val out =
+            try {
+                Files.readAllBytes(outPath)
+            } catch (e: IOException) {
+                log.warn("读取导出产物失败：{}", e.message)
+                throw ApiException(ApiErrorCode.INTERNAL, "读取导出产物失败")
+            }
         val mediaType = if (format == "docx") "application/vnd.openxmlformats-officedocument.wordprocessingml.document" else "application/pdf"
-        return ResponseEntity.ok()
+        return ResponseEntity
+            .ok()
             .header("Content-Type", mediaType)
             .header("Content-Disposition", "attachment; filename=spechub-$format.$format")
             .body(out)

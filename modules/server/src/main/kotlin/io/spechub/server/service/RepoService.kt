@@ -22,11 +22,9 @@ class RepoService(
     private val projects: ProjectRepository,
     private val repos: RepoRepository,
 ) {
-
     fun projectIdByName(name: String): Long? = projects.findByName(name)?.id
 
-    fun listProjects(): List<ProjectRecord> =
-        projects.findAll().sortedBy { it.id }.map { ProjectRecord(checkNotNull(it.id) { "project 必有 id" }, it.name) }
+    fun listProjects(): List<ProjectRecord> = projects.findAll().sortedBy { it.id }.map { ProjectRecord(checkNotNull(it.id) { "project 必有 id" }, it.name) }
 
     /** 默认项目等幂等确保（不存在则创建） */
     @Transactional
@@ -38,18 +36,23 @@ class RepoService(
 
     /** 注册仓库：同（project, url）幂等返回既存行 */
     @Transactional
-    fun register(projectName: String, url: String, branch: String = "main"): RepoRecord {
+    fun register(
+        projectName: String,
+        url: String,
+        branch: String = "main",
+    ): RepoRecord {
         val projectId = ensureProject(projectName)
         repos.findByProjectIdAndUrl(projectId, url)?.let { return it.toRecord() }
-        val saved = repos.save(
-            RepoEntity(
-                projectId = projectId,
-                url = url,
-                branch = branch,
-                syncStatus = SyncStatus.NEW,
-                createdAt = Instant.now(),
-            ),
-        )
+        val saved =
+            repos.save(
+                RepoEntity(
+                    projectId = projectId,
+                    url = url,
+                    branch = branch,
+                    syncStatus = SyncStatus.NEW,
+                    createdAt = Instant.now(),
+                ),
+            )
         return saved.toRecord()
     }
 
@@ -58,18 +61,23 @@ class RepoService(
     fun getRepo(id: Long): RepoRecord? = repos.findById(id).orElse(null)?.toRecord()
 
     /** 摄取期同步状态回写（管理库唯一写入口） */
-    fun updateSyncStatus(repoId: Long, status: String, error: String? = null) {
+    fun updateSyncStatus(
+        repoId: Long,
+        status: String,
+        error: String? = null,
+    ) {
         val repo = repos.findById(repoId).orElse(null) ?: return
         if (repo.syncStatus == status && repo.lastError == error) return
         repos.save(repo.copy(syncStatus = status, lastError = error))
     }
 
-    private fun RepoEntity.toRecord(): RepoRecord = RepoRecord(
-        id = checkNotNull(id) { "repo 必有 id" },
-        projectId = projectId,
-        url = url,
-        branch = branch,
-        syncStatus = syncStatus,
-        lastError = lastError,
-    )
+    private fun RepoEntity.toRecord(): RepoRecord =
+        RepoRecord(
+            id = checkNotNull(id) { "repo 必有 id" },
+            projectId = projectId,
+            url = url,
+            branch = branch,
+            syncStatus = syncStatus,
+            lastError = lastError,
+        )
 }

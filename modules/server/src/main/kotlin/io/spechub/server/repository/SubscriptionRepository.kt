@@ -4,8 +4,12 @@ import org.springframework.data.jdbc.repository.query.Query
 import org.springframework.data.repository.CrudRepository
 
 interface SubscriptionRepository : CrudRepository<SubscriptionEntity, Long> {
-
-    fun findByRepoIdAndMethodAndPathAndTeam(repoId: Long, method: String, path: String, team: String): SubscriptionEntity?
+    fun findByRepoIdAndMethodAndPathAndTeam(
+        repoId: Long,
+        method: String,
+        path: String,
+        team: String,
+    ): SubscriptionEntity?
 
     @Query("SELECT * FROM subscription WHERE repo_id = :repoId ORDER BY team, path")
     fun findByRepoId(repoId: Long): List<SubscriptionEntity>
@@ -14,5 +18,9 @@ interface SubscriptionRepository : CrudRepository<SubscriptionEntity, Long> {
     fun findAllOrdered(): List<SubscriptionEntity>
 
     @Query("SELECT * FROM subscription WHERE repo_id = :repoId AND method = :method AND path = :path ORDER BY team")
-    fun forEndpoint(repoId: Long, method: String, path: String): List<SubscriptionEntity>
+    fun forEndpoint(
+        repoId: Long,
+        method: String,
+        path: String,
+    ): List<SubscriptionEntity>
 }

@@ -9,7 +9,6 @@ import kotlin.test.assertTrue
 
 /** 投影域：version（发布快照）/ api / schema / doc 的可重建语义与幂等。 */
 class ProjectionStoreTest {
-
     @TempDir
     lateinit var temp: Path
 
@@ -36,17 +35,23 @@ class ProjectionStoreTest {
         val projection = projection()
         val repoId = 1L
         val v = projection.upsertVersion(repoId, "specs/pet/openapi.yaml", "h1")
-        projection.replaceApisForRepo(repoId, listOf(
-            ApiRecord(repoId = repoId, versionId = v.id, method = "GET", path = "/pets", operationId = "listPets", tag = "pets", summary = "list", specJson = "{}"),
-            ApiRecord(repoId = repoId, versionId = v.id, method = "POST", path = "/pets", operationId = "createPet", tag = "pets", specJson = "{}"),
-        ))
+        projection.replaceApisForRepo(
+            repoId,
+            listOf(
+                ApiRecord(repoId = repoId, versionId = v.id, method = "GET", path = "/pets", operationId = "listPets", tag = "pets", summary = "list", specJson = "{}"),
+                ApiRecord(repoId = repoId, versionId = v.id, method = "POST", path = "/pets", operationId = "createPet", tag = "pets", specJson = "{}"),
+            ),
+        )
         assertEquals(2, projection.countApis(repoId))
 
         // 增量重扫：换了一批（删旧 / 增新）→ 全量替换，不残留
-        projection.replaceApisForRepo(repoId, listOf(
-            ApiRecord(repoId = repoId, versionId = v.id, method = "GET", path = "/pets", operationId = "listPets", tag = "pets", specJson = "{}"),
-            ApiRecord(repoId = repoId, versionId = v.id, method = "GET", path = "/pets/{id}", operationId = "getPet", specJson = "{}"),
-        ))
+        projection.replaceApisForRepo(
+            repoId,
+            listOf(
+                ApiRecord(repoId = repoId, versionId = v.id, method = "GET", path = "/pets", operationId = "listPets", tag = "pets", specJson = "{}"),
+                ApiRecord(repoId = repoId, versionId = v.id, method = "GET", path = "/pets/{id}", operationId = "getPet", specJson = "{}"),
+            ),
+        )
         assertEquals(2, projection.countApis(repoId))
         assertEquals(setOf("/pets", "/pets/{id}"), projection.listApis(repoId).map { it.path }.toSet(), "无残留旧 path")
     }
@@ -55,10 +60,13 @@ class ProjectionStoreTest {
     fun `api 查询支持按 method tag 关键字过滤`() {
         val projection = projection()
         val repoId = 1L
-        projection.replaceApisForRepo(repoId, listOf(
-            ApiRecord(repoId = repoId, method = "GET", path = "/pets", operationId = "listPets", summary = "list all pets", specJson = "{}"),
-            ApiRecord(repoId = repoId, method = "POST", path = "/pets", operationId = "createPet", summary = "create pet", specJson = "{}"),
-        ))
+        projection.replaceApisForRepo(
+            repoId,
+            listOf(
+                ApiRecord(repoId = repoId, method = "GET", path = "/pets", operationId = "listPets", summary = "list all pets", specJson = "{}"),
+                ApiRecord(repoId = repoId, method = "POST", path = "/pets", operationId = "createPet", summary = "create pet", specJson = "{}"),
+            ),
+        )
         assertEquals(1, projection.listApis(repoId, method = "GET").size)
         assertEquals(1, projection.listApis(repoId, keyword = "create").size)
         assertEquals(1, projection.listAllApis(keyword = "list").size)
@@ -68,10 +76,13 @@ class ProjectionStoreTest {
     fun `schema 投影以 repo+name 幂等且可取回`() {
         val projection = projection()
         val repoId = 1L
-        projection.replaceSchemasForRepo(repoId, listOf(
-            SchemaRecord(repoId = repoId, name = "Pet", specJson = """{"type":["object"]}"""),
-            SchemaRecord(repoId = repoId, name = "Owner", specJson = """{"type":["object"]}"""),
-        ))
+        projection.replaceSchemasForRepo(
+            repoId,
+            listOf(
+                SchemaRecord(repoId = repoId, name = "Pet", specJson = """{"type":["object"]}"""),
+                SchemaRecord(repoId = repoId, name = "Owner", specJson = """{"type":["object"]}"""),
+            ),
+        )
         val pet = projection.getSchema(repoId, "Pet")
         assertNotNull(pet)
         assertEquals("""{"type":["object"]}""", pet.specJson)
@@ -143,10 +154,13 @@ class ProjectionStoreTest {
     fun `doc 摄取与全文检索 中文子串命中`() {
         val projection = projection()
         val repoId = 1L
-        projection.replaceDocsForRepo(repoId, listOf(
-            DocRecord(repoId = repoId, path = "docs/petstore/handover.md", title = "接手分析", markdown = "# 接手分析\n\n服务器处理器负责订单处理与库存扣减。"),
-            DocRecord(repoId = repoId, path = "docs/petstore/requirements.md", title = "需求说明", markdown = "# 需求\n\n支持宠物目录检索。"),
-        ))
+        projection.replaceDocsForRepo(
+            repoId,
+            listOf(
+                DocRecord(repoId = repoId, path = "docs/petstore/handover.md", title = "接手分析", markdown = "# 接手分析\n\n服务器处理器负责订单处理与库存扣减。"),
+                DocRecord(repoId = repoId, path = "docs/petstore/requirements.md", title = "需求说明", markdown = "# 需求\n\n支持宠物目录检索。"),
+            ),
+        )
 
         assertEquals(2, projection.listDocs(repoId).size)
         val doc = projection.listDocs().first()

@@ -19,24 +19,34 @@ import java.time.Instant
 class ReleaseService(
     private val releases: ReleaseRepository,
 ) {
-
     @Transactional
-    fun promote(repoId: Long, path: String, specHash: String): ReleaseEntity {
+    fun promote(
+        repoId: Long,
+        path: String,
+        specHash: String,
+    ): ReleaseEntity {
         val existing = releases.findByRepoIdAndPath(repoId, path)
-        val saved = if (existing != null) {
-            releases.save(existing.copy(specHash = specHash, releasedAt = Instant.now()))
-        } else {
-            releases.save(ReleaseEntity(repoId = repoId, path = path, specHash = specHash, releasedAt = Instant.now()))
-        }
+        val saved =
+            if (existing != null) {
+                releases.save(existing.copy(specHash = specHash, releasedAt = Instant.now()))
+            } else {
+                releases.save(ReleaseEntity(repoId = repoId, path = path, specHash = specHash, releasedAt = Instant.now()))
+            }
         return saved
     }
 
-    fun find(repoId: Long, path: String): ReleaseEntity? = releases.findByRepoIdAndPath(repoId, path)
+    fun find(
+        repoId: Long,
+        path: String,
+    ): ReleaseEntity? = releases.findByRepoIdAndPath(repoId, path)
 
     fun list(repoId: Long): List<ReleaseEntity> = releases.findAllByRepoId(repoId)
 
     /** 投影重建后重放 release 快照（幂等；hash 不存在则跳过） */
-    fun replay(repoId: Long, projection: ProjectionStore) {
+    fun replay(
+        repoId: Long,
+        projection: ProjectionStore,
+    ) {
         for (release in releases.findAllByRepoId(repoId)) {
             projection.promotePath(repoId, release.path, release.specHash)
         }

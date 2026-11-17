@@ -18,26 +18,43 @@ import java.time.Instant
 class ReviewService(
     private val reviews: ReviewRepository,
 ) {
-
-    fun create(repoId: Long, path: String, newContent: String, diff: String, oldHash: String?, requester: String): ReviewRecord {
-        val saved = reviews.save(
-            ReviewEntity(
-                repoId = repoId, path = path, newContent = newContent, diff = diff,
-                oldHash = oldHash, status = ReviewStatus.PENDING, requester = requester, createdAt = Instant.now(),
-            ),
-        )
+    fun create(
+        repoId: Long,
+        path: String,
+        newContent: String,
+        diff: String,
+        oldHash: String?,
+        requester: String,
+    ): ReviewRecord {
+        val saved =
+            reviews.save(
+                ReviewEntity(
+                    repoId = repoId,
+                    path = path,
+                    newContent = newContent,
+                    diff = diff,
+                    oldHash = oldHash,
+                    status = ReviewStatus.PENDING,
+                    requester = requester,
+                    createdAt = Instant.now(),
+                ),
+            )
         return saved.toRecord()
     }
 
     fun get(id: Long): ReviewRecord? = reviews.findById(id).orElse(null)?.toRecord()
 
-    fun list(repoId: Long? = null, status: String? = null): List<ReviewRecord> {
-        val entities = when {
-            repoId != null && status != null -> reviews.findByRepoIdAndStatus(repoId, status)
-            repoId != null -> reviews.findByRepoId(repoId)
-            status != null -> reviews.findByStatus(status)
-            else -> reviews.findAllOrdered()
-        }
+    fun list(
+        repoId: Long? = null,
+        status: String? = null,
+    ): List<ReviewRecord> {
+        val entities =
+            when {
+                repoId != null && status != null -> reviews.findByRepoIdAndStatus(repoId, status)
+                repoId != null -> reviews.findByRepoId(repoId)
+                status != null -> reviews.findByStatus(status)
+                else -> reviews.findAllOrdered()
+            }
         return entities.map { it.toRecord() }
     }
 
@@ -46,28 +63,35 @@ class ReviewService(
      * 并发审批时后到者返回 false，由调用方映射 409，避免重复落真源。
      */
     @Transactional
-    fun resolve(id: Long, status: String, reviewer: String, rejectReason: String? = null): Boolean {
+    fun resolve(
+        id: Long,
+        status: String,
+        reviewer: String,
+        rejectReason: String? = null,
+    ): Boolean {
         val now = Instant.now()
-        val updated = if (rejectReason == null) {
-            reviews.resolveIfPending(id, status, reviewer, now)
-        } else {
-            reviews.rejectIfPending(id, status, reviewer, rejectReason, now)
-        }
+        val updated =
+            if (rejectReason == null) {
+                reviews.resolveIfPending(id, status, reviewer, now)
+            } else {
+                reviews.rejectIfPending(id, status, reviewer, rejectReason, now)
+            }
         return updated > 0
     }
 
-    private fun ReviewEntity.toRecord(): ReviewRecord = ReviewRecord(
-        id = id,
-        repoId = repoId,
-        path = path,
-        newContent = newContent,
-        diff = diff,
-        oldHash = oldHash,
-        status = status,
-        requester = requester,
-        reviewer = reviewer,
-        rejectReason = rejectReason,
-        createdAt = createdAt.toString(),
-        resolvedAt = resolvedAt?.toString(),
-    )
+    private fun ReviewEntity.toRecord(): ReviewRecord =
+        ReviewRecord(
+            id = id,
+            repoId = repoId,
+            path = path,
+            newContent = newContent,
+            diff = diff,
+            oldHash = oldHash,
+            status = status,
+            requester = requester,
+            reviewer = reviewer,
+            rejectReason = rejectReason,
+            createdAt = createdAt.toString(),
+            resolvedAt = resolvedAt?.toString(),
+        )
 }

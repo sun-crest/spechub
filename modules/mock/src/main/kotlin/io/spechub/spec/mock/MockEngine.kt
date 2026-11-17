@@ -34,7 +34,6 @@ class MockEngine(
     internal val projection: ProjectionStore,
     internal val ruleSource: MockRuleSource,
 ) {
-
     /** 单个 mock 响应 */
     data class MockResponse(
         val status: Int,
@@ -63,7 +62,11 @@ class MockEngine(
      * 按模拟请求生成 Mock 响应；repo 内无匹配 api 时返回 null（404 路由层兜底）。
      * @param requestPath 实际请求路径（不含 query；controller 负责剥离）
      */
-    fun generate(repoId: Long, method: String, requestPath: String): MockResult? {
+    fun generate(
+        repoId: Long,
+        method: String,
+        requestPath: String,
+    ): MockResult? {
         val rules = ruleSource.rulesFor(repoId)
         // release 优先（消费者默认 release 快照），无 release 回退 draft——Mock 与发布契约一致
         val releaseApis = projection.listApis(repoId = repoId, stage = Stage.RELEASE)
@@ -71,22 +74,25 @@ class MockEngine(
         val candidates = releaseApis.ifEmpty { projection.listApis(repoId = repoId, stage = Stage.DRAFT) }
 
         val api = match(candidates, method, requestPath) ?: return null
-        val schemas = projection.listSchemas(repoId, stage)
-            .mapNotNull { s ->
-                val schema = try {
-                    SpecModelIO.toModel(SpecModelIO.parseToTree(s.specJson), Schema::class.java)
-                } catch (e: Exception) {
-                    null
-                }
-                schema?.let { s.name to it }
-            }
-            .toMap()
+        val schemas =
+            projection
+                .listSchemas(repoId, stage)
+                .mapNotNull { s ->
+                    val schema =
+                        try {
+                            SpecModelIO.toModel(SpecModelIO.parseToTree(s.specJson), Schema::class.java)
+                        } catch (e: Exception) {
+                            null
+                        }
+                    schema?.let { s.name to it }
+                }.toMap()
 
-        val op = try {
-            SpecModelIO.toModel(SpecModelIO.parseToTree(api.specJson), Operation::class.java)
-        } catch (e: Exception) {
-            return null
-        }
+        val op =
+            try {
+                SpecModelIO.toModel(SpecModelIO.parseToTree(api.specJson), Operation::class.java)
+            } catch (e: Exception) {
+                return null
+            }
         val chosen = pickResponse(op) ?: return null
         val (mediaType, body) = renderBody(api.id, chosen.response, schemas, rules)
         return MockResult(
@@ -101,37 +107,49 @@ class MockEngine(
     }
 
     /** 匹配 API：精确路径优先，其次 `{template}` 段级展开（每段通配）。方法不区分大小写。 */
-    private fun match(apis: List<ApiRecord>, method: String, requestPath: String): ApiRecord? {
+    private fun match(
+        apis: List<ApiRecord>,
+        method: String,
+        requestPath: String,
+    ): ApiRecord? {
         val m = method.uppercase()
         val p = requestPath.trim('/')
         return apis.firstOrNull { it.method.uppercase() == m && it.path.trim('/') == p }
             ?: apis.firstOrNull { it.method.uppercase() == m && segmentMatch(it.path, p) }
     }
 
-    private fun segmentMatch(template: String, actual: String): Boolean {
+    private fun segmentMatch(
+        template: String,
+        actual: String,
+    ): Boolean {
         val t = template.trim('/').split('/')
         val a = actual.trim('/').split('/')
         if (t.size != a.size) return false
         return t.indices.all { i -> (t[i].startsWith("{") && t[i].endsWith("}")) || t[i] == a[i] }
     }
 
-    private data class Chosen(val status: Int, val response: Response)
+    private data class Chosen(
+        val status: Int,
+        val response: Response,
+    )
 
     /** 挑响应：具体数字码越小越优先 > 2XX 范围  > default；状态码按 Key 语义归一（2XX→200、default→200） */
     private fun pickResponse(op: Operation): Chosen? {
-        val sorted = op.responses.entries.sortedWith(
-            compareBy(
-                { if (it.key == "default") 1 else 0 },
-                { if (it.key.uppercase().endsWith("XX")) 1 else 0 },
-                { it.key.toIntOrNull() ?: 999 },
-            ),
-        )
+        val sorted =
+            op.responses.entries.sortedWith(
+                compareBy(
+                    { if (it.key == "default") 1 else 0 },
+                    { if (it.key.uppercase().endsWith("XX")) 1 else 0 },
+                    { it.key.toIntOrNull() ?: 999 },
+                ),
+            )
         val chosen = sorted.firstOrNull() ?: return null
-        val status = when {
-            chosen.key.equals("default", true) -> 200
-            chosen.key.uppercase().endsWith("XX") -> (chosen.key.firstOrNull()?.digitToIntOrNull() ?: 2) * 100
-            else -> chosen.key.toIntOrNull() ?: 200
-        }
+        val status =
+            when {
+                chosen.key.equals("default", true) -> 200
+                chosen.key.uppercase().endsWith("XX") -> (chosen.key.firstOrNull()?.digitToIntOrNull() ?: 2) * 100
+                else -> chosen.key.toIntOrNull() ?: 200
+            }
         return Chosen(status, chosen.value)
     }
 
@@ -144,16 +162,26 @@ class MockEngine(
         schemas: Map<String, Schema>,
         rules: List<MockRuleRecord>,
     ): Pair<String, String> {
-        val entry: Pair<String, MediaType> = (resp.content["application/json"]?.let { "application/json" to it })
-            ?: resp.content.entries.firstOrNull { it.value.schema != null }?.let { it.key to it.value }
-            ?: resp.content.entries.firstOrNull()?.let { it.key to it.value }
-            ?: return "application/json" to "{}"
+        val entry: Pair<String, MediaType> =
+            (resp.content["application/json"]?.let { "application/json" to it })
+                ?: resp.content.entries
+                    .firstOrNull { it.value.schema != null }
+                    ?.let { it.key to it.value }
+                ?: resp.content.entries
+                    .firstOrNull()
+                    ?.let { it.key to it.value }
+                ?: return "application/json" to "{}"
         val (mediaType, mt) = entry
         val node = generateJson(mt, schemas, rules, apiId)
         return mediaType to json.writeValueAsString(node)
     }
 
-    private fun generateJson(mt: MediaType, schemas: Map<String, Schema>, rules: List<MockRuleRecord>, apiId: Long?): JsonNode {
+    private fun generateJson(
+        mt: MediaType,
+        schemas: Map<String, Schema>,
+        rules: List<MockRuleRecord>,
+        apiId: Long?,
+    ): JsonNode {
         val schema = mt.schema ?: return NullNode.instance
         return generate(schema, "", 0, schemas, rules, apiId)
     }
@@ -190,26 +218,47 @@ class MockEngine(
         if (s.`enum`.isNotEmpty()) return s.`enum`.first()
 
         return when (primaryType(s)) {
-            "object" -> generateObject(s, pathKey, depth, schemas, rules, apiId)
+            "object" -> {
+                generateObject(s, pathKey, depth, schemas, rules, apiId)
+            }
+
             "array" -> {
                 val arr: ArrayNode = JsonNodeFactory.instance.arrayNode()
                 val n = (s.minItems ?: 1).coerceAtLeast(1)
                 repeat(n) { arr.add(generate(s.items ?: Schema(), "$pathKey[]", depth + 1, schemas, rules, apiId)) }
                 arr
             }
-            "boolean" -> JsonNodeFactory.instance.booleanNode(s.default?.asBoolean(false) ?: true)
-            "integer" -> JsonNodeFactory.instance.numberNode(
-                s.default?.asInt(0) ?: s.minimum?.toInt() ?: 0,
-            )
-            "number" -> JsonNodeFactory.instance.numberNode(
-                s.default?.asDouble(0.0) ?: s.minimum?.toDouble() ?: 0.0,
-            )
-            "string" -> StringNode.valueOf(stringValue(s, pathKey.lastSegment()))
-            else -> if (s.properties.isNotEmpty() || s.items != null) {
-                if (s.items != null) generate(s, pathKey, depth + 1, schemas, rules, apiId)
-                else generateObject(s, pathKey, depth, schemas, rules, apiId)
-            } else {
-                NullNode.instance
+
+            "boolean" -> {
+                JsonNodeFactory.instance.booleanNode(s.default?.asBoolean(false) ?: true)
+            }
+
+            "integer" -> {
+                JsonNodeFactory.instance.numberNode(
+                    s.default?.asInt(0) ?: s.minimum?.toInt() ?: 0,
+                )
+            }
+
+            "number" -> {
+                JsonNodeFactory.instance.numberNode(
+                    s.default?.asDouble(0.0) ?: s.minimum?.toDouble() ?: 0.0,
+                )
+            }
+
+            "string" -> {
+                StringNode.valueOf(stringValue(s, pathKey.lastSegment()))
+            }
+
+            else -> {
+                if (s.properties.isNotEmpty() || s.items != null) {
+                    if (s.items != null) {
+                        generate(s, pathKey, depth + 1, schemas, rules, apiId)
+                    } else {
+                        generateObject(s, pathKey, depth, schemas, rules, apiId)
+                    }
+                } else {
+                    NullNode.instance
+                }
             }
         }
     }
@@ -242,14 +291,20 @@ class MockEngine(
         }
     }
 
-    private fun stringValue(s: Schema, fieldName: String?): String {
+    private fun stringValue(
+        s: Schema,
+        fieldName: String?,
+    ): String {
         patternValue(s.format)?.let { return it }
         return fieldName ?: "string"
     }
 
     // ── $ref 解析 ────────────────────────────────────────────────────────────────
 
-    private fun resolveRef(s: Schema, schemas: Map<String, Schema>): Schema? {
+    private fun resolveRef(
+        s: Schema,
+        schemas: Map<String, Schema>,
+    ): Schema? {
         var current = s
         var hops = 0
         while (current.ref != null && hops < 12) {
@@ -263,32 +318,42 @@ class MockEngine(
 
     // ── 规则引擎（I2 三档：value / pattern / script）─────────────────────────────
 
-    private fun matchRule(pathKey: String, apiId: Long?, rules: List<MockRuleRecord>): MockRuleRecord? =
-        rules.filter { ruleMatches(it, pathKey) }.sortedWith(
-            compareByDescending<MockRuleRecord> { it.apiId == apiId }
-                .thenByDescending { it.fieldPattern.length },
-        ).firstOrNull()
+    private fun matchRule(
+        pathKey: String,
+        apiId: Long?,
+        rules: List<MockRuleRecord>,
+    ): MockRuleRecord? =
+        rules
+            .filter { ruleMatches(it, pathKey) }
+            .sortedWith(
+                compareByDescending<MockRuleRecord> { it.apiId == apiId }
+                    .thenByDescending { it.fieldPattern.length },
+            ).firstOrNull()
 
-    private fun ruleMatches(rule: MockRuleRecord, pathKey: String): Boolean = when (rule.ruleType) {
-        RuleType.PATTERN -> regexMatch(rule.fieldPattern, pathKey)
-        else -> globMatch(rule.fieldPattern, pathKey)
-    }
+    private fun ruleMatches(
+        rule: MockRuleRecord,
+        pathKey: String,
+    ): Boolean =
+        when (rule.ruleType) {
+            RuleType.PATTERN -> regexMatch(rule.fieldPattern, pathKey)
+            else -> globMatch(rule.fieldPattern, pathKey)
+        }
 
-    private fun applyRule(rule: MockRuleRecord): JsonNode? = when (rule.ruleType) {
-        RuleType.VALUE -> literalNode(rule.ruleValue)
-        RuleType.PATTERN -> StringNode.valueOf(patternValue(rule.ruleValue.trim()) ?: rule.ruleValue)
-        RuleType.SCRIPT -> StringNode.valueOf(evaluateScript(rule.ruleValue))
-        else -> null
-    }
+    private fun applyRule(rule: MockRuleRecord): JsonNode? =
+        when (rule.ruleType) {
+            RuleType.VALUE -> literalNode(rule.ruleValue)
+            RuleType.PATTERN -> StringNode.valueOf(patternValue(rule.ruleValue.trim()) ?: rule.ruleValue)
+            RuleType.SCRIPT -> StringNode.valueOf(evaluateScript(rule.ruleValue))
+            else -> null
+        }
 
     /** value 规则的"字面 JSON"解析：合法 JSON 原样（数字/布尔/对象…），否则当文本 */
-    private fun literalNode(text: String): JsonNode {
-        return try {
+    private fun literalNode(text: String): JsonNode =
+        try {
             json.readTree(text.trim())
         } catch (e: Exception) {
             StringNode.valueOf(text)
         }
-    }
 
     // ── 内置格式样例（schema.format 与 pattern 规则共用）─────────────────────────
 
@@ -321,14 +386,27 @@ class MockEngine(
                     val hi = args.getOrNull(1)?.toIntOrNull() ?: lo
                     if (hi < lo) lo.toString() else (lo..hi).random().toString()
                 }
+
                 "RANDOM_STR" -> {
                     val len = (args.getOrNull(0)?.toIntOrNull() ?: 8).coerceIn(1, 64)
                     (1..len).map { ("abcdefghijklmnopqrstuvwxyz0123456789").random() }.joinToString("")
                 }
-                "UUID" -> UUID.randomUUID().toString()
-                "NOW" -> Instant.now().toString()
-                "SEQ" -> (seq++).toString()
-                else -> expr.trim()
+
+                "UUID" -> {
+                    UUID.randomUUID().toString()
+                }
+
+                "NOW" -> {
+                    Instant.now().toString()
+                }
+
+                "SEQ" -> {
+                    (seq++).toString()
+                }
+
+                else -> {
+                    expr.trim()
+                }
             }
         }
         return expr.trim()
@@ -336,27 +414,47 @@ class MockEngine(
 
     // ── 匹配基础工具 ─────────────────────────────────────────────────────────────
 
-    private fun globMatch(pattern: String, value: String): Boolean {
+    private fun globMatch(
+        pattern: String,
+        value: String,
+    ): Boolean {
         val regex = "^" + pattern.split("*").joinToString(".*") { Regex.escape(it) } + "$"
         return Regex(regex).matches(value)
     }
 
-    private fun regexMatch(pattern: String, value: String): Boolean = try {
-        Regex(pattern).matches(value)
-    } catch (e: Exception) {
-        globMatch(pattern, value)
-    }
+    private fun regexMatch(
+        pattern: String,
+        value: String,
+    ): Boolean =
+        try {
+            Regex(pattern).matches(value)
+        } catch (e: Exception) {
+            globMatch(pattern, value)
+        }
 
-    private fun String.lastSegment(): String? = if (isEmpty()) null else substringAfterLast(".")
-        .let { s -> if (s == "[]") null else s }
+    private fun String.lastSegment(): String? =
+        if (isEmpty()) {
+            null
+        } else {
+            substringAfterLast(".")
+                .let { s -> if (s == "[]") null else s }
+        }
 
     companion object {
-        private val REASONS: Map<Int, String> = mapOf(
-            200 to "OK", 201 to "Created", 202 to "Accepted", 204 to "No Content",
-            400 to "Bad Request", 401 to "Unauthorized", 403 to "Forbidden",
-            404 to "Not Found", 409 to "Conflict", 422 to "Unprocessable Entity",
-            500 to "Internal Server Error",
-        )
+        private val REASONS: Map<Int, String> =
+            mapOf(
+                200 to "OK",
+                201 to "Created",
+                202 to "Accepted",
+                204 to "No Content",
+                400 to "Bad Request",
+                401 to "Unauthorized",
+                403 to "Forbidden",
+                404 to "Not Found",
+                409 to "Conflict",
+                422 to "Unprocessable Entity",
+                500 to "Internal Server Error",
+            )
     }
 }
 

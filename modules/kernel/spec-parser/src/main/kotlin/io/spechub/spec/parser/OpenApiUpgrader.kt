@@ -23,7 +23,6 @@ import tools.jackson.databind.node.StringNode
 
 /** 3.0 根升级入口：tree → 升级（原地副本）→ 内部模型 → ParseResult（含升级日志与警告） */
 class OpenApiUpgrader private constructor() {
-
     private val log = mutableListOf<UpgradeRecord>()
     private val issues = mutableListOf<ParseIssue>()
 
@@ -50,50 +49,77 @@ class OpenApiUpgrader private constructor() {
     }
 
     /** 遍历整树，定位所有 Schema Object 并升级（components.schemas.* 顶层 + 任意 `schema` 键值） */
-    private fun walkSchemas(node: JsonNode, path: String) {
+    private fun walkSchemas(
+        node: JsonNode,
+        path: String,
+    ) {
         when {
             node is ObjectNode -> {
                 for ((k, v) in node.properties()) {
                     when {
                         // components.schemas.<name> 的每个值是 Schema 顶层
-                        k == "schemas" && v is ObjectNode ->
+                        k == "schemas" && v is ObjectNode -> {
                             v.properties().forEach { (name, schema) ->
                                 upgradeSchemaObject(schema, "$path/$k/$name")
                             }
+                        }
+
                         // 任意 `schema:` 键（parameters/requestBody/content/response/header 等）
-                        k == "schema" && v is ObjectNode -> upgradeSchemaObject(v, "$path/$k")
-                        else -> walkSchemas(v, "$path/$k")
+                        k == "schema" && v is ObjectNode -> {
+                            upgradeSchemaObject(v, "$path/$k")
+                        }
+
+                        else -> {
+                            walkSchemas(v, "$path/$k")
+                        }
                     }
                 }
             }
-            node.isArray -> (node as ArrayNode).forEachIndexed { i, item -> walkSchemas(item, "$path[$i]") }
-            else -> Unit
+
+            node.isArray -> {
+                (node as ArrayNode).forEachIndexed { i, item -> walkSchemas(item, "$path[$i]") }
+            }
+
+            else -> {
+                Unit
+            }
         }
     }
 
     /** 升级单个 Schema Object（递归进嵌套 Schema 关键字） */
-    private fun upgradeSchemaObject(node: JsonNode, path: String) {
+    private fun upgradeSchemaObject(
+        node: JsonNode,
+        path: String,
+    ) {
         if (node !is ObjectNode) return
 
         val nullable = (node.remove("nullable") as? BooleanNode)?.booleanValue() ?: false
 
         // type：字符串 → 数组；数组保留；非法形态移除并告警
         val typeNode = node.get("type")
-        val typeArr: ArrayNode? = when {
-            typeNode is ArrayNode -> typeNode
-            typeNode is StringNode -> {
-                val arr = JsonNodeFactory.instance.arrayNode().add(typeNode.stringValue())
-                node.set("type", arr)
-                log += UpgradeRecord(UpgradeKind.TYPE_ARRAY, path, "type `${typeNode.stringValue()}` → 数组形态 `[${typeNode.stringValue()}]`")
-                arr
+        val typeArr: ArrayNode? =
+            when {
+                typeNode is ArrayNode -> {
+                    typeNode
+                }
+
+                typeNode is StringNode -> {
+                    val arr = JsonNodeFactory.instance.arrayNode().add(typeNode.stringValue())
+                    node.set("type", arr)
+                    log += UpgradeRecord(UpgradeKind.TYPE_ARRAY, path, "type `${typeNode.stringValue()}` → 数组形态 `[${typeNode.stringValue()}]`")
+                    arr
+                }
+
+                typeNode != null -> {
+                    node.remove("type")
+                    issues += ParseIssue.warning("non-scalar-type", "type 不是字符串/数组（已忽略该值）", path)
+                    null
+                }
+
+                else -> {
+                    null
+                }
             }
-            typeNode != null -> {
-                node.remove("type")
-                issues += ParseIssue.warning("non-scalar-type", "type 不是字符串/数组（已忽略该值）", path)
-                null
-            }
-            else -> null
-        }
 
         // nullable → 数组追加 "null"
         if (nullable) {
@@ -103,16 +129,19 @@ class OpenApiUpgrader private constructor() {
                     log += UpgradeRecord(UpgradeKind.NULLABLE_TO_TYPE, path, "nullable: true → type 追加 \"null\"")
                 }
             } else {
-                issues += ParseIssue.warning(
-                    "nullable-without-type",
-                    "nullable: true 但没有 type 可合并，已忽略 nullable（语义上该属性接受任意类型）",
-                    path,
-                )
-                log += UpgradeRecord(
-                    UpgradeKind.NULLABLE_TO_TYPE, path,
-                    "nullable: true 但缺 type，无法合并为 [..., \"null\"]",
-                    ReviewFlag.NEEDS_REVIEW,
-                )
+                issues +=
+                    ParseIssue.warning(
+                        "nullable-without-type",
+                        "nullable: true 但没有 type 可合并，已忽略 nullable（语义上该属性接受任意类型）",
+                        path,
+                    )
+                log +=
+                    UpgradeRecord(
+                        UpgradeKind.NULLABLE_TO_TYPE,
+                        path,
+                        "nullable: true 但缺 type，无法合并为 [..., \"null\"]",
+                        ReviewFlag.NEEDS_REVIEW,
+                    )
             }
         }
 
@@ -141,7 +170,12 @@ class OpenApiUpgrader private constructor() {
     }
 
     /** `exclusiveMinimum: true`（布尔）→ 数值；数值形态（已是 3.1）不动 */
-    private fun upgradeExclusiveBound(obj: ObjectNode, boundKey: String, exclKey: String, path: String) {
+    private fun upgradeExclusiveBound(
+        obj: ObjectNode,
+        boundKey: String,
+        exclKey: String,
+        path: String,
+    ) {
         val excl = obj.get(exclKey) ?: return
         if (excl !is BooleanNode) return // 数值 = 已是 3.1
 
@@ -152,17 +186,21 @@ class OpenApiUpgrader private constructor() {
         if (bound != null && bound.isNumber) {
             obj.set(exclKey, bound.deepCopy())
             obj.remove(boundKey) // 3.1 exclusive* 数值已含语义；保留 minimum 会叠加，故移除
-            log += UpgradeRecord(
-                UpgradeKind.EXCLUSIVE_BOUND, path,
-                "exclusive$boundKey: true + $boundKey=$bound → $exclKey=${bound}（原 $boundKey 移除）",
-            )
+            log +=
+                UpgradeRecord(
+                    UpgradeKind.EXCLUSIVE_BOUND,
+                    path,
+                    "exclusive$boundKey: true + $boundKey=$bound → $exclKey=$bound（原 $boundKey 移除）",
+                )
         } else {
             issues += ParseIssue.warning("exclusive-without-bound", "exclusive$boundKey: true 但缺少数字型 $boundKey，无法转数值（已忽略）", path)
-            log += UpgradeRecord(
-                UpgradeKind.EXCLUSIVE_BOUND, path,
-                "exclusive$boundKey: true 但缺 $boundKey，无法转数值",
-                ReviewFlag.NEEDS_REVIEW,
-            )
+            log +=
+                UpgradeRecord(
+                    UpgradeKind.EXCLUSIVE_BOUND,
+                    path,
+                    "exclusive$boundKey: true 但缺 $boundKey，无法转数值",
+                    ReviewFlag.NEEDS_REVIEW,
+                )
         }
     }
 }

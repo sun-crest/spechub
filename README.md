@@ -80,6 +80,12 @@ git init -q --bare -b main /tmp/spechub-origin
 cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
 ```
 
+**质量门禁（R12）**：`./gradlew check`（ktlintCheck + Jackson 2 源码校验 + 全量测试）；CI 见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。单独跑格式检查/修复：`./gradlew ktlintCheck` / `./gradlew ktlintFormat`。
+
 **可选端**：MCP `cd apps/mcp && npm install && npm run build && node dist/index.js`（连 backend 走 HTTP）；CLI `cd apps/cli && go build`（或 `scripts/build-release.sh` 交叉编译四平台）。
+
+> **Profile**：默认 `dev`（未配 admin-token 时鉴权关闭，本地/最小部署零摩擦）；生产设 `SPRING_PROFILES_ACTIVE=prod` 并必须提供 `SPECHUB_ADMIN_TOKEN`，缺失/空串会在配置绑定阶段校验失败、启动即停（不会运行期降级为鉴权关闭）。compose 档通过 `.env` 的 `SPRING_PROFILES_ACTIVE` / `SPECHUB_ADMIN_TOKEN` 注入。
+
+> **API 文档（R11）**：dev 启动后访问 `http://localhost:8080/doc.html`（Knife4j Next UI）或 `/v3/api-docs`（OpenAPI JSON）；prod 关闭文档端点并保持鉴权保护（401）。文档层 Jackson 2 仅作为 springdoc / Knife4j 的运行时传递依赖，业务代码只使用 Jackson 3（约束见 `CLAUDE.md`）。
 
 > 实测踩坑：① 本地目录档的 origin 必须是 **bare 仓**（非 bare 会被 `denyCurrentBranch` 拒 push）；② Vite 端口被占自动顺延，看终端提示；③ 最小 Web 起步只需 JDK 25 + git + Node，数据全局皆走 `/tmp` 目录即可。

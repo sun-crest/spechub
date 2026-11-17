@@ -16,11 +16,17 @@ data class ParseIssue(
     val path: String? = null,
 ) {
     companion object {
-        fun error(kind: String, message: String, path: String? = null) =
-            ParseIssue(Severity.ERROR, kind, message, path)
+        fun error(
+            kind: String,
+            message: String,
+            path: String? = null,
+        ) = ParseIssue(Severity.ERROR, kind, message, path)
 
-        fun warning(kind: String, message: String, path: String? = null) =
-            ParseIssue(Severity.WARNING, kind, message, path)
+        fun warning(
+            kind: String,
+            message: String,
+            path: String? = null,
+        ) = ParseIssue(Severity.WARNING, kind, message, path)
     }
 }
 
@@ -49,5 +55,7 @@ sealed interface ParseResult {
     ) : ParseResult
 
     /** 解析失败：坏文档 / 版本缺失 / 暂不支持（2.0），原因已结构化收集 */
-    data class Failure(override val issues: List<ParseIssue>) : ParseResult
+    data class Failure(
+        override val issues: List<ParseIssue>,
+    ) : ParseResult
 }

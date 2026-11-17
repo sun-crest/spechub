@@ -10,7 +10,6 @@ import org.springframework.jdbc.core.JdbcTemplate
  * （§6.4 决策 7 索引可重建纪律同样适用：测试每次从 git 全量重建，数据天然幂等。）
  */
 abstract class TestDbIsolation {
-
     companion object {
         /** 清空管理库业务表（同一测试类的多个用例共享 schema，用例前清空保证断言互不影响） */
         fun clearManagementTables(jdbc: JdbcTemplate) {

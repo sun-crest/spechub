@@ -1,11 +1,11 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.CommentRecord
 import io.spechub.server.service.ChangelogService
-import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.service.CommentService
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.CommentRecord
+import io.spechub.spec.index.ProjectionStore
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
@@ -32,8 +32,9 @@ class DocController(
     private val commentService: CommentService,
     private val auth: AuthService,
 ) {
-
-    data class DocCommentBody(@field:NotBlank val body: String)
+    data class DocCommentBody(
+        @field:NotBlank val body: String,
+    )
 
     data class DocCommentView(
         val id: Long,
@@ -44,22 +45,31 @@ class DocController(
     )
 
     @GetMapping
-    fun list(@RequestParam repoId: Long? = null, @RequestParam q: String? = null): List<io.spechub.spec.index.DocRecord> =
-        if (!q.isNullOrBlank()) projection.searchDocs(q, repoId) else projection.listDocs(repoId)
+    fun list(
+        @RequestParam repoId: Long? = null,
+        @RequestParam q: String? = null,
+    ): List<io.spechub.spec.index.DocRecord> = if (!q.isNullOrBlank()) projection.searchDocs(q, repoId) else projection.listDocs(repoId)
 
     @GetMapping("/{id}")
-    fun detail(@PathVariable id: Long): io.spechub.spec.index.DocRecord =
-        projection.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
+    fun detail(
+        @PathVariable id: Long,
+    ): io.spechub.spec.index.DocRecord = projection.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
 
     @GetMapping("/{id}/comments")
-    fun comments(@PathVariable id: Long): List<DocCommentView> {
+    fun comments(
+        @PathVariable id: Long,
+    ): List<DocCommentView> {
         val doc = projection.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
         // 投影重建后 doc.id 会变：按 repo + path 稳定寻址，返回时以当前 doc.id 覆盖快照列
         return commentService.listForDoc(doc.repoId, doc.path).map { toView(it).copy(docId = doc.id) }
     }
 
     @PostMapping("/{id}/comments")
-    fun addComment(@PathVariable id: Long, @RequestBody @Valid body: DocCommentBody, request: HttpServletRequest): DocCommentView {
+    fun addComment(
+        @PathVariable id: Long,
+        @RequestBody @Valid body: DocCommentBody,
+        request: HttpServletRequest,
+    ): DocCommentView {
         val user = auth.requireAuthenticated(request, "发表文档评论")
         val doc = projection.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
         val comment = commentService.add(doc.repoId, apiId = null, docId = doc.id, method = "", path = doc.path, author = user.username, body = body.body.trim())
@@ -67,7 +77,12 @@ class DocController(
         return toView(comment)
     }
 
-    private fun toView(c: CommentRecord): DocCommentView = DocCommentView(
-        id = c.id!!, docId = c.docId, author = c.author, body = c.body, createdAt = c.createdAt,
-    )
+    private fun toView(c: CommentRecord): DocCommentView =
+        DocCommentView(
+            id = c.id!!,
+            docId = c.docId,
+            author = c.author,
+            body = c.body,
+            createdAt = c.createdAt,
+        )
 }

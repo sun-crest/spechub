@@ -4,16 +4,16 @@ import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
 import io.spechub.spec.index.IndexDb
-import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.junit.jupiter.api.io.TempDir
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import org.springframework.boot.test.web.server.LocalServerPort
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
 import java.net.http.HttpClient
@@ -37,7 +37,6 @@ import kotlin.test.assertTrue
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SubscriptionApiTest : TestDbIsolation() {
-
     @LocalServerPort
     var port: Int = 0
 
@@ -45,7 +44,6 @@ class SubscriptionApiTest : TestDbIsolation() {
     lateinit var db: IndexDb
 
     companion object {
-
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
         private val TEMPDIR: java.nio.file.Path = kotlin.io.path.createTempDirectory("spechub-test-" + System.nanoTime())
 
@@ -57,6 +55,7 @@ class SubscriptionApiTest : TestDbIsolation() {
             registry.add("spechub.sqlite-dir") { TEMPDIR.resolve("sqlite").toString() }
             registry.add("spechub.artifacts-dir") { TEMPDIR.resolve("artifacts").toString() }
         }
+
         private val json = JsonMapper.builder().build()
         private lateinit var origin: String
         private lateinit var seedWork: Path
@@ -81,7 +80,8 @@ class SubscriptionApiTest : TestDbIsolation() {
             origin = bare.toAbsolutePath().toString()
         }
 
-        private val SPEC_V1 = """
+        private val SPEC_V1 =
+            """
             openapi: 3.1.0
             info: { title: Pet Store, version: "1.0.0" }
             paths:
@@ -90,7 +90,7 @@ class SubscriptionApiTest : TestDbIsolation() {
                   operationId: listPets
                   responses:
                     "200": { description: ok }
-        """.trimIndent()
+            """.trimIndent()
 
         private val SPEC_V2 = SPEC_V1.replace("operationId: listPets", "operationId: listPetsV2")
     }
@@ -103,16 +103,24 @@ class SubscriptionApiTest : TestDbIsolation() {
     private fun pushSpecV2() {
         rev++
         val git = GitStore()
-        Files.writeString(seedWork.resolve("specs/pet/openapi.yaml"),
-            SPEC_V1.replace("1.0.0", "1.0.$rev"))
+        Files.writeString(
+            seedWork.resolve("specs/pet/openapi.yaml"),
+            SPEC_V1.replace("1.0.0", "1.0.$rev"),
+        )
         git.stage(seedWork, listOf("specs/pet/openapi.yaml")).require("stage")
         git.commit(seedWork, "update spec", Identity("tester", "t@spechub.test")).require("commit")
         GitCli().run(seedWork, listOf("push", "origin", "main")).require("push")
     }
 
-    private fun req(method: String, path: String, body: String? = null): HttpResponse<String> {
-        val b = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
-            .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
+    private fun req(
+        method: String,
+        path: String,
+        body: String? = null,
+    ): HttpResponse<String> {
+        val b =
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port$path"))
+                .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
         if (body != null) b.header("Content-Type", "application/json")
         return client.send(b.build(), HttpResponse.BodyHandlers.ofString())
     }
@@ -142,8 +150,12 @@ class SubscriptionApiTest : TestDbIsolation() {
         val repoId = seedAndRegister()
 
         // 订阅 /pets by pay-team
-        val sub = req("POST", "/api/subscriptions",
-            """{"repoId":$repoId,"method":"GET","path":"/pets","team":"pay-team","notifyUrl":"https://pay.example/hook"}""")
+        val sub =
+            req(
+                "POST",
+                "/api/subscriptions",
+                """{"repoId":$repoId,"method":"GET","path":"/pets","team":"pay-team","notifyUrl":"https://pay.example/hook"}""",
+            )
         assertEquals(200, sub.statusCode(), sub.body())
         assertEquals("/pets", json.readTree(sub.body()).at("/path").asText())
         // 同 team 再订一遍 → 幂等（仍是 1 条）
@@ -158,7 +170,14 @@ class SubscriptionApiTest : TestDbIsolation() {
         assertEquals(200, req("POST", "/api/webhooks/$repoId").statusCode())
         var notifs = json.readTree(get("/api/subscriptions/notifications?team=pay-team").body())
         assertEquals(1, notifs.size(), "结构变更应落 1 条通知")
-        assertTrue(notifs.get(0)?.at("/summary")?.asText()?.contains("结构变更") == true, "summary 带结构变更")
+        assertTrue(
+            notifs
+                .get(0)
+                ?.at("/summary")
+                ?.asText()
+                ?.contains("结构变更") == true,
+            "summary 带结构变更",
+        )
         assertTrue(notifs.get(0)?.at("/method")?.asText() == "GET")
         assertTrue(notifs.get(0)?.at("/path")?.asText() == "/pets")
 
@@ -177,7 +196,9 @@ class SubscriptionApiTest : TestDbIsolation() {
         assertEquals(204, req("DELETE", "/api/subscriptions/$subId").statusCode())
         pushSpecV2()
         req("POST", "/api/webhooks/$repoId")
-        assertTrue(json.readTree(get("/api/subscriptions/notifications?team=pay-team").body()).size() == 0,
-            "订阅取消后结构变更不再通知")
+        assertTrue(
+            json.readTree(get("/api/subscriptions/notifications?team=pay-team").body()).size() == 0,
+            "订阅取消后结构变更不再通知",
+        )
     }
 }

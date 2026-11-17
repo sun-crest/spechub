@@ -2,8 +2,8 @@ package io.spechub.spec.model.io
 
 import io.spechub.spec.model.Components
 import io.spechub.spec.model.Info
-import io.spechub.spec.model.Operation
 import io.spechub.spec.model.OpenApiDoc
+import io.spechub.spec.model.Operation
 import io.spechub.spec.model.PathItem
 import io.spechub.spec.model.Schema
 import org.junit.jupiter.api.Test
@@ -14,14 +14,14 @@ import kotlin.test.assertNotEquals
 
 /** B3：归一化模型指纹 specHash 的性质（稳定 + 敏感） */
 class SpecHashTest {
-
     private fun specimen(swapped: Boolean = false): OpenApiDoc {
         val pathA = "/a" to PathItem(get = Operation(operationId = "opA"))
         val pathB = "/b" to PathItem(post = Operation(operationId = "opB"))
-        val schemas = linkedMapOf(
-            "S1" to Schema(type = Schema.typeArray("object"), properties = linkedMapOf("id" to Schema(type = Schema.typeArray("integer")))),
-            "S2" to Schema(type = Schema.typeArray("string")),
-        )
+        val schemas =
+            linkedMapOf(
+                "S1" to Schema(type = Schema.typeArray("object"), properties = linkedMapOf("id" to Schema(type = Schema.typeArray("integer")))),
+                "S2" to Schema(type = Schema.typeArray("string")),
+            )
         val paths = if (swapped) linkedMapOf(pathB, pathA) else linkedMapOf(pathA, pathB)
         val s = if (swapped) linkedMapOf("S2" to schemas.getValue("S2"), "S1" to schemas.getValue("S1")) else schemas
         return OpenApiDoc(
@@ -38,31 +38,35 @@ class SpecHashTest {
 
     @Test
     fun `hash 对数值笔法不敏感`() {
-        fun with(maximum: String): OpenApiDoc = OpenApiDoc(
-            info = Info(title = "t", version = "1"),
-            components = Components(schemas = linkedMapOf("S" to Schema(type = Schema.typeArray("number"), maximum = BigDecimal(maximum)))),
-        )
+        fun with(maximum: String): OpenApiDoc =
+            OpenApiDoc(
+                info = Info(title = "t", version = "1"),
+                components = Components(schemas = linkedMapOf("S" to Schema(type = Schema.typeArray("number"), maximum = BigDecimal(maximum)))),
+            )
         assertEquals(SpecHash.of(with("1")), SpecHash.of(with("1.00")))
         assertEquals(SpecHash.of(with("0.5")), SpecHash.of(with("0.50")))
     }
 
     @Test
     fun `hash 对语义变化敏感`() {
-        fun with(desc: String): OpenApiDoc = OpenApiDoc(
-            info = Info(title = "t", version = "1", description = desc),
-        )
+        fun with(desc: String): OpenApiDoc =
+            OpenApiDoc(
+                info = Info(title = "t", version = "1", description = desc),
+            )
         assertNotEquals(SpecHash.of(with("a")), SpecHash.of(with("b")))
     }
 
     @Test
     fun `hash 对文档变更敏感（路径与操作差异）`() {
         val a = specimen()
-        val b = specimen().copy(
-            paths = linkedMapOf(
-                "/a" to PathItem(get = Operation(operationId = "opA", summary = "changed")),
-                "/b" to PathItem(post = Operation(operationId = "opB")),
-            ),
-        )
+        val b =
+            specimen().copy(
+                paths =
+                    linkedMapOf(
+                        "/a" to PathItem(get = Operation(operationId = "opA", summary = "changed")),
+                        "/b" to PathItem(post = Operation(operationId = "opB")),
+                    ),
+            )
         assertNotEquals(SpecHash.of(a), SpecHash.of(b))
     }
 

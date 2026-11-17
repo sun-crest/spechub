@@ -17,7 +17,6 @@ import kotlin.test.assertNotNull
 /** Mock 规则域迁入管理库后的集成验证（幂等 upsert / MockRuleSource 端口 / 删除）。 */
 @SpringBootTest
 class MockRuleServiceTest : TestDbIsolation() {
-
     @Autowired
     lateinit var repoService: RepoService
 

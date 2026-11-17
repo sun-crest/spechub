@@ -1,7 +1,7 @@
 package io.spechub.server.ingest
 
-import io.spechub.server.service.RepoService
 import io.spechub.server.config.SpecHubProperties
+import io.spechub.server.service.RepoService
 import io.spechub.server.web.UrlTokenStore
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled

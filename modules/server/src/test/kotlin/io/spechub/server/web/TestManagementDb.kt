@@ -16,7 +16,6 @@ import java.sql.DriverManager
  * 注意：Testcontainers 的 jdbcUrl 可能已带参数，追加时必须判断分隔符。
  */
 object TestManagementDb {
-
     private val vendor: String = System.getProperty("spechub.test.db", "postgresql")
 
     private val pg: PostgreSQLContainer<*> by lazy {
@@ -36,11 +35,17 @@ object TestManagementDb {
             .apply { start() }
     }
 
-    fun register(registry: DynamicPropertyRegistry, schema: String) {
+    fun register(
+        registry: DynamicPropertyRegistry,
+        schema: String,
+    ) {
         if (vendor == "mysql") registerMysql(registry, schema) else registerPg(registry, schema)
     }
 
-    private fun registerPg(registry: DynamicPropertyRegistry, schema: String) {
+    private fun registerPg(
+        registry: DynamicPropertyRegistry,
+        schema: String,
+    ) {
         val container = pg
         DriverManager.getConnection(container.jdbcUrl, container.username, container.password).use { conn ->
             conn.createStatement().use { it.execute("CREATE SCHEMA IF NOT EXISTS $schema") }
@@ -55,20 +60,25 @@ object TestManagementDb {
         registry.add("spring.datasource.hikari.maximum-pool-size") { "2" }
     }
 
-    private fun registerMysql(registry: DynamicPropertyRegistry, schema: String) {
+    private fun registerMysql(
+        registry: DynamicPropertyRegistry,
+        schema: String,
+    ) {
         val container = mysql
         // 每类独立 database：容器内 root 创建并授权给容器用户（命中容器本地 root，不受远程 host 限制）
-        val sql = "CREATE DATABASE IF NOT EXISTS $schema CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; " +
-            "CREATE USER IF NOT EXISTS 'spechub'@'%' IDENTIFIED BY 'spechub'; " +
-            "GRANT ALL ON $schema.* TO 'spechub'@'%'; FLUSH PRIVILEGES;"
+        val sql =
+            "CREATE DATABASE IF NOT EXISTS $schema CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; " +
+                "CREATE USER IF NOT EXISTS 'spechub'@'%' IDENTIFIED BY 'spechub'; " +
+                "GRANT ALL ON $schema.* TO 'spechub'@'%'; FLUSH PRIVILEGES;"
         // 容器内 shell 展开实际 root 密码（Testcontainers 会覆盖 MYSQL_ROOT_PASSWORD）
         val result = container.execInContainer("sh", "-c", "mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" -e \"$sql\"")
         check(result.exitCode == 0) { "MySQL 测试库初始化失败：${result.stdout}\n${result.stderr}" }
 
         val base = container.jdbcUrl.substringBefore("?")
         val dbUrl = base.substringBeforeLast('/') + "/" + schema
-        val url = "$dbUrl?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true" +
-            "&allowPublicKeyRetrieval=true&useSSL=false"
+        val url =
+            "$dbUrl?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true" +
+                "&allowPublicKeyRetrieval=true&useSSL=false"
         registry.add("spring.datasource.url") { url }
         registry.add("spring.datasource.username") { container.username }
         registry.add("spring.datasource.password") { container.password }

@@ -1,17 +1,17 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.Role
+import io.spechub.server.ingest.Ingestor
 import io.spechub.server.service.RepoService
+import io.spechub.server.web.common.ApiErrorBody
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.Role
 import io.spechub.spec.model.OpenApiDoc
 import io.spechub.spec.model.io.SpecFormat
 import io.spechub.spec.model.io.SpecModelIO
 import io.spechub.spec.parser.ParseResult
 import io.spechub.spec.parser.PostmanImporter
 import io.spechub.spec.parser.SpecParser
-import io.spechub.server.ingest.Ingestor
-import io.spechub.server.web.common.ApiErrorBody
-import io.spechub.server.web.common.ApiErrorCode
-import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
@@ -38,14 +38,18 @@ class ImportController(
     private val ingestor: Ingestor,
     private val urlTokens: UrlTokenStore,
 ) {
-
     data class ImportRequest(
         @field:NotBlank val content: String,
         val repoId: Long? = null,
         val path: String? = null,
     )
 
-    data class WrittenInfo(val repoId: Long, val path: String, val commit: String, val branch: String)
+    data class WrittenInfo(
+        val repoId: Long,
+        val path: String,
+        val commit: String,
+        val branch: String,
+    )
 
     data class ImportResponse(
         val type: String,
@@ -57,25 +61,33 @@ class ImportController(
     )
 
     @PostMapping("/{type}")
-    fun import(@PathVariable type: String, @RequestBody @Valid body: ImportRequest, request: HttpServletRequest): ImportResponse {
+    fun import(
+        @PathVariable type: String,
+        @RequestBody @Valid body: ImportRequest,
+        request: HttpServletRequest,
+    ): ImportResponse {
         if (type !in setOf("postman", "swagger2")) {
             throw ApiException(ApiErrorCode.VALIDATION, "type ∈ postman | swagger2", listOf(ApiErrorBody.FieldError("type", "type ∈ postman | swagger2")))
         }
         auth.requireAuthenticated(request, "导入")
 
-        val result = when (type) {
-            "postman" -> PostmanImporter.importCollection(SpecModelIO.parseToTree(body.content))
-            "swagger2" -> SpecParser.parse(body.content)
-            else -> null
-        }
-        val doc = when (result) {
-            is ParseResult.Success -> result.doc
-            is ParseResult.Failure -> throw ApiException(
-                ApiErrorCode.IMPORT_INVALID,
-                "导入内容无法解析：${result.issues.joinToString("; ") { it.message }}",
-            )
-            null -> throw ApiException(ApiErrorCode.BAD_REQUEST, "未知导入类型")
-        }
+        val result =
+            when (type) {
+                "postman" -> PostmanImporter.importCollection(SpecModelIO.parseToTree(body.content))
+                "swagger2" -> SpecParser.parse(body.content)
+                else -> null
+            }
+        val doc =
+            when (result) {
+                is ParseResult.Success -> result.doc
+
+                is ParseResult.Failure -> throw ApiException(
+                    ApiErrorCode.IMPORT_INVALID,
+                    "导入内容无法解析：${result.issues.joinToString("; ") { it.message }}",
+                )
+
+                null -> throw ApiException(ApiErrorCode.BAD_REQUEST, "未知导入类型")
+            }
 
         val apiCount = doc.paths.values.sumOf { it.operations().size }
         val specYaml = SpecModelIO.writeDocument(doc, SpecFormat.YAML, pretty = true)
@@ -84,8 +96,9 @@ class ImportController(
         body.repoId?.let { repoId ->
             auth.requireRepoRole(request, repoId, Role.EDITOR, "导入写回")
             val repo = repoService.getRepo(repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $repoId 不存在")
-            val path = body.path?.takeIf { it.endsWith(".yaml") || it.endsWith(".yml") }
-                ?: "specs/import/$type-${System.currentTimeMillis()}.yaml"
+            val path =
+                body.path?.takeIf { it.endsWith(".yaml") || it.endsWith(".yml") }
+                    ?: "specs/import/$type-${System.currentTimeMillis()}.yaml"
             val wr = writer.writeSpec(repo, path, specYaml)
             ingestor.ingest(repo, urlTokens.get(repoId))
             written = WrittenInfo(repoId, path, wr.commit.take(12), wr.branch)

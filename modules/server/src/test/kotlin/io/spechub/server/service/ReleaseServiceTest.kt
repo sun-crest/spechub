@@ -21,7 +21,6 @@ import kotlin.test.assertTrue
 /** 发布状态迁管理库：promote 记录幂等 + 投影重建后 replay 恢复 release 快照。 */
 @SpringBootTest
 class ReleaseServiceTest : TestDbIsolation() {
-
     @Autowired
     lateinit var repoService: RepoService
 
@@ -47,7 +46,11 @@ class ReleaseServiceTest : TestDbIsolation() {
         }
     }
 
-    private fun seedProjection(repoId: Long, path: String, hash: String) {
+    private fun seedProjection(
+        repoId: Long,
+        path: String,
+        hash: String,
+    ) {
         val version = projection.upsertVersion(repoId, path, hash)
         projection.replaceApisForRepo(
             repoId,

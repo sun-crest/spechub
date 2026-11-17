@@ -17,25 +17,46 @@ import java.time.Instant
 class CommentService(
     private val comments: CommentRepository,
 ) {
-
-    fun add(repoId: Long, apiId: Long?, docId: Long?, method: String, path: String, author: String, body: String): CommentRecord {
-        val saved = comments.save(
-            CommentEntity(
-                repoId = repoId, apiId = apiId, docId = docId, method = method,
-                path = path, author = author, body = body, createdAt = Instant.now(),
-            ),
-        )
+    fun add(
+        repoId: Long,
+        apiId: Long?,
+        docId: Long?,
+        method: String,
+        path: String,
+        author: String,
+        body: String,
+    ): CommentRecord {
+        val saved =
+            comments.save(
+                CommentEntity(
+                    repoId = repoId,
+                    apiId = apiId,
+                    docId = docId,
+                    method = method,
+                    path = path,
+                    author = author,
+                    body = body,
+                    createdAt = Instant.now(),
+                ),
+            )
         return saved.toRecord()
     }
 
-    fun listForEndpoint(repoId: Long, method: String, path: String): List<CommentRecord> =
-        comments.forEndpoint(repoId, method, path).map { it.toRecord() }
+    fun listForEndpoint(
+        repoId: Long,
+        method: String,
+        path: String,
+    ): List<CommentRecord> = comments.forEndpoint(repoId, method, path).map { it.toRecord() }
 
-    fun listForRepo(repoId: Long, limit: Int = 100): List<CommentRecord> =
-        comments.latestForRepo(repoId, limit).map { it.toRecord() }
+    fun listForRepo(
+        repoId: Long,
+        limit: Int = 100,
+    ): List<CommentRecord> = comments.latestForRepo(repoId, limit).map { it.toRecord() }
 
-    fun listForDoc(repoId: Long, path: String): List<CommentRecord> =
-        comments.forDoc(repoId, path).map { it.toRecord() }
+    fun listForDoc(
+        repoId: Long,
+        path: String,
+    ): List<CommentRecord> = comments.forDoc(repoId, path).map { it.toRecord() }
 
     fun get(id: Long): CommentRecord? = comments.findById(id).orElse(null)?.toRecord()
 
@@ -44,15 +65,16 @@ class CommentService(
         comments.deleteById(id)
     }
 
-    private fun CommentEntity.toRecord(): CommentRecord = CommentRecord(
-        id = id,
-        repoId = repoId,
-        apiId = apiId,
-        docId = docId,
-        method = method,
-        path = path,
-        author = author,
-        body = body,
-        createdAt = createdAt.toString(),
-    )
+    private fun CommentEntity.toRecord(): CommentRecord =
+        CommentRecord(
+            id = id,
+            repoId = repoId,
+            apiId = apiId,
+            docId = docId,
+            method = method,
+            path = path,
+            author = author,
+            body = body,
+            createdAt = createdAt.toString(),
+        )
 }

@@ -18,27 +18,32 @@ import java.time.Instant
 class MockRuleService(
     private val rules: MockRuleRepository,
 ) : MockRuleSource {
-
     override fun rulesFor(repoId: Long): List<MockRuleRecord> = rules.findByRepoId(repoId).map { it.toRecord() }
 
     @Transactional
     fun upsert(rule: MockRuleRecord): MockRuleRecord {
         val apiId = rule.apiId
-        val existing = if (apiId == null) {
-            rules.findProjectLevel(rule.repoId, rule.fieldPattern, rule.ruleType)
-        } else {
-            rules.findMatchingWithApi(rule.repoId, apiId, rule.fieldPattern, rule.ruleType)
-        }
-        val saved = if (existing != null) {
-            rules.save(existing.copy(ruleValue = rule.ruleValue))
-        } else {
-            rules.save(
-                MockRuleEntity(
-                    repoId = rule.repoId, apiId = rule.apiId, fieldPattern = rule.fieldPattern,
-                    ruleType = rule.ruleType, ruleValue = rule.ruleValue, createdAt = Instant.now(),
-                ),
-            )
-        }
+        val existing =
+            if (apiId == null) {
+                rules.findProjectLevel(rule.repoId, rule.fieldPattern, rule.ruleType)
+            } else {
+                rules.findMatchingWithApi(rule.repoId, apiId, rule.fieldPattern, rule.ruleType)
+            }
+        val saved =
+            if (existing != null) {
+                rules.save(existing.copy(ruleValue = rule.ruleValue))
+            } else {
+                rules.save(
+                    MockRuleEntity(
+                        repoId = rule.repoId,
+                        apiId = rule.apiId,
+                        fieldPattern = rule.fieldPattern,
+                        ruleType = rule.ruleType,
+                        ruleValue = rule.ruleValue,
+                        createdAt = Instant.now(),
+                    ),
+                )
+            }
         return saved.toRecord()
     }
 
@@ -49,12 +54,13 @@ class MockRuleService(
         rules.deleteById(id)
     }
 
-    private fun MockRuleEntity.toRecord(): MockRuleRecord = MockRuleRecord(
-        id = id,
-        repoId = repoId,
-        apiId = apiId,
-        fieldPattern = fieldPattern,
-        ruleType = ruleType,
-        ruleValue = ruleValue,
-    )
+    private fun MockRuleEntity.toRecord(): MockRuleRecord =
+        MockRuleRecord(
+            id = id,
+            repoId = repoId,
+            apiId = apiId,
+            fieldPattern = fieldPattern,
+            ruleType = ruleType,
+            ruleValue = ruleValue,
+        )
 }

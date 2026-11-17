@@ -1,7 +1,7 @@
 package io.spechub.server.web
 
-import io.spechub.server.service.RepoService
 import io.spechub.server.ingest.Ingestor
+import io.spechub.server.service.RepoService
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import org.springframework.web.bind.annotation.PathVariable
@@ -17,11 +17,13 @@ class WebhookController(
     private val repoService: RepoService,
     private val urlTokens: UrlTokenStore,
 ) {
-
     @PostMapping("/webhooks/{repoId}")
-    fun trigger(@PathVariable repoId: Long): Ingestor.IngestResult {
-        val repo = repoService.getRepo(repoId)
-            ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $repoId 不存在")
+    fun trigger(
+        @PathVariable repoId: Long,
+    ): Ingestor.IngestResult {
+        val repo =
+            repoService.getRepo(repoId)
+                ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $repoId 不存在")
         return ingestor.ingest(repo, urlTokens.get(repoId))
     }
 }

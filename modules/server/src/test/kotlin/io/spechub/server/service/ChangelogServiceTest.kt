@@ -15,7 +15,6 @@ import kotlin.test.assertEquals
 /** 变更记录域（Phase 2 最后一个迁入管理库的域）：追加 + 组合查询逆序。 */
 @SpringBootTest
 class ChangelogServiceTest : TestDbIsolation() {
-
     @Autowired
     lateinit var repoService: RepoService
 

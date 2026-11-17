@@ -16,7 +16,6 @@ import kotlin.test.assertNotNull
 /** 评论域迁入管理库后的集成验证（稳定寻址不依赖投影 id）。 */
 @SpringBootTest
 class CommentServiceTest : TestDbIsolation() {
-
     @Autowired
     lateinit var repoService: RepoService
 

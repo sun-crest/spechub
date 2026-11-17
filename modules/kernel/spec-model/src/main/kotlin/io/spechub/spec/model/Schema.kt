@@ -39,19 +39,16 @@ data class Schema(
     val example: JsonNode? = null,
     val `enum`: List<JsonNode> = emptyList(),
     val const: JsonNode? = null,
-
     // ── 数值约束（3.1 exclusive* 为数值） ──
     val multipleOf: BigDecimal? = null,
     val maximum: BigDecimal? = null,
     val exclusiveMaximum: BigDecimal? = null,
     val minimum: BigDecimal? = null,
     val exclusiveMinimum: BigDecimal? = null,
-
     // ── 字符串约束 ──
     val maxLength: Int? = null,
     val minLength: Int? = null,
     val pattern: String? = null,
-
     // ── 数组/对象约束 ──
     val maxItems: Int? = null,
     val minItems: Int? = null,
@@ -70,7 +67,6 @@ data class Schema(
     val prefixItems: List<Schema> = emptyList(),
     val contains: Schema? = null,
     val propertyNames: Schema? = null,
-
     // ── 组合关键字 ──
     val not: Schema? = null,
     val `if`: Schema? = null,
@@ -82,7 +78,6 @@ data class Schema(
     /** JSON Schema 2020-12 局部定义（3.1 关键字 `$defs`） */
     @get:JsonProperty("\$defs")
     val defs: Map<String, Schema> = emptyMap(),
-
     // ── OpenAPI 扩展信息 ──
     val discriminator: Discriminator? = null,
     val xml: Xml? = null,
@@ -92,8 +87,7 @@ data class Schema(
 ) {
     companion object {
         /** 构造 3.1 数组形态的 type 值节点（`["integer", "null"]`） */
-        fun typeArray(vararg names: String): ArrayNode =
-            JsonNodeFactory.instance.arrayNode().apply { names.forEach(::add) }
+        fun typeArray(vararg names: String): ArrayNode = JsonNodeFactory.instance.arrayNode().apply { names.forEach(::add) }
 
         // 常用单类型速记（仍是 3.1 数组形态，与 C2 升级后的内部表示一致）
         val OBJECT: JsonNode get() = typeArray("object")
@@ -109,16 +103,25 @@ data class Schema(
     }
 
     /** 规范类型名列表：`type` 为数组或单字符串均可提取；缺失/非法时返回 null（无类型约束） */
-    fun typeNames(): List<String>? = when (val t = type) {
-        null, is NullNode -> null
-        is StringNode -> listOf(t.stringValue())
-        else -> if (t.isArray) {
-            val names = t.mapNotNull { (it as? StringNode)?.stringValue() }
-            if (names.isEmpty()) null else names
-        } else {
-            null
+    fun typeNames(): List<String>? =
+        when (val t = type) {
+            null, is NullNode -> {
+                null
+            }
+
+            is StringNode -> {
+                listOf(t.stringValue())
+            }
+
+            else -> {
+                if (t.isArray) {
+                    val names = t.mapNotNull { (it as? StringNode)?.stringValue() }
+                    if (names.isEmpty()) null else names
+                } else {
+                    null
+                }
+            }
         }
-    }
 }
 
 @JsonInclude(JsonInclude.Include.NON_EMPTY)

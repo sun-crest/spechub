@@ -9,7 +9,6 @@ import kotlin.test.assertTrue
 
 /** D1–D4：系统 git 黑盒验证（镜像/写回/变更提取/参数安全） */
 class GitStoreTest {
-
     @TempDir
     lateinit var temp: Path
 
@@ -34,12 +33,20 @@ class GitStoreTest {
         return wd
     }
 
-    private fun pushSeedTo(work: Path, remote: Path) {
+    private fun pushSeedTo(
+        work: Path,
+        remote: Path,
+    ) {
         cli.run(work, listOf("remote", "add", "origin", remote.toString())).require("add remote")
         cli.run(work, listOf("push", "origin", "main")).require("seed push")
     }
 
-    private fun editAndCommit(repo: Path, path: String, content: String, message: String) {
+    private fun editAndCommit(
+        repo: Path,
+        path: String,
+        content: String,
+        message: String,
+    ) {
         Files.writeString(repo.resolve(path), content)
         store.stage(repo, listOf(path)).require("stage $path")
         store.commit(repo, message, identity()).require("commit $message")
@@ -99,7 +106,8 @@ class GitStoreTest {
 
         Files.writeString(work.resolve("specs/pet.yaml"), "name: Platform Edited\n")
         store.stage(work, listOf("specs/pet.yaml")).require("stage edit")
-        store.commit(work, "chore(platform): update pet spec", Identity("specbot", "bot@spechub.test"))
+        store
+            .commit(work, "chore(platform): update pet spec", Identity("specbot", "bot@spechub.test"))
             .require("platform commit")
         store.push(work, "origin", "main").require("platform push")
 
@@ -130,10 +138,10 @@ class GitStoreTest {
     @Test
     fun `status 区分新增 修改 删除 未跟踪`() {
         val repo = seededWorkRepo("work3")
-        editAndCommit(repo, "specs/extra.yaml", "extra\n", "add extra")       // 预备被删文件
-        cli.run(repo, listOf("rm", "specs/extra.yaml")).require("rm")          // D（已暂存删除）
-        Files.writeString(repo.resolve("specs/pet.yaml"), "name: Modified\n")  // M（未提交修改）
-        Files.writeString(repo.resolve("brand-new.yaml"), "new\n")             // ??（未跟踪）
+        editAndCommit(repo, "specs/extra.yaml", "extra\n", "add extra") // 预备被删文件
+        cli.run(repo, listOf("rm", "specs/extra.yaml")).require("rm") // D（已暂存删除）
+        Files.writeString(repo.resolve("specs/pet.yaml"), "name: Modified\n") // M（未提交修改）
+        Files.writeString(repo.resolve("brand-new.yaml"), "new\n") // ??（未跟踪）
 
         val files = store.status(repo).associateBy { it.path }
         assertTrue(files.getValue("specs/pet.yaml").isModified, "pet 应为修改：${files.getValue("specs/pet.yaml").code}")

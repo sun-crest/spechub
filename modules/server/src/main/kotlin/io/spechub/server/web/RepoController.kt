@@ -1,11 +1,11 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.RepoRecord
-import io.spechub.server.service.RepoService
-import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.ingest.Ingestor
+import io.spechub.server.service.RepoService
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.ProjectionStore
+import io.spechub.spec.index.RepoRecord
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import org.springframework.web.bind.annotation.GetMapping
@@ -30,7 +30,6 @@ class RepoController(
     private val urlTokens: UrlTokenStore,
     private val auth: AuthService,
 ) {
-
     data class RegisterRepoRequest(
         @field:NotBlank val url: String,
         val branch: String? = null,
@@ -46,7 +45,10 @@ class RepoController(
     )
 
     @PostMapping("/repos")
-    fun register(@RequestBody @Valid req: RegisterRepoRequest, request: jakarta.servlet.http.HttpServletRequest): RegisterResponse {
+    fun register(
+        @RequestBody @Valid req: RegisterRepoRequest,
+        request: jakarta.servlet.http.HttpServletRequest,
+    ): RegisterResponse {
         auth.requireProjectRole(request, repoService.projectIdByName(DEFAULT_PROJECT), io.spechub.spec.index.Role.EDITOR, "注册仓库")
         val repo = repoService.register(DEFAULT_PROJECT, req.url.trim(), req.branch?.ifEmpty { null } ?: "main")
         if (req.token != null && req.token.isNotBlank()) {
@@ -60,8 +62,9 @@ class RepoController(
     fun list(): List<RepoRecord> = repoService.listRepos()
 
     @GetMapping("/repos/{id}")
-    fun get(@PathVariable id: Long): RepoRecord =
-        repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+    fun get(
+        @PathVariable id: Long,
+    ): RepoRecord = repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
 
     @GetMapping("/repos/{id}/apis")
     fun apis(
@@ -76,7 +79,10 @@ class RepoController(
         const val DEFAULT_PROJECT = "default"
 
         /** `https://host/path` → `https://oauth2:TOKEN@host/path`（仅内存使用） */
-        internal fun injectToken(url: String, token: String): String =
+        internal fun injectToken(
+            url: String,
+            token: String,
+        ): String =
             if (url.contains("://")) {
                 val proto = url.substringBefore("://")
                 val rest = url.substringAfter("://")

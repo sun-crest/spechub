@@ -1,10 +1,12 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.ChangelogAction
 import io.spechub.server.service.ChangelogService
-import io.spechub.spec.index.ProjectionStore
+import io.spechub.server.service.ReleaseService
+import io.spechub.server.service.RepoService
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.ChangelogAction
+import io.spechub.spec.index.ProjectionStore
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import org.springframework.web.bind.annotation.GetMapping
@@ -14,8 +16,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import io.spechub.server.service.ReleaseService
-import io.spechub.server.service.RepoService
 
 /*
  * I6 —— 双层版本：draft（仓内最新）→ release（对外发布快照）。
@@ -33,8 +33,9 @@ class ReleaseController(
     private val releaseService: ReleaseService,
     private val auth: AuthService,
 ) {
-
-    data class PromoteRequest(@field:NotBlank val path: String)
+    data class PromoteRequest(
+        @field:NotBlank val path: String,
+    )
 
     data class PromoteResponse(
         val repoId: Long,
@@ -46,37 +47,60 @@ class ReleaseController(
     )
 
     @PostMapping("/repos/{id}/promote")
-    fun promote(@PathVariable id: Long, @RequestBody @Valid req: PromoteRequest, request: jakarta.servlet.http.HttpServletRequest): PromoteResponse {
+    fun promote(
+        @PathVariable id: Long,
+        @RequestBody @Valid req: PromoteRequest,
+        request: jakarta.servlet.http.HttpServletRequest,
+    ): PromoteResponse {
         auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "发布 release")
         val path = req.path.trim()
-        val latest = projection.listVersionsOfPath(id, path).firstOrNull()
-            ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 的 $path 无版本可发布（先摄取）")
+        val latest =
+            projection.listVersionsOfPath(id, path).firstOrNull()
+                ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 的 $path 无版本可发布（先摄取）")
         // 先落管理库 release 真源，再重放投影（跨库非原子；两步均幂等，失败可重试）
         releaseService.promote(id, path, latest.specHash)
-        val promoted = projection.promotePath(id, path, latest.specHash)
-            ?: throw IllegalStateException("release 记录已写入，但投影 promote 失败：repo=$id path=$path hash=${latest.specHash}")
+        val promoted =
+            projection.promotePath(id, path, latest.specHash)
+                ?: throw IllegalStateException("release 记录已写入，但投影 promote 失败：repo=$id path=$path hash=${latest.specHash}")
         changelogService.add(
-            repoId = id, apiId = null, actor = "spechub-bot", action = ChangelogAction.PROMOTE,
+            repoId = id,
+            apiId = null,
+            actor = "spechub-bot",
+            action = ChangelogAction.PROMOTE,
             detail = "发布 ${promoted.path} → release（版本 #${promoted.id}，specHash ${promoted.specHash.take(12)}…）",
         )
         return PromoteResponse(
-            id, promoted.path, promoted.id, promoted.specHash, promoted.stage,
+            id,
+            promoted.path,
+            promoted.id,
+            promoted.specHash,
+            promoted.stage,
             "已发布为 release：${promoted.path}（specHash ${promoted.specHash.take(12)}…）",
         )
     }
 
     @GetMapping("/repos/{id}/versions")
-    fun versions(@PathVariable id: Long, @RequestParam path: String? = null): List<io.spechub.spec.index.VersionRecord> {
+    fun versions(
+        @PathVariable id: Long,
+        @RequestParam path: String? = null,
+    ): List<io.spechub.spec.index.VersionRecord> {
         repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         return if (path != null) projection.listVersionsOfPath(id, path) else projection.listVersions(id)
     }
 
     @GetMapping("/repos/{id}/changelog")
-    fun changelog(@PathVariable id: Long, @RequestParam limit: Int = 50) = changelogService.list(repoId = id, apiId = null, limit = limit)
+    fun changelog(
+        @PathVariable id: Long,
+        @RequestParam limit: Int = 50,
+    ) = changelogService.list(repoId = id, apiId = null, limit = limit)
 
     @GetMapping("/changelog")
-    fun globalChangelog(@RequestParam limit: Int = 50) = changelogService.list(repoId = null, apiId = null, limit = limit)
+    fun globalChangelog(
+        @RequestParam limit: Int = 50,
+    ) = changelogService.list(repoId = null, apiId = null, limit = limit)
 
     @GetMapping("/apis/{id}/changelog")
-    fun apiChangelog(@PathVariable id: Long) = changelogService.list(repoId = null, apiId = id, limit = 50)
+    fun apiChangelog(
+        @PathVariable id: Long,
+    ) = changelogService.list(repoId = null, apiId = id, limit = 50)
 }

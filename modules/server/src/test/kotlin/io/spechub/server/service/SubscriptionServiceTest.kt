@@ -15,7 +15,6 @@ import kotlin.test.assertEquals
 /** 订阅/通知域迁入管理库后的集成验证。 */
 @SpringBootTest
 class SubscriptionServiceTest : TestDbIsolation() {
-
     @Autowired
     lateinit var repoService: RepoService
 

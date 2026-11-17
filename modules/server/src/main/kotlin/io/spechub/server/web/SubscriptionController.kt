@@ -1,11 +1,13 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.NotificationRecord
 import io.spechub.server.service.ChangelogService
-import io.spechub.spec.index.ProjectionStore
-import io.spechub.spec.index.SubscriptionRecord
+import io.spechub.server.service.RepoService
+import io.spechub.server.service.SubscriptionService
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.NotificationRecord
+import io.spechub.spec.index.ProjectionStore
+import io.spechub.spec.index.SubscriptionRecord
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
@@ -19,8 +21,6 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
-import io.spechub.server.service.RepoService
-import io.spechub.server.service.SubscriptionService
 
 /*
  * I7 —— 变更订阅：消费团队声明依赖某接口（repo + method + path 稳定寻址）→ 结构变更时收到通知。
@@ -39,7 +39,6 @@ class SubscriptionController(
     private val subscriptionService: SubscriptionService,
     private val auth: AuthService,
 ) {
-
     data class SubscribeRequest(
         val repoId: Long,
         @field:NotBlank val method: String,
@@ -49,26 +48,48 @@ class SubscriptionController(
     )
 
     @PostMapping
-    fun subscribe(@RequestBody @Valid body: SubscribeRequest, request: HttpServletRequest): SubscriptionRecord {
+    fun subscribe(
+        @RequestBody @Valid body: SubscribeRequest,
+        request: HttpServletRequest,
+    ): SubscriptionRecord {
         auth.requireAuthenticated(request, "订阅")
         repoService.getRepo(body.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${body.repoId} 不存在")
         // api_id 尽力关联（method+path 命中当前投影则填，便于详情展示；非 FK）
-        val apiId = projection.listApis(body.repoId, method = body.method.uppercase(), keyword = body.path.removePrefix("/"))
-            .firstOrNull { it.path == body.path }?.id
-        val sub = subscriptionService.subscribe(
-            body.repoId, apiId, body.method.uppercase(), body.path, body.team.trim(), body.notifyUrl.trim(),
+        val apiId =
+            projection
+                .listApis(body.repoId, method = body.method.uppercase(), keyword = body.path.removePrefix("/"))
+                .firstOrNull { it.path == body.path }
+                ?.id
+        val sub =
+            subscriptionService.subscribe(
+                body.repoId,
+                apiId,
+                body.method.uppercase(),
+                body.path,
+                body.team.trim(),
+                body.notifyUrl.trim(),
+            )
+        changelogService.add(
+            body.repoId,
+            apiId,
+            auth.currentActor(request),
+            "subscription",
+            "${body.team} 订阅 ${body.method.uppercase()} ${body.path}",
         )
-        changelogService.add(body.repoId, apiId, auth.currentActor(request), "subscription",
-            "${body.team} 订阅 ${body.method.uppercase()} ${body.path}")
         return sub
     }
 
     @GetMapping
-    fun list(@RequestParam repoId: Long? = null): List<SubscriptionRecord> = subscriptionService.list(repoId)
+    fun list(
+        @RequestParam repoId: Long? = null,
+    ): List<SubscriptionRecord> = subscriptionService.list(repoId)
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    fun unsubscribe(@PathVariable id: Long, request: HttpServletRequest) {
+    fun unsubscribe(
+        @PathVariable id: Long,
+        request: HttpServletRequest,
+    ) {
         auth.requireAuthenticated(request, "取消订阅")
         val sub = subscriptionService.get(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "订阅 $id 不存在")
         subscriptionService.unsubscribe(id)
@@ -76,6 +97,8 @@ class SubscriptionController(
     }
 
     @GetMapping("/notifications")
-    fun notifications(@RequestParam team: String? = null, @RequestParam limit: Int = 50): List<NotificationRecord> =
-        subscriptionService.listNotifications(team, limit)
+    fun notifications(
+        @RequestParam team: String? = null,
+        @RequestParam limit: Int = 50,
+    ): List<NotificationRecord> = subscriptionService.listNotifications(team, limit)
 }

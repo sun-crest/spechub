@@ -13,7 +13,10 @@ internal fun Map<String, Any?>.long(key: String): Long = (this[key] as Number).t
 
 internal fun Map<String, Any?>.longOrNull(key: String): Long? = (this[key] as? Number)?.toLong()
 
-internal fun Connection.exec(sql: String, vararg params: Any?) {
+internal fun Connection.exec(
+    sql: String,
+    vararg params: Any?,
+) {
     val st = this.prepareStatement(sql)
     try {
         params.forEachIndexed { i, v -> st.setObject(i + 1, v) }
@@ -23,7 +26,10 @@ internal fun Connection.exec(sql: String, vararg params: Any?) {
     }
 }
 
-internal fun Connection.insert(sql: String, vararg params: Any?): Long {
+internal fun Connection.insert(
+    sql: String,
+    vararg params: Any?,
+): Long {
     val st = this.prepareStatement(sql)
     try {
         params.forEachIndexed { i, v -> st.setObject(i + 1, v) }
@@ -34,7 +40,10 @@ internal fun Connection.insert(sql: String, vararg params: Any?): Long {
     }
 }
 
-internal fun Connection.queryObj(sql: String, vararg params: Any?): Any? {
+internal fun Connection.queryObj(
+    sql: String,
+    vararg params: Any?,
+): Any? {
     val st = this.prepareStatement(sql)
     try {
         params.forEachIndexed { i, v -> st.setObject(i + 1, v) }
@@ -49,7 +58,11 @@ internal fun Connection.queryObj(sql: String, vararg params: Any?): Any? {
     }
 }
 
-internal inline fun <T> Connection.select(sql: String, vararg params: Any?, map: (Map<String, Any?>) -> T): List<T> {
+internal inline fun <T> Connection.select(
+    sql: String,
+    vararg params: Any?,
+    map: (Map<String, Any?>) -> T,
+): List<T> {
     val st = this.prepareStatement(sql)
     try {
         params.forEachIndexed { i, v -> st.setObject(i + 1, v) }

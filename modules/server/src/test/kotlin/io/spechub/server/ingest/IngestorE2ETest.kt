@@ -1,5 +1,6 @@
 package io.spechub.server.ingest
 
+import io.spechub.server.config.SpecHubProperties
 import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
@@ -7,7 +8,6 @@ import io.spechub.spec.index.IndexDb
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.RepoRecord
 import io.spechub.spec.index.SyncStatus
-import io.spechub.server.config.SpecHubProperties
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -21,14 +21,14 @@ import kotlin.test.assertTrue
  * 不启动 Spring，手动装配 kernel 组件（对应 KernelConfig）。
  */
 class IngestorE2ETest {
-
     @TempDir
     lateinit var temp: Path
 
     private val cli = GitCli()
     private val git = GitStore()
 
-    private val specFixture = """
+    private val specFixture =
+        """
         openapi: 3.1.0
         info: { title: Pet Store, version: "1.0.0" }
         paths:
@@ -59,13 +59,14 @@ class IngestorE2ETest {
               properties:
                 id: { type: [integer, "null"] }
                 name: { type: string }
-    """.trimIndent()
+        """.trimIndent()
 
-    private fun props(): SpecHubProperties = SpecHubProperties(
-        gitSourceDir = temp.resolve("gitsource").toString(),
-        sqliteDir = temp.resolve("sqlite").toString(),
-        artifactsDir = temp.resolve("artifacts").toString(),
-    )
+    private fun props(): SpecHubProperties =
+        SpecHubProperties(
+            gitSourceDir = temp.resolve("gitsource").toString(),
+            sqliteDir = temp.resolve("sqlite").toString(),
+            artifactsDir = temp.resolve("artifacts").toString(),
+        )
 
     @Test
     fun `fetch 小仓摄取 → api 与 schema 入投影，幂等续跑 version 不重复`() {
@@ -136,7 +137,6 @@ class IngestorE2ETest {
         val result = ingestor.ingest(repo)
         assertEquals(2, result.apiCount, "投影应从 git 重建")
         assertEquals(1, projection.listDocs(repo.id).size, "doc 投影应从 git 重建")
-
     }
 
     /** Phase 1 同库过渡：显式清空投影表。Phase 2 物理拆分后改为删除投影库文件。 */
@@ -182,7 +182,11 @@ class IngestorE2ETest {
         return origin
     }
 
-    private fun cloneSeedAndEdit(origin: Path, work: Path, newContent: String) {
+    private fun cloneSeedAndEdit(
+        origin: Path,
+        work: Path,
+        newContent: String,
+    ) {
         git.cloneInto(origin.toString(), work).require("clone")
         Files.writeString(work.resolve("specs/pet/openapi.yaml"), newContent)
         git.stage(work, listOf("specs/pet/openapi.yaml")).require("stage edit")

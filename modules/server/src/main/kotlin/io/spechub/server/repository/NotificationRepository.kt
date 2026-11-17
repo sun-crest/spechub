@@ -4,10 +4,12 @@ import org.springframework.data.jdbc.repository.query.Query
 import org.springframework.data.repository.CrudRepository
 
 interface NotificationRepository : CrudRepository<NotificationEntity, Long> {
-
     @Query("SELECT * FROM notification ORDER BY id DESC LIMIT :limit")
     fun findLatest(limit: Int): List<NotificationEntity>
 
     @Query("SELECT * FROM notification WHERE team = :team ORDER BY id DESC LIMIT :limit")
-    fun findLatestByTeam(team: String, limit: Int): List<NotificationEntity>
+    fun findLatestByTeam(
+        team: String,
+        limit: Int,
+    ): List<NotificationEntity>
 }

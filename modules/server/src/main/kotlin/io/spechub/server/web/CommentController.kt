@@ -1,12 +1,14 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.CommentRecord
-import io.spechub.spec.index.Role
 import io.spechub.server.service.ChangelogService
-import io.spechub.spec.index.ProjectionStore
+import io.spechub.server.service.CommentService
+import io.spechub.server.service.RepoService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.CommentRecord
+import io.spechub.spec.index.ProjectionStore
+import io.spechub.spec.index.Role
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
@@ -19,8 +21,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
-import io.spechub.server.service.CommentService
-import io.spechub.server.service.RepoService
 
 /*
  * I5 —— 轻评论（挂在接口 / 仓库上）。
@@ -38,8 +38,9 @@ class CommentController(
     private val commentService: CommentService,
     private val auth: AuthService,
 ) {
-
-    data class CommentBody(@field:NotBlank val body: String)
+    data class CommentBody(
+        @field:NotBlank val body: String,
+    )
 
     data class CommentView(
         val id: Long,
@@ -53,13 +54,19 @@ class CommentController(
     )
 
     @GetMapping("/apis/{id}/comments")
-    fun comments(@PathVariable id: Long): List<CommentView> {
+    fun comments(
+        @PathVariable id: Long,
+    ): List<CommentView> {
         val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
         return commentService.listForEndpoint(api.repoId, api.method, api.path).map(::toView)
     }
 
     @PostMapping("/apis/{id}/comments")
-    fun add(@PathVariable id: Long, @RequestBody @Valid body: CommentBody, request: HttpServletRequest): CommentView {
+    fun add(
+        @PathVariable id: Long,
+        @RequestBody @Valid body: CommentBody,
+        request: HttpServletRequest,
+    ): CommentView {
         val user = auth.requireAuthenticated(request, "发表评论")
         val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
         val comment = commentService.add(api.repoId, api.id, null, api.method, api.path, user.username, body.body.trim())
@@ -69,7 +76,10 @@ class CommentController(
 
     @DeleteMapping("/comments/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    fun delete(@PathVariable id: Long, request: HttpServletRequest) {
+    fun delete(
+        @PathVariable id: Long,
+        request: HttpServletRequest,
+    ) {
         val actor = auth.requireAuthenticated(request, "删除评论")
         val comment = commentService.get(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评论 $id 不存在")
         val projectId = repoService.getRepo(comment.repoId)?.projectId
@@ -83,8 +93,15 @@ class CommentController(
         changelogService.add(comment.repoId, comment.apiId, actor.username, "comment.delete", "删除评论 #${comment.id}")
     }
 
-    private fun toView(c: CommentRecord): CommentView = CommentView(
-        id = c.id!!, apiId = c.apiId, repoId = c.repoId, method = c.method, path = c.path,
-        author = c.author, body = c.body, createdAt = c.createdAt,
-    )
+    private fun toView(c: CommentRecord): CommentView =
+        CommentView(
+            id = c.id!!,
+            apiId = c.apiId,
+            repoId = c.repoId,
+            method = c.method,
+            path = c.path,
+            author = c.author,
+            body = c.body,
+            createdAt = c.createdAt,
+        )
 }

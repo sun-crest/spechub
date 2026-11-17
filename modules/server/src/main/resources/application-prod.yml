@@ -1,0 +1,22 @@
+# 生产 profile：必须显式提供 SPECHUB_ADMIN_TOKEN。
+# 缺失/空串 → SpecHubProperties 的 @AssertTrue 校验失败，配置绑定阶段即启动失败。
+spechub:
+  require-admin-token: true
+  admin-token: ${SPECHUB_ADMIN_TOKEN:}
+  # R11：生产不公开文档端点（TokenAuthFilter 不放行 → 401），并关闭 springdoc/Knife4j。
+  openapi-public: false
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+knife4j:
+  enable: false
+  # 双保险：即使误开 enable，也返回 403 而非暴露文档。
+  production: true
+
+logging:
+  level:
+    io.spechub: INFO
