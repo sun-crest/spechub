@@ -15,7 +15,7 @@ H 组 Web（由 `apps/web-spike` 于 2026-11-14 转正）。Vite 6 + React 19 + 
 
 **方式 A · docker compose（推荐，含 gitea）**：
 ```bash
-docker compose up -d --build        # 起 gitea(:3000) + backend(:8080)
+docker compose -f compose/docker-compose.yml up -d --build   # 起 gitea(:3000) + backend(:8080)
 cd apps/web && npm install && npm run dev
 # 打开 http://localhost:5173（5173 被占时 vite 自动顺延端口），/api 代理到 :8080
 ```

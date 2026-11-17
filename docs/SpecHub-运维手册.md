@@ -14,7 +14,7 @@
 | `gitea` | 内置文档仓托管（可替换为外部 git） | `gitea-data` |
 
 - **管理库必须备份**；投影库（`sqlite` 卷）是 git 的可重建派生，不纳入备份。
-- 启动：`docker compose up -d --build`；健康检查：`curl -fsS localhost:8080/actuator/health`。
+- 启动：`docker compose -f compose/docker-compose.yml up -d --build`；健康检查：`curl -fsS localhost:8080/actuator/health`。
 - 版本矩阵：PostgreSQL 18.x（默认）/ MySQL 8.4 LTS；镜像固定小版本（`postgres:18.6`、`mysql:8.4.11`），按季度小版本升级。
 
 ---
@@ -36,9 +36,9 @@ scripts/backup-db.sh [输出目录]        # 默认 ./backups
 
 ```bash
 # 先停止后端写入（避免恢复期间部分写入）
-docker compose stop backend
+docker compose -f compose/docker-compose.yml stop backend
 scripts/restore-db.sh <备份文件>
-docker compose start backend
+docker compose -f compose/docker-compose.yml start backend
 ```
 
 - `.dump` → `pg_restore --clean --if-exists`；
@@ -53,9 +53,9 @@ docker compose start backend
 删除 SQLite 投影后重启或触发 reindex：
 
 ```bash
-docker compose stop backend
+docker compose -f compose/docker-compose.yml stop backend
 rm -rf compose 卷内 sqlite 文件（或 docker volume rm spechub_sqlite）
-docker compose start backend
+docker compose -f compose/docker-compose.yml start backend
 # 或启动参数 --reindex
 ```
 
