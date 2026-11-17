@@ -8,8 +8,9 @@ import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.ApiRecord
-import io.spechub.spec.index.ProjectRecord
 import io.spechub.spec.index.ProjectionStore
+import io.spechub.spec.index.Stage
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import org.springframework.http.HttpStatus
@@ -36,20 +37,56 @@ class ApiQueryController(
 ) {
     // ── 只读 · F 组 list_projects / get_api ───────────────────────────────
 
+    data class ProjectView(
+        val id: Long,
+        val name: String,
+        val slug: String?,
+        val visibility: String,
+        val archived: Boolean,
+        val ownerId: Long?,
+    )
+
     @GetMapping("/projects")
-    fun projects(): List<ProjectRecord> = repoService.listProjects()
+    fun projects(request: HttpServletRequest): List<ProjectView> =
+        auth.visibleProjects(request).map { project ->
+            ProjectView(
+                id = checkNotNull(project.id) { "project 必有 id" },
+                name = project.name,
+                slug = project.slug,
+                visibility = project.visibility,
+                archived = project.archived,
+                ownerId = project.ownerId,
+            )
+        }
 
     @GetMapping("/apis")
     fun search(
+        request: HttpServletRequest,
         @RequestParam q: String? = null,
         @RequestParam method: String? = null,
         @RequestParam stage: String? = null,
-    ): List<ApiRecord> = projection.listAllApis(q, method?.uppercase(), stage ?: "draft")
+    ): List<ApiRecord> {
+        val resolvedStage = stage ?: Stage.DRAFT
+        if (resolvedStage !in setOf(Stage.DRAFT, Stage.RELEASE)) {
+            throw ApiException(ApiErrorCode.VALIDATION, "stage ∈ draft | release", listOf(ApiErrorBody.FieldError("stage", "stage ∈ draft | release")))
+        }
+        val repoIds = auth.visibleRepoIds(request, resolvedStage)
+        return if (repoIds.isEmpty()) {
+            emptyList()
+        } else {
+            projection.listAllApis(repoIds, q, method?.uppercase(), resolvedStage)
+        }
+    }
 
     @GetMapping("/apis/{id}")
     fun getApi(
         @PathVariable id: Long,
-    ): ApiRecord = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
+        request: HttpServletRequest,
+    ): ApiRecord {
+        val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
+        auth.requireRepoVisible(request, api.repoId, api.stage)
+        return api
+    }
 
     // ── 写回 · F 组 create_api / update_api（R1-C）─────────────────────────
 
@@ -73,8 +110,9 @@ class ApiQueryController(
     @GetMapping("/repos/{id}/specs")
     fun listSpecs(
         @PathVariable id: Long,
+        request: HttpServletRequest,
     ): List<String> {
-        val repo = repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        val repo = auth.requireRepoVisible(request, id, Stage.DRAFT)
         return writer.listSpecs(repo)
     }
 
@@ -82,8 +120,9 @@ class ApiQueryController(
     fun readSpec(
         @PathVariable id: Long,
         @RequestParam path: String,
+        request: HttpServletRequest,
     ): String {
-        val repo = repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        val repo = auth.requireRepoVisible(request, id, Stage.DRAFT)
         return writer.readSpec(repo, path)
             ?: throw ApiException(ApiErrorCode.NOT_FOUND, "spec $path 不存在")
     }

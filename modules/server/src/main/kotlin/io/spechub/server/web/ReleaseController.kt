@@ -7,6 +7,8 @@ import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.ChangelogAction
 import io.spechub.spec.index.ProjectionStore
+import io.spechub.spec.index.Stage
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import org.springframework.web.bind.annotation.GetMapping
@@ -82,25 +84,45 @@ class ReleaseController(
     @GetMapping("/repos/{id}/versions")
     fun versions(
         @PathVariable id: Long,
+        request: HttpServletRequest,
         @RequestParam path: String? = null,
     ): List<io.spechub.spec.index.VersionRecord> {
-        repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        auth.requireRepoVisible(request, id, Stage.DRAFT)
         return if (path != null) projection.listVersionsOfPath(id, path) else projection.listVersions(id)
     }
 
     @GetMapping("/repos/{id}/changelog")
     fun changelog(
         @PathVariable id: Long,
+        request: HttpServletRequest,
         @RequestParam limit: Int = 50,
-    ) = changelogService.list(repoId = id, apiId = null, limit = limit)
+    ) = run {
+        auth.requireRepoMember(request, id, "查看变更记录")
+        changelogService.list(repoId = id, apiId = null, limit = limit)
+    }
 
     @GetMapping("/changelog")
     fun globalChangelog(
+        request: HttpServletRequest,
         @RequestParam limit: Int = 50,
-    ) = changelogService.list(repoId = null, apiId = null, limit = limit)
+    ) = run {
+        val user = auth.currentUser(request)
+        val orgId = auth.currentOrgId(request)
+        val isOrgAdmin = !auth.authEnabled || (user != null && auth.isOrgAdmin(user, orgId))
+        if (isOrgAdmin) {
+            changelogService.listByOrg(orgId, limit)
+        } else {
+            changelogService.listByRepoIds(auth.memberRepoIds(request), limit)
+        }
+    }
 
     @GetMapping("/apis/{id}/changelog")
     fun apiChangelog(
         @PathVariable id: Long,
-    ) = changelogService.list(repoId = null, apiId = id, limit = 50)
+        request: HttpServletRequest,
+    ) = run {
+        val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
+        auth.requireRepoMember(request, api.repoId, "查看变更记录")
+        changelogService.list(repoId = null, apiId = id, limit = 50)
+    }
 }

@@ -1,6 +1,5 @@
 package io.spechub.server.web
 
-import io.spechub.server.service.RepoService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
@@ -11,6 +10,7 @@ import io.spechub.spec.parser.export.HtmlPortalExporter
 import io.spechub.spec.parser.export.MarkdownExporter
 import io.spechub.spec.parser.export.OpenApi30Exporter
 import io.spechub.spec.parser.export.PostmanExporter
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -29,13 +29,14 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/repos/{id}/export")
 class ExportController(
     private val exportService: ExportService,
-    private val repoService: RepoService,
+    private val auth: AuthService,
 ) {
     @GetMapping("/{format}")
     fun export(
         @PathVariable id: Long,
         @PathVariable format: String,
         @RequestParam stage: String = Stage.DRAFT,
+        request: HttpServletRequest,
     ): ResponseEntity<String> {
         if (format !in setOf("openapi31", "openapi30", "postman", "markdown", "html")) {
             throw ApiException(
@@ -47,7 +48,7 @@ class ExportController(
         if (stage !in setOf(Stage.DRAFT, Stage.RELEASE)) {
             throw ApiException(ApiErrorCode.VALIDATION, "stage ∈ draft | release", listOf(ApiErrorBody.FieldError("stage", "stage ∈ draft | release")))
         }
-        repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        auth.requireRepoVisible(request, id, stage)
 
         val doc = exportService.reconstructOpenApi(id, stage)
         val (body, mediaType, ext) =

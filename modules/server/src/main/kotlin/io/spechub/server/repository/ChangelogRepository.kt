@@ -13,6 +13,8 @@ interface ChangelogRepository : CrudRepository<ChangelogEntity, Long> {
         limit: Int,
     ): List<ChangelogEntity>
 
+    fun findAllByRepoIdIn(repoIds: Collection<Long>): List<ChangelogEntity>
+
     @Query("SELECT * FROM changelog WHERE repo_id = :repoId ORDER BY id DESC LIMIT :limit")
     fun findByRepoId(
         repoId: Long,

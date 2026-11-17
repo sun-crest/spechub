@@ -21,6 +21,13 @@ interface ReviewRepository : CrudRepository<ReviewEntity, Long> {
         status: String,
     ): List<ReviewEntity>
 
+    fun findAllByRepoIdIn(repoIds: Collection<Long>): List<ReviewEntity>
+
+    fun findAllByRepoIdInAndStatus(
+        repoIds: Collection<Long>,
+        status: String,
+    ): List<ReviewEntity>
+
     /** 审批状态机：仅 pending → 目标状态，返回影响行数（0 = 已被处理/不存在，竞态兜底） */
     @Modifying
     @Query(

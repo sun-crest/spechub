@@ -63,6 +63,21 @@ class ChangelogService(
         limit: Int = 50,
     ): List<ChangelogRecord> = changelogs.findLatestByOrg(orgId, limit).map { it.toRecord() }
 
+    /** 多 repo 过滤：空集合返回空，禁止退化为全量；不含 repo_id 为空的组织级动作。 */
+    fun listByRepoIds(
+        repoIds: Collection<Long>,
+        limit: Int = 50,
+    ): List<ChangelogRecord> =
+        if (repoIds.isEmpty()) {
+            emptyList()
+        } else {
+            changelogs
+                .findAllByRepoIdIn(repoIds)
+                .sortedByDescending { it.id }
+                .take(limit)
+                .map { it.toRecord() }
+        }
+
     private fun ChangelogEntity.toRecord(): ChangelogRecord =
         ChangelogRecord(
             id = id,

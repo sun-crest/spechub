@@ -12,4 +12,11 @@ interface NotificationRepository : CrudRepository<NotificationEntity, Long> {
         team: String,
         limit: Int,
     ): List<NotificationEntity>
+
+    fun findAllByRepoIdIn(repoIds: Collection<Long>): List<NotificationEntity>
+
+    fun findAllByTeamAndRepoIdIn(
+        team: String,
+        repoIds: Collection<Long>,
+    ): List<NotificationEntity>
 }

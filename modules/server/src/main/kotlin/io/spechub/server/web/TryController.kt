@@ -6,6 +6,7 @@ import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.model.Operation
 import io.spechub.spec.model.io.SpecModelIO
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import org.slf4j.LoggerFactory
@@ -33,6 +34,7 @@ import java.time.Duration
 @RequestMapping("/api")
 class TryController(
     private val projection: ProjectionStore,
+    private val auth: AuthService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -56,8 +58,10 @@ class TryController(
     fun tryIt(
         @PathVariable id: Long,
         @RequestBody @Valid req: TryRequest,
+        request: HttpServletRequest,
     ): TryResponse {
         val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
+        auth.requireRepoVisible(request, api.repoId, api.stage)
 
         val base = req.baseUrl.trim()
         if (!base.startsWith("http://") && !base.startsWith("https://")) {

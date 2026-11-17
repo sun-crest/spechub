@@ -61,6 +61,14 @@ class SubscriptionService(
             subscriptions.findAllOrdered().map { it.toRecord() }
         }
 
+    /** 多 repo 过滤：空集合返回空，禁止退化为全量。 */
+    fun list(repoIds: Collection<Long>): List<SubscriptionRecord> =
+        if (repoIds.isEmpty()) {
+            emptyList()
+        } else {
+            subscriptions.findAllByRepoIdIn(repoIds).sortedWith(compareBy({ it.team }, { it.path })).map { it.toRecord() }
+        }
+
     fun get(id: Long): SubscriptionRecord? = subscriptions.findById(id).orElse(null)?.toRecord()
 
     @Transactional
@@ -105,6 +113,22 @@ class SubscriptionService(
         } else {
             notifications.findLatest(limit).map { it.toRecord() }
         }
+
+    /** 多 repo 过滤：空集合返回空，禁止退化为全量。 */
+    fun listNotifications(
+        team: String?,
+        repoIds: Collection<Long>,
+        limit: Int = 50,
+    ): List<NotificationRecord> {
+        if (repoIds.isEmpty()) return emptyList()
+        val entities =
+            if (team != null) {
+                notifications.findAllByTeamAndRepoIdIn(team, repoIds)
+            } else {
+                notifications.findAllByRepoIdIn(repoIds)
+            }
+        return entities.sortedByDescending { it.id }.take(limit).map { it.toRecord() }
+    }
 
     private fun orgIdFor(repoId: Long): Long = checkNotNull(repos.findById(repoId).orElse(null)?.orgId) { "repo $repoId 未归属组织" }
 

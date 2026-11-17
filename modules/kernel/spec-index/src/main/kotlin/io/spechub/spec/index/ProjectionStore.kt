@@ -250,20 +250,25 @@ class ProjectionStore(
         }
 
     fun listAllApis(
+        repoIds: Collection<Long>,
         keyword: String? = null,
         method: String? = null,
         stage: String = Stage.DRAFT,
-    ): List<ApiRecord> =
-        db.transaction { conn ->
+    ): List<ApiRecord> {
+        if (repoIds.isEmpty()) return emptyList()
+        return db.transaction { conn ->
             val sql =
                 buildString {
-                    append("SELECT * FROM api WHERE stage=?")
+                    append("SELECT * FROM api WHERE stage=? AND repo_id IN (")
+                    append(repoIds.joinToString(",") { "?" })
+                    append(")")
                     if (keyword != null) append(" AND (path LIKE ? OR operation_id LIKE ? OR summary LIKE ?)")
                     if (method != null) append(" AND method=?")
                 }
             val params =
                 buildList<Any?> {
                     add(stage)
+                    addAll(repoIds)
                     if (keyword != null) {
                         val k = "%$keyword%"
                         add(k)
@@ -287,6 +292,7 @@ class ProjectionStore(
                 )
             }
         }
+    }
 
     /**
      * 一次摄取的全量投影替换（apis / schemas / docs 单事务）。
@@ -426,37 +432,39 @@ class ProjectionStore(
         }
     }
 
-    fun listDocs(repoId: Long? = null): List<DocRecord> =
-        db.transaction { conn ->
-            val sql = if (repoId != null) "SELECT * FROM doc WHERE repo_id=? ORDER BY path" else "SELECT * FROM doc ORDER BY path"
-            conn.select(sql, *if (repoId != null) arrayOf(repoId) else emptyArray()) { rowToDoc(it) }
+    fun listDocs(repoIds: Collection<Long>): List<DocRecord> {
+        if (repoIds.isEmpty()) return emptyList()
+        return db.transaction { conn ->
+            val placeholders = repoIds.joinToString(",") { "?" }
+            conn.select("SELECT * FROM doc WHERE repo_id IN ($placeholders) ORDER BY path", *repoIds.toTypedArray()) { rowToDoc(it) }
         }
+    }
+
+    fun listDocs(repoId: Long): List<DocRecord> = listDocs(listOf(repoId))
 
     fun getDoc(id: Long): DocRecord? =
         db.transaction { conn ->
             conn.select<DocRecord>("SELECT * FROM doc WHERE id=?", id) { rowToDoc(it) }.firstOrNull()
         }
 
-    /** 全文检索：FTS5 trigram 优先（中文子串），环境不支持回退 LIKE */
+    /** 全文检索：FTS5 trigram 优先（中文子串），环境不支持回退 LIKE；repoIds 为空返回空。 */
     fun searchDocs(
         keyword: String,
-        repoId: Long? = null,
-    ): List<DocRecord> =
-        db.transaction { conn ->
+        repoIds: Collection<Long>,
+    ): List<DocRecord> {
+        if (repoIds.isEmpty()) return emptyList()
+        return db.transaction { conn ->
             val kw = keyword.trim()
             if (kw.isEmpty()) return@transaction emptyList()
+            val placeholders = repoIds.joinToString(",") { "?" }
             val ftsHits =
                 if (db.fts5Available) {
                     try {
                         // FTS5 MATCH：构造带引号的短语查询（防注入 + 按子串）
                         val q = "\"" + kw.replace("\"", "\"\"") + "\""
-                        val sql =
-                            buildString {
-                                append("SELECT d.* FROM doc d JOIN doc_fts f ON f.rowid = d.id WHERE doc_fts MATCH ?")
-                                if (repoId != null) append(" AND d.repo_id=?")
-                            }
-                        val params: Array<Any?> = if (repoId != null) arrayOf(q, repoId) else arrayOf(q)
-                        conn.select<DocRecord>(sql, *params) { rowToDoc(it) }
+                        val sql = "SELECT d.* FROM doc d JOIN doc_fts f ON f.rowid = d.id WHERE doc_fts MATCH ? AND d.repo_id IN ($placeholders)"
+                        val params = listOf<Any?>(q) + repoIds
+                        conn.select<DocRecord>(sql, *params.toTypedArray()) { rowToDoc(it) }
                     } catch (e: Exception) {
                         emptyList()
                     }
@@ -465,14 +473,15 @@ class ProjectionStore(
                 }
 
             // LIKE 兜底/合并（中文子串匹配；FTS5 未命中或不支持时覆盖）
-            val likeParams: Array<Any?> = if (repoId != null) arrayOf("%$kw%", "%$kw%", repoId) else arrayOf("%$kw%", "%$kw%")
+            val likeParams = listOf<Any?>("%$kw%", "%$kw%") + repoIds
             val likeHits =
                 conn.select<DocRecord>(
-                    "SELECT * FROM doc WHERE (title LIKE ? OR markdown LIKE ?)" + (if (repoId != null) " AND repo_id=?" else ""),
-                    *likeParams,
+                    "SELECT * FROM doc WHERE (title LIKE ? OR markdown LIKE ?) AND repo_id IN ($placeholders)",
+                    *likeParams.toTypedArray(),
                 ) { rowToDoc(it) }
             (ftsHits + likeHits).distinctBy { it.id }.toList()
         }
+    }
 
     // ── 内部 SQL 助手 ─────────────────────────────────────────────────────
 

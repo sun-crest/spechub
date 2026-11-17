@@ -17,6 +17,8 @@ interface SubscriptionRepository : CrudRepository<SubscriptionEntity, Long> {
     @Query("SELECT * FROM subscription ORDER BY team, path")
     fun findAllOrdered(): List<SubscriptionEntity>
 
+    fun findAllByRepoIdIn(repoIds: Collection<Long>): List<SubscriptionEntity>
+
     @Query("SELECT * FROM subscription WHERE repo_id = :repoId AND method = :method AND path = :path ORDER BY team")
     fun forEndpoint(
         repoId: Long,

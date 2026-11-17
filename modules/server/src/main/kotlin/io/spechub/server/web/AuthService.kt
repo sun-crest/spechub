@@ -162,6 +162,97 @@ class AuthService(
         project: ProjectEntity,
     ): Boolean = Role.rank(effectiveRole(user, project.id)) >= Role.rank(Role.ADMIN)
 
+    /** 当前组织内、当前用户可见的项目（release 视角；dev 免登录返回全部）。 */
+    fun visibleProjects(req: HttpServletRequest): List<ProjectEntity> {
+        val projects = projectService.list(currentOrgId(req))
+        if (!authEnabled) return projects
+        val user = currentUser(req)
+        return projects.filter { canReadProject(user, it, Stage.RELEASE) }
+    }
+
+    /** 指定 stage 下可见项目 id；空集合表示什么都看不到。 */
+    fun visibleProjectIds(
+        req: HttpServletRequest,
+        stage: String,
+    ): Set<Long> {
+        val projects = projectService.list(currentOrgId(req))
+        if (!authEnabled) return projects.mapNotNull { it.id }.toSet()
+        val user = currentUser(req)
+        return projects.filter { canReadProject(user, it, stage) }.mapNotNull { it.id }.toSet()
+    }
+
+    /** 指定 stage 下可见 repo id；调用方必须显式传入，禁止为空时退化为全量。 */
+    fun visibleRepoIds(
+        req: HttpServletRequest,
+        stage: String,
+    ): Set<Long> {
+        if (!authEnabled) return repoService.listReposByOrgId(currentOrgId(req)).map { it.id }.toSet()
+        val projectIds = visibleProjectIds(req, stage)
+        return if (projectIds.isEmpty()) {
+            emptySet()
+        } else {
+            repoService.listReposByProjectIds(projectIds).map { it.id }.toSet()
+        }
+    }
+
+    /** 用户是成员（含 org_admin）的项目 id；评审/评论/变更记录等内部视图使用。 */
+    fun memberProjectIds(req: HttpServletRequest): Set<Long> {
+        val projects = projectService.list(currentOrgId(req))
+        if (!authEnabled) return projects.mapNotNull { it.id }.toSet()
+        val user = currentUser(req) ?: return emptySet()
+        val uid = user.id ?: return emptySet()
+        val orgId = currentOrgId(req)
+        if (user.isPlatformAdmin || orgs.isOrgAdmin(uid, orgId)) return projects.mapNotNull { it.id }.toSet()
+        return projects
+            .filter { project -> project.id?.let { users.membershipRole(uid, it) != null } == true }
+            .mapNotNull { it.id }
+            .toSet()
+    }
+
+    /** 用户是成员（含 org_admin）的 repo id；评审/评论/变更记录等内部视图使用。 */
+    fun memberRepoIds(req: HttpServletRequest): Set<Long> {
+        if (!authEnabled) return repoService.listReposByOrgId(currentOrgId(req)).map { it.id }.toSet()
+        val projectIds = memberProjectIds(req)
+        return if (projectIds.isEmpty()) {
+            emptySet()
+        } else {
+            repoService.listReposByProjectIds(projectIds).map { it.id }.toSet()
+        }
+    }
+
+    /** 内部视图入口：必须是项目成员或 org_admin；不可见统一 404。 */
+    fun requireProjectMember(
+        req: HttpServletRequest,
+        projectId: Long,
+        op: String,
+    ): UserRecord {
+        if (!authEnabled) {
+            return currentUser(req) ?: UserRecord(id = -1, username = "anonymous", tokenHash = "")
+        }
+        val user =
+            currentUser(req)
+                ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
+        val uid = user.id ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
+        val project =
+            projectService.get(projectId)
+                ?: throw ApiException(ApiErrorCode.NOT_FOUND, "project $projectId 不存在")
+        val orgId = project.orgId ?: orgs.defaultOrgId()
+        if (user.isPlatformAdmin || orgs.isOrgAdmin(uid, orgId) || users.membershipRole(uid, projectId) != null) return user
+        throw ApiException(ApiErrorCode.NOT_FOUND, "project $projectId 不存在")
+    }
+
+    /** 内部视图入口（按 repo）：必须是项目成员或 org_admin；不可见统一 404。 */
+    fun requireRepoMember(
+        req: HttpServletRequest,
+        repoId: Long,
+        op: String,
+    ): UserRecord {
+        val repo =
+            repoService.getRepo(repoId)
+                ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $repoId 不存在")
+        return requireProjectMember(req, repo.projectId, op)
+    }
+
     /**
      * 读端点入口：项目不存在或不可见统一 404（不暴露资源是否存在）。
      * @return 可见项目（供调用方继续取 projectId / orgId）。
@@ -174,6 +265,7 @@ class AuthService(
         val project =
             projectService.get(projectId)
                 ?: throw ApiException(ApiErrorCode.NOT_FOUND, "project $projectId 不存在")
+        if (!authEnabled) return project
         if (!canReadProject(currentUser(req), project, stage)) {
             throw ApiException(ApiErrorCode.NOT_FOUND, "project $projectId 不存在")
         }

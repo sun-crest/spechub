@@ -56,8 +56,10 @@ class CommentController(
     @GetMapping("/apis/{id}/comments")
     fun comments(
         @PathVariable id: Long,
+        request: HttpServletRequest,
     ): List<CommentView> {
         val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
+        auth.requireRepoMember(request, api.repoId, "查看评论")
         return commentService.listForEndpoint(api.repoId, api.method, api.path).map(::toView)
     }
 
@@ -67,8 +69,8 @@ class CommentController(
         @RequestBody @Valid body: CommentBody,
         request: HttpServletRequest,
     ): CommentView {
-        val user = auth.requireAuthenticated(request, "发表评论")
         val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
+        val user = auth.requireRepoMember(request, api.repoId, "发表评论")
         val comment = commentService.add(api.repoId, api.id, null, api.method, api.path, user.username, body.body.trim())
         changelogService.add(api.repoId, api.id, user.username, "comment", "评论 ${api.method} ${api.path}：${body.body.trim().take(60)}")
         return toView(comment)

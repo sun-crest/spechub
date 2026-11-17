@@ -76,20 +76,27 @@ class ReviewController(
 
     @GetMapping
     fun list(
+        request: HttpServletRequest,
         @RequestParam status: String? = null,
         @RequestParam repoId: Long? = null,
     ): List<ReviewView> {
         if (status != null && !ReviewStatus.ALL.contains(status)) {
             throw ApiException(ApiErrorCode.VALIDATION, "status ∈ ${ReviewStatus.ALL}", listOf(ApiErrorBody.FieldError("status", "status ∈ ${ReviewStatus.ALL}")))
         }
-        return reviewService.list(repoId, status).map(::toView)
+        if (repoId != null) {
+            auth.requireRepoMember(request, repoId, "查看评审")
+            return reviewService.list(repoId, status).map(::toView)
+        }
+        return reviewService.list(auth.memberRepoIds(request), status).map(::toView)
     }
 
     @GetMapping("/{id}")
     fun detail(
         @PathVariable id: Long,
+        request: HttpServletRequest,
     ): ReviewDetail {
         val r = reviewService.get(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评审 $id 不存在")
+        auth.requireRepoMember(request, r.repoId, "查看评审")
         val current =
             repoService.getRepo(r.repoId)?.let { repo ->
                 try {

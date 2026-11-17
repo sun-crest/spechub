@@ -1,12 +1,12 @@
 package io.spechub.server.web
 
 import io.spechub.server.config.SpecHubProperties
-import io.spechub.server.service.RepoService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.Stage
 import io.spechub.spec.parser.export.MarkdownExporter
+import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PathVariable
@@ -28,7 +28,7 @@ import java.nio.file.Path
 @RequestMapping("/api/repos/{id}/document")
 class DocumentController(
     private val exportService: ExportService,
-    private val repoService: RepoService,
+    private val auth: AuthService,
     private val props: SpecHubProperties,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -38,6 +38,7 @@ class DocumentController(
         @PathVariable id: Long,
         @PathVariable format: String,
         @RequestParam stage: String = Stage.DRAFT,
+        request: HttpServletRequest,
     ): ResponseEntity<ByteArray> {
         if (format !in setOf("docx", "pdf")) {
             throw ApiException(ApiErrorCode.VALIDATION, "format ∈ docx | pdf", listOf(ApiErrorBody.FieldError("format", "format ∈ docx | pdf")))
@@ -45,7 +46,7 @@ class DocumentController(
         if (stage !in setOf(Stage.DRAFT, Stage.RELEASE)) {
             throw ApiException(ApiErrorCode.VALIDATION, "stage ∈ draft | release", listOf(ApiErrorBody.FieldError("stage", "stage ∈ draft | release")))
         }
-        repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        auth.requireRepoVisible(request, id, stage)
 
         val doc = exportService.reconstructOpenApi(id, stage)
         val md = MarkdownExporter.export(doc)

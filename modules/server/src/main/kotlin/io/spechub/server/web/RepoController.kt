@@ -6,6 +6,8 @@ import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.RepoRecord
+import io.spechub.spec.index.Stage
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import org.springframework.web.bind.annotation.GetMapping
@@ -59,21 +61,33 @@ class RepoController(
     }
 
     @GetMapping("/repos")
-    fun list(): List<RepoRecord> = repoService.listRepos()
+    fun list(request: HttpServletRequest): List<RepoRecord> {
+        val repoIds = auth.visibleRepoIds(request, Stage.RELEASE)
+        return repoService.listReposByIds(repoIds)
+    }
 
     @GetMapping("/repos/{id}")
     fun get(
         @PathVariable id: Long,
-    ): RepoRecord = repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        request: HttpServletRequest,
+    ): RepoRecord = auth.requireRepoVisible(request, id, Stage.RELEASE)
 
     @GetMapping("/repos/{id}/apis")
     fun apis(
         @PathVariable id: Long,
+        request: HttpServletRequest,
         @RequestParam method: String? = null,
         @RequestParam tag: String? = null,
         @RequestParam q: String? = null,
         @RequestParam stage: String? = null,
-    ) = projection.listApis(id, method?.uppercase(), tag, q, stage ?: "draft")
+    ): List<io.spechub.spec.index.ApiRecord> {
+        val resolvedStage = stage ?: Stage.DRAFT
+        if (resolvedStage !in setOf(Stage.DRAFT, Stage.RELEASE)) {
+            throw ApiException(ApiErrorCode.VALIDATION, "stage ∈ draft | release")
+        }
+        auth.requireRepoVisible(request, id, resolvedStage)
+        return projection.listApis(id, method?.uppercase(), tag, q, resolvedStage)
+    }
 
     companion object {
         const val DEFAULT_PROJECT = "default"

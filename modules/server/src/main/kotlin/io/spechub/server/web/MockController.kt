@@ -8,6 +8,7 @@ import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.MockRuleRecord
 import io.spechub.spec.index.ProjectionStore
+import io.spechub.spec.index.Stage
 import io.spechub.spec.mock.MockEngine
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
@@ -51,6 +52,14 @@ class MockController(
         val prefix = "/mock/$repoId"
         val path = request.requestURI.substringAfter(prefix).ifBlank { "/" }
         val method = request.method ?: "GET"
+        // 鉴权启用时按项目可见性放行；不可见/不存在统一走 MOCK_NO_MATCH，避免暴露仓库是否存在。
+        if (repoService.getRepo(repoId) != null) {
+            try {
+                auth.requireRepoVisible(request, repoId, Stage.RELEASE)
+            } catch (e: ApiException) {
+                throw ApiException(ApiErrorCode.MOCK_NO_MATCH, "repo $repoId 无匹配 $method $path 的接口")
+            }
+        }
         val result = engine.generate(repoId, method, path)
         if (result == null) {
             throw ApiException(ApiErrorCode.MOCK_NO_MATCH, "repo $repoId 无匹配 $method $path 的接口")
@@ -75,8 +84,9 @@ class MockController(
     @GetMapping("/api/repos/{id}/mock/rules")
     fun rules(
         @PathVariable id: Long,
+        request: HttpServletRequest,
     ): List<MockRuleRecord> {
-        repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        auth.requireRepoMember(request, id, "查看 mock 规则")
         return mockRuleService.rulesFor(id)
     }
 
@@ -135,8 +145,10 @@ class MockController(
     @GetMapping("/api/apis/{id}/mock/preview")
     fun preview(
         @PathVariable id: Long,
+        request: HttpServletRequest,
     ): MockPreview {
         val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
+        auth.requireRepoVisible(request, api.repoId, api.stage)
         val result =
             engine.generate(api.repoId, api.method, api.path)
                 ?: throw ApiException(ApiErrorCode.INTERNAL, "mock 生成失败（spec 无响应 schema？）")

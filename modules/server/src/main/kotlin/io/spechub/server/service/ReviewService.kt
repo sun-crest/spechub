@@ -61,6 +61,21 @@ class ReviewService(
         return entities.map { it.toRecord() }
     }
 
+    /** 多 repo 过滤：空集合返回空，禁止退化为全量。 */
+    fun list(
+        repoIds: Collection<Long>,
+        status: String? = null,
+    ): List<ReviewRecord> {
+        if (repoIds.isEmpty()) return emptyList()
+        val entities =
+            if (status != null) {
+                reviews.findAllByRepoIdInAndStatus(repoIds, status)
+            } else {
+                reviews.findAllByRepoIdIn(repoIds)
+            }
+        return entities.sortedByDescending { it.id }.map { it.toRecord() }
+    }
+
     /**
      * 审批状态机：条件更新（仅 pending 可迁移），返回是否成功。
      * 并发审批时后到者返回 false，由调用方映射 409，避免重复落真源。

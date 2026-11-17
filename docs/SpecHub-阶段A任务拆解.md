@@ -166,9 +166,9 @@
 
 **投影层**
 
-- [ ] `ProjectionStore.listAllApis` 增加 `repoIds: Collection<Long>` 参数。
-- [ ] `ProjectionStore.listDocs` / `searchDocs` 支持 `repoIds` 集合。
-- [ ] **空集合返回空结果，绝不退化为全量**；所有调用方必须显式传可见 repo 集合。
+- [x] `ProjectionStore.listAllApis` 增加 `repoIds: Collection<Long>` 参数。
+- [x] `ProjectionStore.listDocs` / `searchDocs` 支持 `repoIds` 集合。
+- [x] **空集合返回空结果，绝不退化为全量**；所有调用方必须显式传可见 repo 集合。
 
 **端点**
 
@@ -185,11 +185,18 @@
 | `/mock/{repoId}/**` | 鉴权启用时按项目可见性；dev 保持放行 |
 | `POST /api/apis/{id}/try`、评论、写回 | 按 repo→project 校验 |
 
-- [ ] 逐端点补 404/403 语义：不可见 404，可见但角色不足 403。
-- [ ] 写路径的 `requireRepoRole` 改为能解析 repo→project→org。
-- [ ] 新增 `ReadIsolationTest`：用户只在 A，覆盖列表、详情、搜索、导出、评论、评审、订阅。
+- [x] 逐端点补 404/403 语义：不可见 404，可见但角色不足 403。
+- [x] 写路径的 `requireRepoRole` 改为能解析 repo→project→org（`effectiveRole` 纳入 org_admin）。
+- [x] 新增 `ReadIsolationTest`：用户只在 A，覆盖列表、详情、搜索、导出、评审、订阅、mock。
 
-> **A‑1 门禁**：A4 全绿之前，不开放项目切换 UI；可用 `spechub.multi-project.enabled=false` 隐藏入口。
+**测试**
+
+- [x] `ReadIsolationTest`：两私有项目 + 只属于 A 的 viewer；projects/repos/apis/docs 列表、详情、搜索、导出、changelog、reviews、subscriptions、mock 全部看不到 B。
+- [x] 全量 `:server:test` PostgreSQL / MySQL 双库通过；`:server:ktlintCheck` 通过。
+
+**状态**：✅ 2026-11-17 完成（A‑1 安全底座门禁通过）。
+
+> **A‑1 门禁**：A4 全绿之前，不开放项目切换 UI；下一步 A5–A8 才接入多项目 UI。
 
 ### A5 · 项目 CRUD API（M）
 

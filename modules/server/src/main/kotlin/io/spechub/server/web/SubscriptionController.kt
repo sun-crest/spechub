@@ -1,12 +1,12 @@
 package io.spechub.server.web
 
 import io.spechub.server.service.ChangelogService
-import io.spechub.server.service.RepoService
 import io.spechub.server.service.SubscriptionService
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.NotificationRecord
 import io.spechub.spec.index.ProjectionStore
+import io.spechub.spec.index.Stage
 import io.spechub.spec.index.SubscriptionRecord
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
@@ -35,7 +35,6 @@ import org.springframework.web.bind.annotation.RestController
 class SubscriptionController(
     private val projection: ProjectionStore,
     private val changelogService: ChangelogService,
-    private val repoService: RepoService,
     private val subscriptionService: SubscriptionService,
     private val auth: AuthService,
 ) {
@@ -53,7 +52,7 @@ class SubscriptionController(
         request: HttpServletRequest,
     ): SubscriptionRecord {
         auth.requireAuthenticated(request, "订阅")
-        repoService.getRepo(body.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${body.repoId} 不存在")
+        auth.requireRepoVisible(request, body.repoId, Stage.RELEASE)
         // api_id 尽力关联（method+path 命中当前投影则填，便于详情展示；非 FK）
         val apiId =
             projection
@@ -81,8 +80,15 @@ class SubscriptionController(
 
     @GetMapping
     fun list(
+        request: HttpServletRequest,
         @RequestParam repoId: Long? = null,
-    ): List<SubscriptionRecord> = subscriptionService.list(repoId)
+    ): List<SubscriptionRecord> {
+        if (repoId != null) {
+            auth.requireRepoVisible(request, repoId, Stage.RELEASE)
+            return subscriptionService.list(repoId)
+        }
+        return subscriptionService.list(auth.visibleRepoIds(request, Stage.RELEASE))
+    }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -92,13 +98,15 @@ class SubscriptionController(
     ) {
         auth.requireAuthenticated(request, "取消订阅")
         val sub = subscriptionService.get(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "订阅 $id 不存在")
+        auth.requireRepoVisible(request, sub.repoId, Stage.RELEASE)
         subscriptionService.unsubscribe(id)
         changelogService.add(sub.repoId, sub.apiId, auth.currentActor(request), "subscription.delete", "取消订阅：${sub.team} ${sub.method} ${sub.path}")
     }
 
     @GetMapping("/notifications")
     fun notifications(
+        request: HttpServletRequest,
         @RequestParam team: String? = null,
         @RequestParam limit: Int = 50,
-    ): List<NotificationRecord> = subscriptionService.listNotifications(team, limit)
+    ): List<NotificationRecord> = subscriptionService.listNotifications(team, auth.visibleRepoIds(request, Stage.RELEASE), limit)
 }

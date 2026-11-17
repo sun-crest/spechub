@@ -78,6 +78,13 @@ class RepoService(
             repos.findAllByProjectIdIn(projectIds).map { it.toRecord() }
         }
 
+    fun listReposByIds(ids: Collection<Long>): List<RepoRecord> =
+        if (ids.isEmpty()) {
+            emptyList()
+        } else {
+            repos.findAllById(ids).map { it.toRecord() }
+        }
+
     fun listReposByOrgId(orgId: Long): List<RepoRecord> = repos.findAllByOrgIdOrderByIdAsc(orgId).map { it.toRecord() }
 
     fun getRepo(id: Long): RepoRecord? = repos.findById(id).orElse(null)?.toRecord()
