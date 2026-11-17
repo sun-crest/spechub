@@ -53,7 +53,9 @@ services:
     ports:
       - "${SPECHUB_DB_PORT:-5432}:5432"
     volumes:
-      - db-data:/var/lib/postgresql/data
+      # postgres 18+ 约定：挂载父目录 /var/lib/postgresql（数据落在卷内 18/docker 子目录）。
+      # 挂到旧路径 /data 会被镜像 entrypoint 判定为 unused mount/volume 并拒绝启动。
+      - db-data:/var/lib/postgresql
     # 慢查询（>500ms）与锁等待进容器日志；MySQL 替代部署用 --slow_query_log=1 --long_query_time=0.5
     command: ["postgres", "-c", "log_min_duration_statement=500", "-c", "log_lock_waits=on"]
     healthcheck:
