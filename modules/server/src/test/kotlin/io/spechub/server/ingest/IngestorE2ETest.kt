@@ -132,11 +132,8 @@ class IngestorE2ETest {
         val repo = platform.insertRepo("default", origin.toString(), "main")
         ingestor.ingest(repo)
 
-        // 管理数据：用户/成员、接口评论、文档评论、mock 规则（挂 api）、订阅（挂 api）、评审、changelog
-        val user = platform.createUser("alice", "Alice", "hash-alice")
-        val userId = checkNotNull(user.id) { "createUser 应回填 id" }
-        val projectId = checkNotNull(platform.projectIdByName("default")) { "default project 应存在" }
-        platform.setMembership(userId, projectId, "editor")
+        // 管理数据（仍由 PlatformStore 承载的部分）：接口评论、文档评论、mock 规则、订阅、评审、changelog
+        // 用户/成员已迁管理库（Phase 2），不在投影重建影响面内，由 AuthApiTest 覆盖。
         val api = projection.listApis(repo.id).first { it.operationId == "listPets" }
         val doc = projection.listDocs(repo.id).first { it.path == "docs/pet/handover.md" }
         platform.addComment(repo.id, api.id, null, api.method, api.path, "alice", "接口评论")
@@ -156,8 +153,6 @@ class IngestorE2ETest {
 
         // 管理数据全部仍在（assertAll：一次报告所有丢失项，避免逐个修才发现下一个）
         assertAll(
-            { assertNotNull(platform.findByUsername("alice"), "用户应保留") },
-            { assertEquals("editor", platform.membershipRole(userId, projectId), "成员关系应保留") },
             { assertEquals(2, platform.listCommentsForRepo(repo.id).size, "接口 + 文档评论都应保留") },
             { assertEquals(1, platform.listCommentsForDoc(repo.id, doc.path).size, "文档评论按 repo+path 稳定寻址命中") },
             { assertEquals(1, platform.listMockRules(repo.id).size, "mock 规则应保留") },

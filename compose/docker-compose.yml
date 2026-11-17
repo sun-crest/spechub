@@ -40,6 +40,26 @@ services:
       timeout: 5s
       retries: 5
 
+  db:
+    # 管理库（Phase 2）：PostgreSQL 18 参考默认；MySQL 8.4 LTS 为受支持替代（换镜像 + 改 backend 的 URL/驱动）
+    image: postgres:18.6
+    container_name: spechub-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: spechub
+      POSTGRES_USER: spechub
+      POSTGRES_PASSWORD: ${SPECHUB_DB_PASSWORD:-spechub}
+      TZ: UTC
+    ports:
+      - "${SPECHUB_DB_PORT:-5432}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spechub -d spechub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     container_name: spechub-backend
     restart: unless-stopped
@@ -54,6 +74,10 @@ services:
       # 对外 URL（用户浏览器）与内置 Gitea 地址（compose 网络内用服务名）
       SPECHUB_EXTERNAL_URL: ${SPECHUB_EXTERNAL_URL:-http://localhost:8080}
       SPECHUB_GITEA_URL: http://gitea:3000
+      # 管理库连接（compose 网络内服务名 db；Flyway 启动自动建表）
+      SPECHUB_DB_URL: jdbc:postgresql://db:5432/spechub
+      SPECHUB_DB_USER: spechub
+      SPECHUB_DB_PASSWORD: ${SPECHUB_DB_PASSWORD:-spechub}
     ports:
       - "${SPECHUB_PORT:-8080}:8080"
     volumes:
@@ -62,6 +86,8 @@ services:
       - artifacts:/var/lib/spechub/artifacts
     depends_on:
       gitea:
+        condition: service_healthy
+      db:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
@@ -74,3 +100,4 @@ volumes:
   gitea-data:
   sqlite:
   artifacts:
+  db-data:

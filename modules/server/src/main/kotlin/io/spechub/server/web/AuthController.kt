@@ -4,6 +4,7 @@ import io.spechub.spec.index.Role
 import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.UserRecord
 import io.spechub.server.config.SpecHubProperties
+import io.spechub.server.service.UserService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
@@ -37,6 +38,7 @@ import org.springframework.web.bind.annotation.RestController
 class AuthController(
     private val props: SpecHubProperties,
     private val platform: PlatformStore,
+    private val users: UserService,
     private val auth: AuthService,
 ) {
 
@@ -114,11 +116,11 @@ class AuthController(
     fun users(req: HttpServletRequest): List<UserView> {
         auth.requireProjectRole(req, platform.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "查看成员")
         val projectId = platform.projectIdByName(RepoController.DEFAULT_PROJECT)
-        return platform.listUsers().map { user ->
+        return users.listUsers().map { user ->
             UserView(
                 id = user.id as Long, username = user.username, displayName = user.displayName,
                 platformAdmin = user.isPlatformAdmin,
-                role = projectId?.let { platform.membershipRole(user.id as Long, it) },
+                role = projectId?.let { users.membershipRole(user.id as Long, it) },
                 createdAt = user.createdAt,
             )
         }
@@ -135,13 +137,13 @@ class AuthController(
                 listOf(ApiErrorBody.FieldError("role", "role ∈ ${Role.ALL}")),
             )
         }
-        if (platform.findByUsername(username) != null) {
+        if (users.findByUsername(username) != null) {
             throw ApiException(ApiErrorCode.CONFLICT, "用户 $username 已存在")
         }
         val token = AuthService.generateToken()
-        val user = platform.createUser(username, body.displayName.ifBlank { username }, AuthService.sha256(token))
         val projectId = platform.projectIdByName(RepoController.DEFAULT_PROJECT)
-        if (projectId != null) platform.setMembership(user.id!!, projectId, body.role)
+        // 用户 + 成员在管理库同一事务内创建；changelog 仍在投影库，跨库不做分布式事务
+        val user = users.createUserWithMembership(username, body.displayName, AuthService.sha256(token), projectId, body.role)
         platform.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.create", detail = "创建用户 $username（$body.role）")
         return CreateUserResponse(toView(user, projectId), token)
     }
@@ -152,10 +154,10 @@ class AuthController(
         if (!Role.ALL.contains(body.role)) {
             throw ApiException(ApiErrorCode.VALIDATION, "role ∈ ${Role.ALL}", listOf(ApiErrorBody.FieldError("role", "role ∈ ${Role.ALL}")))
         }
-        val user = platform.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
+        val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "平台 admin 角色不可改")
         val projectId = platform.projectIdByName(RepoController.DEFAULT_PROJECT)
-        if (projectId != null) platform.setMembership(id, projectId, body.role)
+        if (projectId != null) users.setMembership(id, projectId, body.role)
         platform.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.role", detail = "用户 ${user.username} → $body.role")
         return toView(user, projectId)
     }
@@ -163,10 +165,10 @@ class AuthController(
     @PostMapping("/users/{id}/token")
     fun resetToken(req: HttpServletRequest, @PathVariable id: Long): CreateUserResponse {
         auth.requireProjectRole(req, platform.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "重置令牌")
-        val user = platform.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
+        val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         val token = AuthService.generateToken()
         // 无公开 updateToken 字段 → 删除重建不可取（保留 id/role）。这里用内部更新：
-        platform.updateUserToken(id, AuthService.sha256(token))
+        users.updateToken(id, AuthService.sha256(token))
         return CreateUserResponse(toView(user, platform.projectIdByName(RepoController.DEFAULT_PROJECT)), token)
     }
 
@@ -175,10 +177,10 @@ class AuthController(
     fun deleteUser(req: HttpServletRequest, @PathVariable id: Long) {
         val actor = auth.currentUser(req)
         auth.requireProjectRole(req, platform.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "删除用户")
-        val user = platform.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
+        val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除平台 admin")
         if (actor != null && actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")
-        platform.deleteUser(id)
+        users.deleteUser(id)
         platform.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.delete", detail = "删除用户 ${user.username}")
     }
 
@@ -187,7 +189,7 @@ class AuthController(
     private fun toView(user: UserRecord, projectId: Long?): UserView = UserView(
         id = user.id as Long, username = user.username, displayName = user.displayName,
         platformAdmin = user.isPlatformAdmin,
-        role = projectId?.let { platform.membershipRole(user.id as Long, it) },
+        role = projectId?.let { users.membershipRole(user.id as Long, it) },
         createdAt = user.createdAt,
     )
 }

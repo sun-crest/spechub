@@ -4,6 +4,7 @@ import io.spechub.spec.index.Role
 import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.UserRecord
 import io.spechub.server.config.SpecHubProperties
+import io.spechub.server.service.UserService
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
@@ -25,6 +26,7 @@ import java.security.SecureRandom
 @Service
 class AuthService(
     private val platform: PlatformStore,
+    private val users: UserService,
     private val props: SpecHubProperties,
 ) {
 
@@ -33,8 +35,8 @@ class AuthService(
         const val REQ_USER = "spechub.auth.user"
         const val REQ_USERNAME = "spechub.auth.username"
 
-        /** 平台 admin 用户名（与 PlatformStore.USER_ADMIN_NAME 一致） */
-        const val ADMIN_USERNAME = "admin"
+        /** 平台 admin 用户名（与 UserService.ADMIN_USERNAME 一致） */
+        const val ADMIN_USERNAME = UserService.ADMIN_USERNAME
 
         fun sha256(text: String): String =
             MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
@@ -52,13 +54,13 @@ class AuthService(
     /** 启动时 bootstrap 平台 admin（幂等；token_hash 由 admin-token 派生） */
     fun bootstrapAdmin(): UserRecord? {
         val token = props.adminToken ?: return null
-        return platform.ensurePlatformAdmin(sha256(token))
+        return users.bootstrapAdmin(sha256(token))
     }
 
     /** Bearer → 当前用户（未启用鉴权返回 null 表示「无用户但已放行」） */
     fun userForToken(token: String?): UserRecord? {
         if (token == null || token.isBlank()) return null
-        return platform.findUserByTokenHash(sha256(token))
+        return users.findByTokenHash(sha256(token))
     }
 
     /** request 上由 TokenAuthFilter 填充的当前用户 */
@@ -81,7 +83,7 @@ class AuthService(
     fun effectiveRole(user: UserRecord, projectId: Long?): String? {
         if (user.isPlatformAdmin) return Role.OWNER
         val uid = user.id ?: return null
-        return projectId?.let { platform.membershipRole(uid, it) }
+        return projectId?.let { users.membershipRole(uid, it) }
     }
 
     /** require：写端点入口校验，未达标抛 401/403（带操作名）；未启用鉴权放行 */

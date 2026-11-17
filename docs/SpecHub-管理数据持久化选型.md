@@ -260,11 +260,12 @@ modules/mock/
 
 ### Phase 2 · 物理拆分两个数据源
 > **前置 spike 已完成（2026-11-17）**：Spring Data JDBC + Kotlin 不可变实体、`@Version` 乐观锁、Flyway 双 vendor、双库 Testcontainers 均实测通过；结论与复现见 `spike/persistence/README.md`。
-- 管理库独立 DataSource；投影继续 SQLite。
-- **存量数据不迁移**：现有 SQLite 库中的管理数据直接丢弃；新管理库由 Flyway 建表 + 启动种子（default project / admin）重建，不做数据搬运与 username 大小写、时间类型清洗。
-- 管理表 DDL/迁移迁到 server（Flyway per vendor）。
-- 管理 Repository 用 Spring Data JDBC；复杂 SQL 用 JdbcTemplate。
-- `MockEngine` 接入 `MockRuleSource` 端口。
+- [x] 管理库独立 DataSource；投影继续 SQLite。✅ 2026-11-17：`spring.datasource` 指向管理库；投影 `IndexDb` 不进 Spring DataSource；Flyway `classpath:db/migration/{vendor}`。
+- [x] **存量数据不迁移**：现有 SQLite 库中的管理数据直接丢弃；新管理库由 Flyway 建表 + 启动种子（default project / admin）重建。✅ 已落实（管理库空库启动）。
+- [x] 管理表 DDL/迁移迁到 server（Flyway per vendor）。✅ 2026-11-17：10 张管理表 PG/MySQL 两版迁移脚本。
+- [x] 管理 Repository 用 Spring Data JDBC；复杂 SQL 用 JdbcTemplate。✅ 首个纵切：用户/成员域（`UserService` + `UserRepository` / `MembershipRepository`，多表写 `@Transactional`；`AuthService` / `AuthController` 已接入）。
+- [ ] 其余管理域迁移：project / repo、comment、subscription、notification、review、mock_rule、changelog（含 `MockRuleSource` 端口）。
+- [ ] 双库（MySQL）集成测试矩阵接入。
 
 ### Phase 3 · 事务与原子性
 - 管理域 Service 加 `@Transactional`；多表写本地事务。

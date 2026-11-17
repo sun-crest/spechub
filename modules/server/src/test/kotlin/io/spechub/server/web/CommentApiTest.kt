@@ -63,6 +63,7 @@ class CommentApiTest : TestDbIsolation() {
         @JvmStatic
         @DynamicPropertySource
         fun registerTempDirs(registry: DynamicPropertyRegistry) {
+            TestManagementDb.register(registry, "t_comment")
             registry.add("spechub.git-source-dir") { TEMPDIR.resolve("gitsource").toString() }
             registry.add("spechub.sqlite-dir") { TEMPDIR.resolve("sqlite").toString() }
             registry.add("spechub.artifacts-dir") { TEMPDIR.resolve("artifacts").toString() }

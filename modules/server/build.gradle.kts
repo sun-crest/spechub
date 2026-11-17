@@ -19,10 +19,22 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator") // /actuator/health → compose healthcheck
+    // Phase 2：管理库（PostgreSQL / MySQL）——Spring Data JDBC + Flyway per vendor
+    implementation("org.springframework.boot:spring-boot-starter-data-jdbc")
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
+    implementation("org.flywaydb:flyway-database-postgresql")
+    implementation("org.flywaydb:flyway-mysql")
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
+    runtimeOnly("org.postgresql:postgresql")
+    runtimeOnly("com.mysql:mysql-connector-j")
 
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter) // 版本由 BOM（6.0.3）管
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation(platform("org.testcontainers:testcontainers-bom:2.0.5"))
+    testImplementation("org.testcontainers:testcontainers")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-postgresql")
     // Boot 4 / Spring 7：starter-test 把 spring-test 与 json-path 按 runtime 传递，编译端须显式声明才可见
     testImplementation("org.springframework:spring-test")
     testImplementation("com.jayway.jsonpath:json-path")

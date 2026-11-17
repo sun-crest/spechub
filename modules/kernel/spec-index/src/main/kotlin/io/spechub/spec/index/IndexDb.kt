@@ -327,6 +327,7 @@ object IndexSchema {
         """.trimIndent(),
 
         // 平台用户（I4 RBAC：认证对象；token 只存 hash，平台管理员由 admin-token bootstrap）
+        // Phase 2 起迁入管理库（server/repository）；此表仅过渡保留，Phase 3 清理
         """
         CREATE TABLE IF NOT EXISTS app_user (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -339,6 +340,7 @@ object IndexSchema {
         """.trimIndent(),
 
         // 项目成员（I4：user → project 的角色，owner/admin/editor/viewer）
+        // Phase 2 起迁入管理库；此表仅过渡保留，Phase 3 清理
         """
         CREATE TABLE IF NOT EXISTS membership (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

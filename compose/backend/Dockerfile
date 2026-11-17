@@ -20,4 +20,4 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=builder /src/modules/server/build/libs/spechub-server.jar /app/spechub.jar
 EXPOSE 8080
-ENTRYPOINT ["java", "-XX:+UseZGC", "-jar", "/app/spechub.jar"]
+ENTRYPOINT ["java", "-XX:+UseZGC", "-Duser.timezone=UTC", "-jar", "/app/spechub.jar"]

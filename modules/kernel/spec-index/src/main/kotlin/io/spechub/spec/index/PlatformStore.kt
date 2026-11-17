@@ -130,97 +130,6 @@ class PlatformStore(private val db: IndexDb) {
         }.firstOrNull()
     }
 
-    // ── user / membership（RBAC）────────────────────────────────────────────
-
-    /** bootstrap 平台 admin（username=admin，token_hash=SHA-256(adminToken)），幂等 */
-    fun ensurePlatformAdmin(tokenHash: String): UserRecord = db.transaction { conn ->
-        val existing = conn.select("SELECT * FROM app_user WHERE username=?", USER_ADMIN_NAME) { rowToUser(it) }.firstOrNull()
-        if (existing != null) {
-            conn.exec("UPDATE app_user SET token_hash=?, is_platform_admin=1 WHERE id=?", tokenHash, existing.id)
-            existing.copy(tokenHash = tokenHash, isPlatformAdmin = true)
-        } else {
-            val id = conn.insert(
-                "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES (?,?,?,1)",
-                USER_ADMIN_NAME, USER_ADMIN_NAME, tokenHash,
-            )
-            UserRecord(id, USER_ADMIN_NAME, USER_ADMIN_NAME, tokenHash, isPlatformAdmin = true)
-        }
-    }
-
-    /** 按 token hash 查用户（认证期）；未命中返回 null */
-    fun findUserByTokenHash(tokenHash: String): UserRecord? = db.transaction { conn ->
-        conn.select("SELECT * FROM app_user WHERE token_hash=?", tokenHash) { rowToUser(it) }.firstOrNull()
-    }
-
-    fun findUserById(id: Long): UserRecord? = db.transaction { conn ->
-        conn.select("SELECT * FROM app_user WHERE id=?", id) { rowToUser(it) }.firstOrNull()
-    }
-
-    fun findByUsername(username: String): UserRecord? = db.transaction { conn ->
-        conn.select("SELECT * FROM app_user WHERE username=?", username) { rowToUser(it) }.firstOrNull()
-    }
-
-    /** 平台 admin（is_platform_admin=1 的任意用户组） */
-    fun findPlatformAdmins(): List<UserRecord> = db.transaction { conn ->
-        conn.select("SELECT * FROM app_user WHERE is_platform_admin=1") { rowToUser(it) }
-    }
-
-    /** 创建用户并可随即加入某项目（普通用户）；返回落库用户 */
-    fun createUser(username: String, displayName: String, tokenHash: String): UserRecord = db.transaction { conn ->
-        val id = conn.insert(
-            "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES (?,?,?,0)",
-            username, displayName, tokenHash,
-        )
-        UserRecord(id, username, displayName, tokenHash)
-    }
-
-    fun deleteUser(id: Long) = db.transaction { conn ->
-        conn.exec("DELETE FROM app_user WHERE id=?", id)
-    }
-
-    fun updateUserToken(id: Long, newHash: String) = db.transaction { conn ->
-        conn.exec("UPDATE app_user SET token_hash=? WHERE id=?", newHash, id)
-    }
-
-    fun setMembership(userId: Long, projectId: Long, role: String) = db.transaction { conn ->
-        val existing = conn.select(
-            "SELECT id FROM membership WHERE user_id=? AND project_id=?",
-            userId, projectId,
-        ) { r -> r.long("id") }.firstOrNull()
-        if (existing != null) {
-            conn.exec("UPDATE membership SET role=? WHERE id=?", role, existing)
-        } else {
-            conn.insert("INSERT INTO membership (user_id, project_id, role) VALUES (?,?,?)", userId, projectId, role)
-        }
-    }
-
-    fun deleteMembership(userId: Long, projectId: Long) = db.transaction { conn ->
-        conn.exec("DELETE FROM membership WHERE user_id=? AND project_id=?", userId, projectId)
-    }
-
-    /** 用户在某项目上的角色；无成员关系返回 null（无权限） */
-    fun membershipRole(userId: Long, projectId: Long): String? = db.transaction { conn ->
-        (conn.queryObj("SELECT role FROM membership WHERE user_id=? AND project_id=?", userId, projectId) as? String)
-    }
-
-    /** 用户全部成员关系（projectId → role），成员管理 UI 用 */
-    fun membershipsOf(userId: Long): Map<Long, String> = db.transaction { conn ->
-        conn.select("SELECT project_id, role FROM membership WHERE user_id=?", userId) { r ->
-            (r["project_id"] as Number).toInt().toLong() to (r["role"] as String)
-        }.toMap()
-    }
-
-    /** 项目成员列表（userId → role），成员管理 UI 用 */
-    fun membersOfProject(projectId: Long): Map<Long, String> = db.transaction { conn ->
-        conn.select("SELECT user_id, role FROM membership WHERE project_id=?", projectId) { r ->
-            (r["user_id"] as Number).toInt().toLong() to (r["role"] as String)
-        }.toMap()
-    }
-
-    fun listUsers(): List<UserRecord> = db.transaction { conn ->
-        conn.select("SELECT * FROM app_user ORDER BY is_platform_admin DESC, id") { rowToUser(it) }
-    }
-
     // ── subscription / notification（订阅与变更通知）────────────────────────
 
     fun upsertSubscription(repoId: Long, apiId: Long?, method: String, path: String, team: String, notifyUrl: String = ""): SubscriptionRecord = db.transaction { conn ->
@@ -352,15 +261,6 @@ class PlatformStore(private val db: IndexDb) {
 
     // ── 内部 SQL 助手 ─────────────────────────────────────────────────────
 
-    private fun rowToUser(r: Map<String, Any?>): UserRecord = UserRecord(
-        id = r.long("id"),
-        username = r["username"] as String,
-        displayName = r["display_name"] as? String ?: "",
-        tokenHash = r["token_hash"] as String,
-        isPlatformAdmin = ((r["is_platform_admin"] as? Number)?.toInt() ?: 0) == 1,
-        createdAt = r["created_at"] as? String,
-    )
-
     private fun rowToComment(r: Map<String, Any?>): CommentRecord = CommentRecord(
         id = r.long("id"),
         repoId = r.long("repo_id"),
@@ -416,9 +316,4 @@ class PlatformStore(private val db: IndexDb) {
         conn.select("SELECT * FROM repo WHERE id=?", id) { r ->
             RepoRecord(r.long("id"), r.long("project_id"), r["url"] as String, r["branch"] as String, r["sync_status"] as String, r["last_error"] as? String)
         }.firstOrNull()
-
-    companion object {
-        /** bootstrap 平台 admin 用户名（由 spechub.admin-token 支撑） */
-        const val USER_ADMIN_NAME = "admin"
-    }
 }
