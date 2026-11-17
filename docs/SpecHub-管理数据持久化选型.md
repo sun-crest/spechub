@@ -1,6 +1,6 @@
 # SpecHub · 管理数据持久化最终选型结论
 
-> **日期**：2026-11-16（2026-11-17 补决策）　**状态**：结论已确认——管理库仅 PostgreSQL / MySQL（无 SQLite 管理库）、存量数据重置不迁移、`project` / `repo` 归管理库
+> **日期**：2026-11-16（2026-11-17 补决策）　**状态**：结论已确认——版本矩阵已定（PG 18.x / MySQL 8.4 LTS）、管理库仅 PostgreSQL / MySQL（无 SQLite 管理库）、存量数据重置不迁移、`project` / `repo` 归管理库
 > **范围**：管理数据（用户、角色、项目、仓库注册、评论、订阅、通知、评审、mock 规则、changelog、发布状态）的存储与持久化技术选型。
 > **不覆盖**：投影层（api/schema/doc/FTS/版本快照）继续使用 SQLite + kernel raw JDBC，不随本文迁移；git 继续作为内容真源。
 
@@ -12,7 +12,7 @@
 |---|---|
 | 数据分层 | git = 内容真源；管理 DB = 持久管理数据；投影 DB = 可重建索引 |
 | 数据源 | **两个数据源**：管理数据源（PostgreSQL / MySQL，Spring 唯一 DataSource）+ 投影数据源（SQLite，kernel `IndexDb` 自管连接，不进 Spring） |
-| 管理库引擎 | **PostgreSQL 为参考默认；MySQL 8.4 LTS 为受支持替代** |
+| 管理库引擎 | **PostgreSQL 18.x 为参考默认；MySQL 8.4 LTS 为受支持替代**（MySQL 9.7 LTS 列入升级路线） |
 | 持久化技术 | **Spring Data JDBC（Repository CRUD）+ JdbcTemplate（自定义 SQL）** |
 | 事务 | 管理域用 Spring `@Transactional`；投影层保留 kernel 显式事务；git + DB 不做分布式事务 |
 | 建模规则 | 单表 CRUD、扁平实体、ID 引用、批量聚合；管理库内保留外键，禁止跨投影边界外键 |
@@ -98,8 +98,8 @@ modules/mock/
 
 ### 5.1 结论
 
-- **PostgreSQL**：参考默认引擎。
-- **MySQL 8.4 LTS**：受支持替代引擎。
+- **PostgreSQL 18**：参考默认引擎（18.x，EOL 2030-11）。PG 19 仅到 RC1（2026-10），未 GA，不纳入。
+- **MySQL 8.4 LTS**：受支持替代引擎（EOL 2032，含 Extended）。MySQL 9.7 LTS 已于 2026-04 GA，列入升级路线（8.4 → 9.7，不可跳过 LTS）。
 - 不支持第三个管理库引擎（投影层 SQLite 除外）。
 
 ### 5.2 理由（不依赖大文本/JSON/Upsert）
@@ -118,12 +118,12 @@ modules/mock/
 | 类型/语义严格性 | 优 | 需 strict mode |
 | 时间类型 | `timestamptz` 清晰 | `DATETIME` 无时区语义 |
 | 大小写/collation | 默认区分，需显式不敏感 | 默认不敏感，隐式影响 |
-| 升级/LTS | 每年大版本 | 8.4 LTS 周期长 |
+| 升级/LTS | 每年大版本；18 EOL 2030-11 | 8.4 LTS EOL 2032；9.7 LTS 2026-04 GA |
 | 在线 DDL | 部分重写 | 优 |
 | 开箱 HA | 依赖生态 | InnoDB Cluster |
 | 许可/可移植 | 宽松、标准 SQL | GPLv2、方言更多 |
 
-管理层表小、迁移安全与语义清晰更重要，因此 **PostgreSQL 作为参考默认**；MySQL 8.4 LTS 完全可作为受支持替代。
+管理层表小、迁移安全与语义清晰更重要，因此 **PostgreSQL 18 作为参考默认**；MySQL 8.4 LTS 完全可作为受支持替代。
 
 ---
 
@@ -206,19 +206,23 @@ modules/mock/
 
 ### 8.1 支持矩阵
 
-- PostgreSQL：当前稳定大版本（17/18，按团队选定并纳入 CI）。
-- MySQL：8.4 LTS。
+- PostgreSQL：**18.x**（当前 18.6，2026-08；EOL 2030-11）。PG 19 仅到 RC1（2026-10），未 GA，不纳入。
+- MySQL：**8.4 LTS**（当前 8.4.11，2026-07；EOL 2032 含 Extended）。8.0 已于 2026-04 EOL，不可选。
 - 投影层：SQLite（sqlite-jdbc，WAL）。
+
+**MySQL 9.7 LTS 升级路线**：9.7.0 LTS 于 2026-04-21 GA，8.4 → 9.7 是受支持的升级路径（不可跳过 LTS，也不支持降级）。本阶段不采用 9.7，原因是它 GA 仅半年、Flyway 与 Connector/J 对 9.x 的支持需实测；spike 阶段顺带验证，通过后把「2027 年前升级 9.7」写入运维计划。
+
+**镜像固定策略**：compose 与 Testcontainers 一律固定小版本 tag（`postgres:18.6`、`mysql:8.4.11`），不使用 `postgres:18` 这类漂移 tag；按季度小版本（2/5/8/11 月）升级并跑双库回归。
 
 ### 8.2 强制规则
 
-1. **DDL/迁移**：Flyway/Liquibase 按 vendor 维护；禁止 ORM 自动建表。
+1. **DDL/迁移**：Flyway 按 vendor 维护（`db/migration/postgresql`、`db/migration/mysql`）；Flyway 10+ 需显式引入 `flyway-database-postgresql` 与 `flyway-mysql` 模块（核心不再自带）；禁止 ORM 自动建表。
 2. **类型映射**：统一 `BIGINT IDENTITY`、`VARCHAR`、`TEXT`/`LONGTEXT`、`BOOLEAN`/`TINYINT(1)`、`TIMESTAMPTZ`/`DATETIME(6)`。
-3. **时间**：统一 UTC；MySQL 配置 `connectionTimeZone=UTC`。
+3. **时间**：统一 UTC；MySQL 服务端 `--default-time-zone=+00:00`，Connector/J 配置 `connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true`；PG 用 `timestamptz`，JDBC 按 `Instant` 读取。
 4. **大小写/collation**：显式设计；用户名不敏感唯一在 PG 用 `lower()` 唯一索引，MySQL 用 CI 索引；`token_hash` 用区分大小写/二进制比较。
 5. **命名**：小写 snake_case；避开 `schema`、`version` 等潜在保留字。
 6. **SQL**：禁方言函数、方言 upsert、方言分页语法；分页用 `LIMIT/OFFSET`。
-7. **测试**：Testcontainers 同时跑 MySQL 与 PostgreSQL；CI 双库矩阵。
+7. **测试**：Testcontainers 同时跑 PostgreSQL 18.x 与 MySQL 8.4.x（固定小版本）；CI 双库矩阵（仓库当前无 CI，需先建骨架）。
 8. **备份**：只备份管理库；投影库可重建。
 
 ---
@@ -266,7 +270,7 @@ modules/mock/
 - 审批/写回链路定义次序、幂等与状态机。
 
 ### Phase 4 · 双库与运维
-- CI 双库 Testcontainers 矩阵（当前仓库无 CI 流水线，需先建 CI 骨架）。
+- CI 双库 Testcontainers 矩阵（PG 18.x + MySQL 8.4.x；当前仓库无 CI 流水线，需先建 CI 骨架）。
 - 备份/恢复演练；支持矩阵文档。
 - 监控：连接池、慢查询、迁移状态。
 
@@ -297,6 +301,7 @@ modules/mock/
 | 发布状态持久性 | 已定为管理库 `release` 表（`repo_id + path + spec_hash`）；如需更强保障可加 git tag/manifest，并明确 RPO |
 | mock 规则跨模块 | 通过 `MockRuleSource` 端口解决；不要把 mock 规则放回投影库 |
 | 双库差异 | 时区、collation、生成键、分页需双库测试；不能只测一个 |
+| MySQL 版本路线 | 9.7 LTS 已于 2026-04 GA，但 Flyway / Connector-J 对 9.x 支持待实测；本阶段锁 8.4，2027 年前评估升级（8.4 → 9.7 路径受支持） |
 | 许可 | 若产品对外分发/自托管，MySQL GPLv2 需评估；PostgreSQL 许可更宽松 |
 | 多实例演进 | 管理库先支持共享；投影库可继续每实例 SQLite，后续再评估共享索引 |
 | 本地开发依赖容器 | 管理库无 SQLite 后，本地 `./gradlew test` 需 Docker（Testcontainers）；WSL2 需确认 Docker daemon 可用 |
