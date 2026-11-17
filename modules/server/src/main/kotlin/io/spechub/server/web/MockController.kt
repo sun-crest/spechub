@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import io.spechub.server.service.MockRuleService
 import io.spechub.server.service.RepoService
 
 /*
@@ -37,6 +38,7 @@ class MockController(
     private val projection: ProjectionStore,
     private val platform: PlatformStore,
     private val repoService: RepoService,
+    private val mockRuleService: MockRuleService,
     private val auth: AuthService,
 ) {
 
@@ -70,7 +72,7 @@ class MockController(
     @GetMapping("/api/repos/{id}/mock/rules")
     fun rules(@PathVariable id: Long): List<MockRuleRecord> {
         repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
-        return platform.listMockRules(id)
+        return mockRuleService.rulesFor(id)
     }
 
     @PostMapping("/api/repos/{id}/mock/rules")
@@ -83,7 +85,7 @@ class MockController(
             )
         }
         repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
-        val rule = platform.upsertMockRule(
+        val rule = mockRuleService.upsert(
             MockRuleRecord(repoId = id, apiId = req.apiId, fieldPattern = req.fieldPattern.trim(), ruleType = req.ruleType, ruleValue = req.ruleValue),
         )
         platform.addChangelog(repoId = id, apiId = req.apiId, actor = "spechub-bot", action = "mock.rule",
@@ -94,9 +96,9 @@ class MockController(
     @DeleteMapping("/api/mock/rules/{ruleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun deleteRule(@PathVariable ruleId: Long, request: jakarta.servlet.http.HttpServletRequest) {
-        val rule = platform.getMockRule(ruleId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "规则 $ruleId 不存在")
+        val rule = mockRuleService.get(ruleId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "规则 $ruleId 不存在")
         auth.requireRepoRole(request, rule.repoId, io.spechub.spec.index.Role.EDITOR, "删除 mock 规则")
-        platform.deleteMockRule(ruleId)
+        mockRuleService.delete(ruleId)
     }
 
     // ── 详情页 mock 预览（不改真源，直接生成一版样例给前端看）────────────────────

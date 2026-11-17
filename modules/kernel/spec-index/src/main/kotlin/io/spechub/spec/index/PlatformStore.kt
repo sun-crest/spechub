@@ -41,46 +41,4 @@ class PlatformStore(private val db: IndexDb) {
             )
         }
     }
-
-    // ── mock_rule（规则引擎的存储）────────────────────────────────────────────
-
-    fun upsertMockRule(rule: MockRuleRecord): MockRuleRecord = db.transaction { conn ->
-        val existing = conn.select(
-            "SELECT * FROM mock_rule WHERE repo_id=? AND api_id IS ? AND field_pattern=? AND rule_type=?",
-            rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType,
-        ) { r -> r.long("id") }.firstOrNull()
-        if (existing != null) {
-            conn.exec("UPDATE mock_rule SET rule_value=? WHERE id=?", rule.ruleValue, existing)
-            MockRuleRecord(existing, rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue)
-        } else {
-            val id = conn.insert(
-                "INSERT INTO mock_rule (repo_id, api_id, field_pattern, rule_type, rule_value) VALUES (?,?,?,?,?)",
-                rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue,
-            )
-            MockRuleRecord(id, rule.repoId, rule.apiId, rule.fieldPattern, rule.ruleType, rule.ruleValue)
-        }
-    }
-
-    fun listMockRules(repoId: Long): List<MockRuleRecord> = db.transaction { conn ->
-        conn.select("SELECT * FROM mock_rule WHERE repo_id=? ORDER BY id", repoId) { r ->
-            MockRuleRecord(
-                r.long("id"), r.long("repo_id"), r.longOrNull("api_id"),
-                r["field_pattern"] as String, r["rule_type"] as String, r["rule_value"] as String,
-            )
-        }
-    }
-
-    fun deleteMockRule(id: Long) = db.transaction { conn ->
-        conn.exec("DELETE FROM mock_rule WHERE id=?", id)
-    }
-
-    fun getMockRule(id: Long): MockRuleRecord? = db.transaction { conn ->
-        conn.select("SELECT * FROM mock_rule WHERE id=?", id) { r ->
-            MockRuleRecord(
-                r.long("id"), r.long("repo_id"), r.longOrNull("api_id"),
-                r["field_pattern"] as String, r["rule_type"] as String, r["rule_value"] as String,
-            )
-        }.firstOrNull()
-    }
-
 }

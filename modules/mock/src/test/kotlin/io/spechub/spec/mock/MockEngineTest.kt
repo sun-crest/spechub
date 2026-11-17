@@ -4,7 +4,6 @@ import io.spechub.spec.index.ApiRecord
 import io.spechub.spec.index.IndexDb
 import io.spechub.spec.index.MockRuleRecord
 import io.spechub.spec.index.SchemaRecord
-import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.Stage
 import io.spechub.spec.model.OpenApiDoc
@@ -22,19 +21,24 @@ import tools.jackson.databind.JsonNode
 
 class MockEngineTest {
 
-    private fun setup(): Triple<MockEngine, PlatformStore, Long> {
+    private class InMemoryRuleSource : MockRuleSource {
+        val rules = mutableListOf<MockRuleRecord>()
+        override fun rulesFor(repoId: Long): List<MockRuleRecord> = rules.filter { it.repoId == repoId }
+    }
+
+    private fun setup(): Triple<MockEngine, InMemoryRuleSource, Long> {
         val dir = createTempDirectory("spechub-mock-test")
         val db = IndexDb(dir.resolve("index.db"))
         db.migrate()
         val projection = ProjectionStore(db)
-        val platform = PlatformStore(db)
+        val ruleSource = InMemoryRuleSource()
         val repoId = 1L
         val yaml = checkNotNull(javaClass.classLoader.getResource("mockstore/openapi.yaml")).readText()
         val doc = (SpecParser.parse(yaml) as ParseResult.Success).doc
         val ver = projection.upsertVersion(repoId, "specs/mockstore/openapi.yaml", SpecHash.of(doc))
         projection.replaceApisForRepo(repoId, extractApis(repoId, ver.id, doc))
         projection.replaceSchemasForRepo(repoId, extractSchemas(repoId, ver.id, doc))
-        return Triple(MockEngine(projection, platform), platform, repoId)
+        return Triple(MockEngine(projection, ruleSource), ruleSource, repoId)
     }
 
     private fun extractApis(repoId: Long, versionId: Long, doc: OpenApiDoc): List<ApiRecord> =
@@ -93,10 +97,10 @@ class MockEngineTest {
 
     @Test
     fun `规则三档：value 覆盖字段、pattern 格式样例、script 求值`() {
-        val (engine, platform, repoId) = setup()
-        platform.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "上海"))
-        platform.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = ".*email$", ruleType = RuleType.PATTERN, ruleValue = "email"))
-        platform.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.code", ruleType = RuleType.SCRIPT, ruleValue = "RANDOM_INT(100,200)"))
+        val (engine, ruleSource, repoId) = setup()
+        ruleSource.rules += (MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "上海"))
+        ruleSource.rules += (MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = ".*email$", ruleType = RuleType.PATTERN, ruleValue = "email"))
+        ruleSource.rules += (MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.code", ruleType = RuleType.SCRIPT, ruleValue = "RANDOM_INT(100,200)"))
 
         val result = engine.generate(repoId, "GET", "/users/x")!!
         val body = SpecModelIO.parseToTree(result.response.body)
@@ -108,10 +112,10 @@ class MockEngineTest {
 
     @Test
     fun `api 级规则优先于项目级`() {
-        val (engine, platform, repoId) = setup()
-        platform.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "上海"))
+        val (engine, ruleSource, repoId) = setup()
+        ruleSource.rules += (MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "上海"))
         val getUser = engine.generate(repoId, "GET", "/users/x")!!
-        platform.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = getUser.apiId, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "北京"))
+        ruleSource.rules += (MockRuleRecord(repoId = repoId, apiId = getUser.apiId, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "北京"))
         val body = SpecModelIO.parseToTree(engine.generate(repoId, "GET", "/users/x")!!.response.body)
         assertEquals("北京", body.path("address")?.path("city")?.asText(), "api 级规则优先")
     }

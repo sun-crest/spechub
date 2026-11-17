@@ -6,6 +6,7 @@ import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.ingest.IngestHooks
 import io.spechub.server.ingest.Ingestor
+import io.spechub.server.service.MockRuleService
 import io.spechub.server.service.ReleaseService
 import io.spechub.server.service.RepoService
 import io.spechub.server.service.SubscriptionService
@@ -69,8 +70,8 @@ class KernelConfig(private val props: SpecHubProperties) {
         props,
     )
 
-    /** Mock 规则引擎（零 Spring 内核模块，此处接线注入投影与管理域） */
+    /** Mock 规则引擎（零 Spring 内核模块；规则经 MockRuleSource 端口由管理库注入） */
     @Bean
-    fun mockEngine(): io.spechub.spec.mock.MockEngine =
-        io.spechub.spec.mock.MockEngine(projectionStore(), platformStore())
+    fun mockEngine(mockRuleService: MockRuleService): io.spechub.spec.mock.MockEngine =
+        io.spechub.spec.mock.MockEngine(projectionStore(), mockRuleService)
 }
