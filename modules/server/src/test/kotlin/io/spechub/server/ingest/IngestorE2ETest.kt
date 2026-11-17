@@ -9,7 +9,6 @@ import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.SyncStatus
 import io.spechub.server.config.SpecHubProperties
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertAll
 import org.junit.jupiter.api.io.TempDir
@@ -121,13 +120,8 @@ class IngestorE2ETest {
     /**
      * 选型文档 §11 验收标准：管理库与投影库可独立重置——
      * 清空投影后从 git 全量重扫，管理数据（用户/成员/评论/mock 规则/订阅/评审/changelog）一条不丢。
-     *
-     * 当前红灯（2 项），精确指向 Phase 1 剩余修复：
-     * - `comment.doc_id` 的 ON DELETE CASCADE → 文档评论随 doc 投影清空被删；
-     * - `mock_rule.api_id` 的 ON DELETE CASCADE → mock 规则随 api 投影清空被删。
-     * 去掉这两处跨边界 FK 后删除 @Disabled 即可转绿。
+     * 边界：comment.doc_id / mock_rule.api_id 仅为展示快照（非 FK），评论按 repo + method/path 稳定寻址。
      */
-    @Disabled("Phase 1 剩余项：去 comment.doc_id / mock_rule.api_id 跨边界 FK 后启用")
     @Test
     fun `清空投影后从 git 重扫 - 管理数据不丢失`() {
         val origin = seedOriginWithDocs()
@@ -165,6 +159,7 @@ class IngestorE2ETest {
             { assertNotNull(platform.findByUsername("alice"), "用户应保留") },
             { assertEquals("editor", platform.membershipRole(userId, projectId), "成员关系应保留") },
             { assertEquals(2, platform.listCommentsForRepo(repo.id).size, "接口 + 文档评论都应保留") },
+            { assertEquals(1, platform.listCommentsForDoc(repo.id, doc.path).size, "文档评论按 repo+path 稳定寻址命中") },
             { assertEquals(1, platform.listMockRules(repo.id).size, "mock 规则应保留") },
             { assertEquals(1, platform.listSubscriptions(repo.id).size, "订阅应保留") },
             { assertNotNull(platform.getReview(checkNotNull(review.id) { "createReview 应回填 id" }), "评审应保留") },

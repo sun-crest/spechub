@@ -337,9 +337,9 @@ class PlatformStore(private val db: IndexDb) {
         conn.select("SELECT * FROM comment WHERE repo_id=? ORDER BY id DESC LIMIT ?", repoId, limit) { rowToComment(it) }
     }
 
-    /** Doc 域评论（comment.doc_id 稳定寻址，不随 api 投影重建影响） */
-    fun listCommentsForDoc(docId: Long): List<CommentRecord> = db.transaction { conn ->
-        conn.select("SELECT * FROM comment WHERE doc_id=? ORDER BY id", docId) { rowToComment(it) }
+    /** Doc 域评论（repo + path 稳定寻址：doc 投影重建后 id 会变，评论仍命中） */
+    fun listCommentsForDoc(repoId: Long, path: String): List<CommentRecord> = db.transaction { conn ->
+        conn.select("SELECT * FROM comment WHERE repo_id=? AND path=? AND method='' ORDER BY id", repoId, path) { rowToComment(it) }
     }
 
     fun getComment(id: Long): CommentRecord? = db.transaction { conn ->

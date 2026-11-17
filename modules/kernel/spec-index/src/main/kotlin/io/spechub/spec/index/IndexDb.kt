@@ -36,6 +36,10 @@ class IndexDb(private val path: Path) {
             if (!hasColumn(conn, "comment", "method")) {
                 conn.exec(listOf("DROP TABLE IF EXISTS comment", "DROP TABLE IF EXISTS changelog"))
             }
+            // I5 边界修复：管理表曾通过 FK 指向投影表且 ON DELETE CASCADE，投影重建会连带删管理数据。
+            // 管理表不能 DROP（丢数据）→ 原地重建：rename → create → copy → drop。
+            rebuildWithoutForeignKey(conn, "comment", "doc", IndexSchema.COMMENT_DDL)
+            rebuildWithoutForeignKey(conn, "mock_rule", "api", IndexSchema.MOCK_RULE_DDL)
             conn.exec(IndexSchema.DDL_STATEMENTS)
 
             // 全文检索 FTS5（K2）：环境（sqlite-jdbc FTS5 编译开关）支持则建 doc_fts trigram 虚拟表
@@ -66,6 +70,58 @@ class IndexDb(private val path: Path) {
             st.close()
         }
         return false
+    }
+
+    /** 表是否存在（迁移期检测；PRAGMA 对不存在的表返回空集，先判存在再查外键） */
+    private fun tableExists(conn: java.sql.Connection, table: String): Boolean =
+        conn.queryObj("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table) != null
+
+    /** 是否存在指向 target 表的外键（PRAGMA foreign_key_list 的 table 列为被引用表名） */
+    private fun hasForeignKeyTo(conn: java.sql.Connection, table: String, target: String): Boolean {
+        if (!tableExists(conn, table)) return false
+        val st = conn.prepareStatement("PRAGMA foreign_key_list(${table})")
+        try {
+            val rs = st.executeQuery()
+            try {
+                while (rs.next()) if (rs.getString("table") == target) return true
+            } finally {
+                rs.close()
+            }
+        } finally {
+            st.close()
+        }
+        return false
+    }
+
+    /**
+     * 去掉管理表指向投影表的外键：原地重建并保留全部行（rename → create → copy → drop）。
+     * SQLite 不支持 ALTER TABLE DROP CONSTRAINT；管理表也不能像投影表那样 DROP 重建。
+     */
+    private fun rebuildWithoutForeignKey(conn: java.sql.Connection, table: String, target: String, ddl: String) {
+        if (!hasForeignKeyTo(conn, table, target)) return
+        val temp = "${table}_old"
+        val cols = mutableListOf<String>()
+        val st = conn.prepareStatement("PRAGMA table_info(${table})")
+        try {
+            val rs = st.executeQuery()
+            try {
+                while (rs.next()) cols += rs.getString("name")
+            } finally {
+                rs.close()
+            }
+        } finally {
+            st.close()
+        }
+        val colList = cols.joinToString(", ")
+        conn.exec(
+            listOf(
+                "DROP TABLE IF EXISTS ${temp}",
+                "ALTER TABLE ${table} RENAME TO ${temp}",
+                ddl,
+                "INSERT INTO ${table} (${colList}) SELECT ${colList} FROM ${temp}",
+                "DROP TABLE ${temp}",
+            ),
+        )
     }
 
     /** 在一个事务内执行块，成功提交 / 异常回滚并抛 */
@@ -136,6 +192,41 @@ class IndexDb(private val path: Path) {
 
 /** 表结构真源（幂等 DDL）。列名一律 snake_case；时间一律 ISO-8601 文本。 */
 object IndexSchema {
+
+    /**
+     * Mock 规则（I2，§6.3 MockRule：pattern / value / script 三档）。
+     * api_id 仅为展示快照（非 FK）：投影重建 DELETE+INSERT 时不得级联删除管理数据。
+     */
+    val MOCK_RULE_DDL: String = """
+        CREATE TABLE IF NOT EXISTS mock_rule (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            api_id INTEGER,
+            field_pattern TEXT NOT NULL,
+            rule_type TEXT NOT NULL,
+            rule_value TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )
+    """.trimIndent()
+
+    /**
+     * 评论（I5：挂在接口/文档/仓库下的轻评论；作者 = app_user.username）。
+     * api_id / doc_id 仅为展示快照（非 FK）：api/doc 是可重建投影，
+     * 评论用 repo_id + method + path 稳定寻址，不随投影重建级联删除。
+     */
+    val COMMENT_DDL: String = """
+        CREATE TABLE IF NOT EXISTS comment (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            api_id INTEGER,
+            doc_id INTEGER,
+            method TEXT NOT NULL DEFAULT '',
+            path TEXT NOT NULL DEFAULT '',
+            author TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )
+    """.trimIndent()
 
     val DDL_STATEMENTS: List<String> = listOf(
         // 项目空间（P0 单一默认 project，P1 RBAC 扩展）
@@ -219,18 +310,7 @@ object IndexSchema {
         )
         """.trimIndent(),
 
-        // Mock 规则（I2，§6.3 MockRule：pattern / value / script 三档）
-        """
-        CREATE TABLE IF NOT EXISTS mock_rule (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-            api_id INTEGER REFERENCES api(id) ON DELETE CASCADE,
-            field_pattern TEXT NOT NULL,
-            rule_type TEXT NOT NULL,
-            rule_value TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        )
-        """.trimIndent(),
+        MOCK_RULE_DDL,
 
         // 变更记录（I5 铺底，§6.3 ChangeLog：actor/diff/reason/review）
         // api_id 非 FK：避免摄取重建 api 投影（DELETE+INSERT）时评论类留痕被级联删；repo/method/path 稳定寻址。
@@ -269,22 +349,7 @@ object IndexSchema {
         )
         """.trimIndent(),
 
-        // 评论（I5：挂在接口/文档/仓库下的轻评论；作者 = app_user.username）
-        // 关键设计：api 是可重建投影（摄取 DELETE+INSERT），评论不挂 api 行 FK 级联，
-        // 用 repo_id + method + path 稳定寻址（api_id 仅作展示快照，过时无害）。
-        """
-        CREATE TABLE IF NOT EXISTS comment (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-            api_id INTEGER,
-            doc_id INTEGER REFERENCES doc(id) ON DELETE CASCADE,
-            method TEXT NOT NULL DEFAULT '',
-            path TEXT NOT NULL DEFAULT '',
-            author TEXT NOT NULL,
-            body TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        )
-        """.trimIndent(),
+        COMMENT_DDL,
 
         // 订阅（I7）：消费团队声明依赖某接口 → 结构变更时通知（§6.3 Subscription）。
         // 稳定寻址同 comment：repo + method + path（api 是可重建投影）；api_id 非 FK。

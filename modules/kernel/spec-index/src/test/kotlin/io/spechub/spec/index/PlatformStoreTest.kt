@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /** 管理域：project / repo / changelog / mock_rule / user / comment / subscription / review。 */
 class PlatformStoreTest {
@@ -82,6 +83,28 @@ class PlatformStoreTest {
             ApiRecord(repoId = repo.id, method = "GET", path = "/pets", specJson = "{}"),
         ))
         assertEquals(1, platform.listCommentsForEndpoint(repo.id, "GET", "/pets").size, "投影重建不丢评论")
+    }
+
+    @Test
+    fun `doc 评论按 repo+path 稳定寻址 - 投影重建后仍命中`() {
+        val (platform, projection) = stores()
+        val repo = platform.insertRepo("default", "https://example.com/o/r.git")
+        val docPath = "docs/pet/handover.md"
+        projection.replaceDocsForRepo(repo.id, listOf(
+            DocRecord(repoId = repo.id, path = docPath, title = "接手分析", markdown = "第一版"),
+        ))
+        val doc = projection.listDocs(repo.id).single()
+        platform.addComment(repo.id, null, doc.id, "", docPath, "alice", "文档评论")
+
+        // doc 投影重建（DELETE + INSERT）：doc.id 变化，评论仍按 repo + path 命中
+        projection.replaceDocsForRepo(repo.id, listOf(
+            DocRecord(repoId = repo.id, path = docPath, title = "接手分析", markdown = "第二版"),
+        ))
+        val rebuilt = projection.listDocs(repo.id).single()
+        assertTrue(rebuilt.id != doc.id, "重建后 doc id 应变化")
+        val comments = platform.listCommentsForDoc(repo.id, docPath)
+        assertEquals(1, comments.size, "重建后文档评论仍命中")
+        assertEquals("alice", comments.single().author)
     }
 
     // ── subscription / notification ──────────────────────────────────────────

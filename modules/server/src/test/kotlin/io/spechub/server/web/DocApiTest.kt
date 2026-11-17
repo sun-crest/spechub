@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
 import java.net.http.HttpClient
@@ -36,6 +38,18 @@ class DocApiTest : TestDbIsolation() {
     var port: Int = 0
 
     companion object {
+
+        /** 每次运行全新临时投影目录（与其他集成测试同款隔离；缺失会导致评论等管理数据跨运行残留） */
+        private val TEMPDIR: Path = kotlin.io.path.createTempDirectory("spechub-doctest-" + System.nanoTime())
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun registerTempDirs(registry: DynamicPropertyRegistry) {
+            registry.add("spechub.git-source-dir") { TEMPDIR.resolve("gitsource").toString() }
+            registry.add("spechub.sqlite-dir") { TEMPDIR.resolve("sqlite").toString() }
+            registry.add("spechub.artifacts-dir") { TEMPDIR.resolve("artifacts").toString() }
+        }
+
         private val json = JsonMapper.builder().build()
         private lateinit var origin: String
 
