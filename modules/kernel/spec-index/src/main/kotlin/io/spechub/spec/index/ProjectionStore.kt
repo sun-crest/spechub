@@ -65,61 +65,84 @@ class ProjectionStore(
         repoId: Long,
         path: String,
         specHash: String? = null,
-    ): VersionRecord? =
-        db.transaction { conn ->
-            // specHash 指定用于投影重建后按管理库 release 记录重放；null = 取最新 draft
-            val latest =
-                (
-                    if (specHash == null) {
-                        conn
-                            .select(
-                                "SELECT * FROM version WHERE repo_id=? AND path=? ORDER BY id DESC LIMIT 1",
-                                repoId,
-                                path,
-                            ) { r -> VersionRecord(r.long("id"), r.long("repo_id"), r["path"] as String, r["spec_hash"] as String, r["stage"] as String) }
-                            .firstOrNull()
-                    } else {
-                        conn
-                            .select(
-                                "SELECT * FROM version WHERE repo_id=? AND path=? AND spec_hash=? ORDER BY id DESC LIMIT 1",
-                                repoId,
-                                path,
-                                specHash,
-                            ) { r -> VersionRecord(r.long("id"), r.long("repo_id"), r["path"] as String, r["spec_hash"] as String, r["stage"] as String) }
-                            .firstOrNull()
-                    }
-                ) ?: return@transaction null
+    ): VersionRecord? = db.transaction { conn -> promotePath(conn, repoId, path, specHash) }
 
-            // 同 path 其它版本降 draft（单一 release 语义：release 永远是「某个 spec 文件的最近一次发布」）
-            conn.exec("UPDATE version SET stage=? WHERE repo_id=? AND path=? AND id!=?", Stage.DRAFT, repoId, path, latest.id)
-            conn.exec("UPDATE version SET stage=? WHERE id=?", Stage.RELEASE, latest.id)
-
-            // api / schema 投影复制 draft → release（ON CONFLICT DO UPDATE：同 key 幂等覆盖，id 不变）
-            conn.exec(
-                """
-                INSERT INTO api (repo_id, version_id, method, path, operation_id, tag, summary, spec_json, stage)
-                SELECT repo_id, version_id, method, path, operation_id, tag, summary, spec_json, '${Stage.RELEASE}'
-                FROM api WHERE repo_id=? AND version_id=? AND stage='${Stage.DRAFT}'
-                ON CONFLICT(repo_id, method, path, stage) DO UPDATE SET
-                    version_id=excluded.version_id, operation_id=excluded.operation_id, tag=excluded.tag,
-                    summary=excluded.summary, spec_json=excluded.spec_json
-                """.trimIndent(),
-                repoId,
-                latest.id,
-            )
-            conn.exec(
-                """
-                INSERT INTO schema (repo_id, version_id, name, spec_json, stage)
-                SELECT repo_id, version_id, name, spec_json, '${Stage.RELEASE}'
-                FROM schema WHERE repo_id=? AND version_id=? AND stage='${Stage.DRAFT}'
-                ON CONFLICT(repo_id, name, stage) DO UPDATE SET
-                    version_id=excluded.version_id, spec_json=excluded.spec_json
-                """.trimIndent(),
-                repoId,
-                latest.id,
-            )
-            VersionRecord(latest.id, repoId, path, latest.specHash, Stage.RELEASE)
+    /**
+     * 批量发布重放（单事务）：投影重建后按管理库 release 标记逐项恢复 release 快照。
+     * 与逐项调用 [promotePath] 语义一致（无对应 version 的项跳过），但整批只提交一次，
+     * 避免 N 项 = N 次连接/事务/fsync（编码规范 §5.1：不在循环里逐条往返）。
+     * 失败语义与逐项不同：任一项抛异常则整批回滚（重放幂等，可整批重试）。
+     * @return 实际恢复（打 release tag）的路径数。
+     */
+    fun promotePaths(
+        repoId: Long,
+        specs: List<ReleaseSpec>,
+    ): Int {
+        if (specs.isEmpty()) return 0
+        return db.transaction { conn ->
+            specs.count { promotePath(conn, repoId, it.path, it.specHash) != null }
         }
+    }
+
+    private fun promotePath(
+        conn: Connection,
+        repoId: Long,
+        path: String,
+        specHash: String?,
+    ): VersionRecord? {
+        // specHash 指定用于投影重建后按管理库 release 记录重放；null = 取最新 draft
+        val latest =
+            (
+                if (specHash == null) {
+                    conn
+                        .select(
+                            "SELECT * FROM version WHERE repo_id=? AND path=? ORDER BY id DESC LIMIT 1",
+                            repoId,
+                            path,
+                        ) { r -> VersionRecord(r.long("id"), r.long("repo_id"), r["path"] as String, r["spec_hash"] as String, r["stage"] as String) }
+                        .firstOrNull()
+                } else {
+                    conn
+                        .select(
+                            "SELECT * FROM version WHERE repo_id=? AND path=? AND spec_hash=? ORDER BY id DESC LIMIT 1",
+                            repoId,
+                            path,
+                            specHash,
+                        ) { r -> VersionRecord(r.long("id"), r.long("repo_id"), r["path"] as String, r["spec_hash"] as String, r["stage"] as String) }
+                        .firstOrNull()
+                }
+            ) ?: return null
+
+        // 同 path 其它版本降 draft（单一 release 语义：release 永远是「某个 spec 文件的最近一次发布」）
+        conn.exec("UPDATE version SET stage=? WHERE repo_id=? AND path=? AND id!=?", Stage.DRAFT, repoId, path, latest.id)
+        conn.exec("UPDATE version SET stage=? WHERE id=?", Stage.RELEASE, latest.id)
+
+        // api / schema 投影复制 draft → release（ON CONFLICT DO UPDATE：同 key 幂等覆盖，id 不变）
+        conn.exec(
+            """
+            INSERT INTO api (repo_id, version_id, method, path, operation_id, tag, summary, spec_json, stage)
+            SELECT repo_id, version_id, method, path, operation_id, tag, summary, spec_json, '${Stage.RELEASE}'
+            FROM api WHERE repo_id=? AND version_id=? AND stage='${Stage.DRAFT}'
+            ON CONFLICT(repo_id, method, path, stage) DO UPDATE SET
+                version_id=excluded.version_id, operation_id=excluded.operation_id, tag=excluded.tag,
+                summary=excluded.summary, spec_json=excluded.spec_json
+            """.trimIndent(),
+            repoId,
+            latest.id,
+        )
+        conn.exec(
+            """
+            INSERT INTO schema (repo_id, version_id, name, spec_json, stage)
+            SELECT repo_id, version_id, name, spec_json, '${Stage.RELEASE}'
+            FROM schema WHERE repo_id=? AND version_id=? AND stage='${Stage.DRAFT}'
+            ON CONFLICT(repo_id, name, stage) DO UPDATE SET
+                version_id=excluded.version_id, spec_json=excluded.spec_json
+            """.trimIndent(),
+            repoId,
+            latest.id,
+        )
+        return VersionRecord(latest.id, repoId, path, latest.specHash, Stage.RELEASE)
+    }
 
     /** 某 spec 文件最近一次摄取的 spec_hash（摄取变更检测：与本次比较，不同则触发订阅通知） */
     fun latestSpecHash(

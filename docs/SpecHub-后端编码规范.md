@@ -141,6 +141,14 @@ data class LoginRequest(
 - `[推]` 单条写原语（只有一次 `insert`）不需事务注解，避免过度包装。
 - `[参]` SQLite 并发注意：写库保持单写者纪律（现有 `maxParallelForks=1` 与 WAL 取舍在 §7 产品方案），**不要在包长事务里穿插 git/Shell/网络调用**（长事务 + 文件 I/O 会拖住整库写锁）。
 
+### 5.1 循环与数据库往返（`[强]` 默认；例外需注释）
+
+- `[强]` **默认不在循环里逐条访问数据库**：同表、同形状的 N 次写（`forEach { save/delete }`）或按 id 的 N 次读，优先用集合式接口——派生 `deleteAllByXxx`/`findAllById`、`saveAll`、`IN (...)`、批量 SQL、投影库的 `promotePaths` 类单事务批量原语。判断标准是**往返次数**，不是语法上有没有 `for`。
+- `[强]` **例外必须注释理由**。允许保留循环的典型场景：① 每步有独立业务语义/外部副作用（审计留痕、通知、git、HTTP）；② 需求是部分成功或逐条错误定位（摄取续跑、尽力而为）；③ N 有明确小上界且非热点；④ 需要逐条实体回调/乐观锁；⑤ 批量化会引入不可接受的方言或事务复杂度。
+- `[强]` 批量化时：**事务边界与原逐条逻辑一致**；失败语义若从「部分成功」变为「整批回滚」，须在注释与测试中写明；超过数百行要分 chunk（锁范围与绑定参数上限，PG 65535 / SQLite 999）。
+- `[参]` 别写「假批量」：先确认底层是否真合并 SQL（Spring Data JDBC 4.x 的 `saveAll` / `deleteAllById` 走 JDBC batch 与 `DELETE ... IN`；手写 `forEach { save }` 不是）；MySQL 批量 INSERT 需连接串 `rewriteBatchedStatements=true` 才真正合并往返。
+- `[参]` 现状样例：`UserService.deleteUser`（`deleteAllByUserId`）与 `ReleaseService.replay`（`promotePaths` 单事务）为集合式；`Ingestor` 的订阅通知与逐文件 upsert 为注释说明的例外，评审勿按本条打回。
+
 ---
 
 ## 6. 日志

@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.repository.MembershipRepository
 import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
@@ -7,6 +8,7 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.io.TempDir
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
@@ -38,6 +40,9 @@ import kotlin.test.assertTrue
 class AuthApiTest : TestDbIsolation() {
     @LocalServerPort
     var port: Int = 0
+
+    @Autowired
+    lateinit var memberships: MembershipRepository
 
     companion object {
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
@@ -218,9 +223,10 @@ class AuthApiTest : TestDbIsolation() {
         assertEquals(401, req("GET", "/api/projects", token = t1).statusCode(), "旧令牌失效")
         assertEquals(200, req("GET", "/api/projects", token = t2).statusCode(), "新令牌有效")
 
-        // 删除后全新令牌失效
+        // 删除后全新令牌失效，成员关系一并清除
         assertEquals(204, req("DELETE", "/api/auth/users/$uid", token = ADMIN).statusCode(), "删除返回 204")
         assertEquals(401, req("GET", "/api/projects", token = t2).statusCode(), "删除后令牌失效")
+        assertTrue(memberships.findAllByUserId(uid).isEmpty(), "用户删除后成员关系应清空")
     }
 
     @Test

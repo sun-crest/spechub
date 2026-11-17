@@ -10,5 +10,8 @@ interface MembershipRepository : CrudRepository<MembershipEntity, Long> {
 
     fun findAllByUserId(userId: Long): List<MembershipEntity>
 
+    /** 集合式删除：一条 `DELETE ... WHERE user_id=?`，勿在循环里逐条 delete（编码规范 §5.1） */
+    fun deleteAllByUserId(userId: Long): Int
+
     fun findAllByProjectId(projectId: Long): List<MembershipEntity>
 }
