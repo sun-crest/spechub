@@ -168,13 +168,14 @@ object Role {
     const val VIEWER = "viewer"
 
     /** viewer 最低、owner 最高；判定「至少有 X 级别」用 rank(role) >= rank(min) */
-    fun rank(role: String?): Int = when (role) {
-        OWNER -> 3
-        ADMIN -> 2
-        EDITOR -> 1
-        VIEWER -> 0
-        else -> -1
-    }
+    fun rank(role: String?): Int =
+        when (role) {
+            OWNER -> 3
+            ADMIN -> 2
+            EDITOR -> 1
+            VIEWER -> 0
+            else -> -1
+        }
 
     val ALL: Set<String> = setOf(OWNER, ADMIN, EDITOR, VIEWER)
 }

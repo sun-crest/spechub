@@ -24,7 +24,6 @@ import java.security.MessageDigest
  */
 
 object SpecHash {
-
     /** 文档 → 64 位小写十六进制 SHA-256 */
     fun of(doc: OpenApiDoc): String {
         val tree = SpecModelIO.valueToTree(doc)
@@ -45,10 +44,13 @@ object SpecHash {
     }
 
     private fun canonicalObject(o: ObjectNode): String {
-        val entries = o.properties().asSequence()
-            .filter { (_, v) -> !v.isNull && !v.isMissingNode && !isEmptyish(v) }
-            .sortedBy { it.key }
-            .toList()
+        val entries =
+            o
+                .properties()
+                .asSequence()
+                .filter { (_, v) -> !v.isNull && !v.isMissingNode && !isEmptyish(v) }
+                .sortedBy { it.key }
+                .toList()
         if (entries.isEmpty()) return "{}"
         return entries.joinToString(prefix = "{", separator = ",", postfix = "}") { (k, v) ->
             "${jsonString(k)}:${canonicalString(v)}"
@@ -60,8 +62,7 @@ object SpecHash {
         return a.joinToString(prefix = "[", separator = ",", postfix = "]") { canonicalString(it) }
     }
 
-    private fun isEmptyish(v: JsonNode): Boolean =
-        (v.isObject && v.isEmpty) || (v.isArray && v.isEmpty)
+    private fun isEmptyish(v: JsonNode): Boolean = (v.isObject && v.isEmpty) || (v.isArray && v.isEmpty)
 
     /** 数值规范：`1.0`→`1`、`100` 不丢位、`0.50`→`0.5` */
     private fun canonicalNumber(bd: BigDecimal): String {
@@ -69,20 +70,21 @@ object SpecHash {
         return if (stripped.scale() < 0) stripped.setScale(0).toPlainString() else stripped.toPlainString()
     }
 
-    private fun jsonString(s: String): String = buildString {
-        append('"')
-        for (c in s) {
-            when (c) {
-                '"' -> append("\\\"")
-                '\\' -> append("\\\\")
-                '\n' -> append("\\n")
-                '\r' -> append("\\r")
-                '\t' -> append("\\t")
-                else -> if (c < ' ') append("\\u%04x".format(c.code)) else append(c)
+    private fun jsonString(s: String): String =
+        buildString {
+            append('"')
+            for (c in s) {
+                when (c) {
+                    '"' -> append("\\\"")
+                    '\\' -> append("\\\\")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> if (c < ' ') append("\\u%04x".format(c.code)) else append(c)
+                }
             }
+            append('"')
         }
-        append('"')
-    }
 
     private fun sha256Hex(bytes: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(bytes)

@@ -1,11 +1,11 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.Role
-import io.spechub.spec.index.SpecIndexStore
-import io.spechub.spec.index.UserRecord
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.Role
+import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.UserRecord
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.stereotype.Service
@@ -27,7 +27,6 @@ class AuthService(
     private val index: SpecIndexStore,
     private val props: SpecHubProperties,
 ) {
-
     /** 请求属性名：鉴权后放当前用户 */
     companion object {
         const val REQ_USER = "spechub.auth.user"
@@ -37,7 +36,9 @@ class AuthService(
         const val ADMIN_USERNAME = "admin"
 
         fun sha256(text: String): String =
-            MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
+            MessageDigest
+                .getInstance("SHA-256")
+                .digest(text.toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
 
         fun generateToken(): String {
@@ -65,31 +66,43 @@ class AuthService(
     fun currentUser(req: HttpServletRequest): UserRecord? = req.getAttribute(REQ_USER) as? UserRecord
 
     /** request 上的操作者用户名（filter 已填充）；无则回退 anonymous（单一实现，勿在 Controller 重复取属性） */
-    fun currentActor(req: HttpServletRequest): String =
-        req.getAttribute(REQ_USERNAME) as? String ?: "anonymous"
+    fun currentActor(req: HttpServletRequest): String = req.getAttribute(REQ_USERNAME) as? String ?: "anonymous"
 
     /**
      * 判定用户对某 repo（project）是否至少 [min] 角色。
      * @return 达标 → 角色名；未达标 → null。
      */
-    fun roleForRepo(req: HttpServletRequest, repoId: Long): String? {
+    fun roleForRepo(
+        req: HttpServletRequest,
+        repoId: Long,
+    ): String? {
         val user = currentUser(req) ?: return null
         return effectiveRole(user, index.getRepo(repoId)?.projectId)
     }
 
     /** 平台 admin 恒 owner；普通用户按 membership。无 projectId 视为无权限。 */
-    fun effectiveRole(user: UserRecord, projectId: Long?): String? {
+    fun effectiveRole(
+        user: UserRecord,
+        projectId: Long?,
+    ): String? {
         if (user.isPlatformAdmin) return Role.OWNER
         val uid = user.id ?: return null
         return projectId?.let { index.membershipRole(uid, it) }
     }
 
     /** 用户对某 repo（project）的角色（不依赖 HttpServletRequest，Service 层复用） */
-    fun roleForUser(user: UserRecord, repoId: Long): String? =
-        effectiveRole(user, index.getRepo(repoId)?.projectId)
+    fun roleForUser(
+        user: UserRecord,
+        repoId: Long,
+    ): String? = effectiveRole(user, index.getRepo(repoId)?.projectId)
 
     /** require：按已解析用户判定 repo 角色（Service 层复用；未启用鉴权放行） */
-    fun requireRole(user: UserRecord, repoId: Long, min: String, op: String) {
+    fun requireRole(
+        user: UserRecord,
+        repoId: Long,
+        min: String,
+        op: String,
+    ) {
         if (!authEnabled) return
         val role = roleForUser(user, repoId)
         if (role == null || Role.rank(role) < Role.rank(min)) {
@@ -98,18 +111,30 @@ class AuthService(
     }
 
     /** require：写端点入口校验，未达标抛 401/403（带操作名）；未启用鉴权放行 */
-    fun requireRepoRole(req: HttpServletRequest, repoId: Long, min: String, op: String) {
+    fun requireRepoRole(
+        req: HttpServletRequest,
+        repoId: Long,
+        min: String,
+        op: String,
+    ) {
         if (!authEnabled) return
-        val user = currentUser(req)
-            ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
+        val user =
+            currentUser(req)
+                ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
         requireRole(user, repoId, min, op)
     }
 
     /** require：面向项目（注册仓库等尚无 repoId 的场景）；平台 admin 恒通过；未启用鉴权放行 */
-    fun requireProjectRole(req: HttpServletRequest, projectId: Long?, min: String, op: String) {
+    fun requireProjectRole(
+        req: HttpServletRequest,
+        projectId: Long?,
+        min: String,
+        op: String,
+    ) {
         if (!authEnabled) return
-        val user = currentUser(req)
-            ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
+        val user =
+            currentUser(req)
+                ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
         val role = effectiveRole(user, projectId)
         if (role == null || Role.rank(role) < Role.rank(min)) {
             throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要 $min 及以上角色（当前 ${role ?: "无项目权限"}）")
@@ -117,10 +142,17 @@ class AuthService(
     }
 
     /** require：管理端点（成员/角色管理），需要目标 repo 所在项目 admin+ 或平台 admin */
-    fun requireAdmin(req: HttpServletRequest, repoId: Long, op: String) = requireRepoRole(req, repoId, Role.ADMIN, op)
+    fun requireAdmin(
+        req: HttpServletRequest,
+        repoId: Long,
+        op: String,
+    ) = requireRepoRole(req, repoId, Role.ADMIN, op)
 
     /** require：轻交互（评论等）需「有登录用户」即可，不必 editor+；未启用鉴权放行 */
-    fun requireAuthenticated(req: HttpServletRequest, op: String): UserRecord {
+    fun requireAuthenticated(
+        req: HttpServletRequest,
+        op: String,
+    ): UserRecord {
         if (!authEnabled) {
             return currentUser(req) ?: UserRecord(id = -1, username = "anonymous", tokenHash = "", isPlatformAdmin = false)
         }

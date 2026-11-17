@@ -11,13 +11,16 @@ import tools.jackson.databind.node.ObjectNode
  * 每个 path × method 一条 item：request.method/url（server[0]+path）/query/header/body（application/json raw 简化）。
  */
 object PostmanExporter {
-
     fun exportJson(doc: OpenApiDoc): String {
         val collection = NODE.objectNode()
-        collection.set("info", NODE.objectNode()
-            .put("name", doc.info.title)
-            .put("description", doc.info.description ?: "")
-            .put("schema", "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"))
+        collection.set(
+            "info",
+            NODE
+                .objectNode()
+                .put("name", doc.info.title)
+                .put("description", doc.info.description ?: "")
+                .put("schema", "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"),
+        )
 
         val items = NODE.arrayNode()
         doc.paths.forEach { (path, item) ->
@@ -29,7 +32,12 @@ object PostmanExporter {
         return SpecModelIO.writeTreeNode(collection, SpecFormat.JSON, pretty = true)
     }
 
-    private fun requestItem(doc: OpenApiDoc, path: String, method: String, op: io.spechub.spec.model.Operation): ObjectNode {
+    private fun requestItem(
+        doc: OpenApiDoc,
+        path: String,
+        method: String,
+        op: io.spechub.spec.model.Operation,
+    ): ObjectNode {
         val item = NODE.objectNode()
         item.put("name", op.summary?.takeIf { it.isNotBlank() } ?: op.operationId?.takeIf { it.isNotBlank() } ?: "$method $path")
 
@@ -47,7 +55,14 @@ object PostmanExporter {
         // query 参数
         val query = NODE.arrayNode()
         op.parameters.filter { it.`in` == io.spechub.spec.model.Parameter.IN_QUERY && it.name.isNotBlank() }.forEach { p ->
-            query.add(NODE.objectNode().put("key", p.name).put("value", "{{${p.name}}}").put("description", p.description ?: "").put("disabled", p.required.not()))
+            query.add(
+                NODE
+                    .objectNode()
+                    .put("key", p.name)
+                    .put("value", "{{${p.name}}}")
+                    .put("description", p.description ?: "")
+                    .put("disabled", p.required.not()),
+            )
         }
         if (query.size() > 0) url.set("query", query)
         req.set("url", url)

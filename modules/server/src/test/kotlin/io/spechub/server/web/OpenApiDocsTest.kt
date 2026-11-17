@@ -29,7 +29,6 @@ import kotlin.test.assertTrue
     ],
 )
 class OpenApiDocsTest : TestDbIsolation() {
-
     @LocalServerPort
     var port: Int = 0
 
@@ -68,7 +67,11 @@ class OpenApiDocsTest : TestDbIsolation() {
         val ui = get("/doc.html")
         assertEquals(200, ui.statusCode())
         assertTrue(
-            ui.headers().firstValue("content-type").orElse("").contains("text/html"),
+            ui
+                .headers()
+                .firstValue("content-type")
+                .orElse("")
+                .contains("text/html"),
             "doc.html 应为 HTML：${ui.headers().firstValue("content-type").orElse("(none)")}",
         )
         assertTrue(ui.body().contains("knife4j-ui-react"), "doc.html 应加载 Knife4j Next UI")

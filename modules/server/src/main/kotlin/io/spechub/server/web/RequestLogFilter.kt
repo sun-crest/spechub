@@ -21,7 +21,6 @@ import org.springframework.web.filter.OncePerRequestFilter
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class RequestLogFilter : OncePerRequestFilter() {
-
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun doFilterInternal(

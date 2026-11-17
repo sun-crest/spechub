@@ -13,12 +13,19 @@ import java.util.concurrent.ConcurrentHashMap
 class UrlTokenStore {
     private val urls = ConcurrentHashMap<Long, String>()
 
-    fun put(repoId: Long, effectiveUrl: String) {
+    fun put(
+        repoId: Long,
+        effectiveUrl: String,
+    ) {
         urls[repoId] = effectiveUrl
     }
 
     /** 注册时带 token：按 `oauth2:TOKEN@host` 形式注入后仅存内存（不落库） */
-    fun putWithToken(repoId: Long, url: String, token: String) {
+    fun putWithToken(
+        repoId: Long,
+        url: String,
+        token: String,
+    ) {
         urls[repoId] = injectToken(url.trim(), token.trim())
     }
 
@@ -30,7 +37,10 @@ class UrlTokenStore {
 
     companion object {
         /** `https://host/path` → `https://oauth2:TOKEN@host/path`（仅内存使用） */
-        internal fun injectToken(url: String, token: String): String =
+        internal fun injectToken(
+            url: String,
+            token: String,
+        ): String =
             if (url.contains("://")) {
                 val proto = url.substringBefore("://")
                 val rest = url.substringAfter("://")

@@ -1,12 +1,12 @@
 package io.spechub.server.service
 
-import io.spechub.spec.index.Role
-import io.spechub.spec.index.SpecIndexStore
-import io.spechub.spec.index.UserRecord
 import io.spechub.server.web.AuthService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.Role
+import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.UserRecord
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
@@ -25,12 +25,10 @@ import org.springframework.stereotype.Service
 class UserService(
     private val index: SpecIndexStore,
 ) {
-
     private val log = LoggerFactory.getLogger(javaClass)
 
     /** 成员列表：附带指定项目上的角色（projectId 为 null 时角色为空） */
-    fun listUsers(projectId: Long?): List<UserSummary> =
-        index.listUsers().map { user -> UserSummary(user, roleOf(user.id, projectId)) }
+    fun listUsers(projectId: Long?): List<UserSummary> = index.listUsers().map { user -> UserSummary(user, roleOf(user.id, projectId)) }
 
     /** 创建用户 + 加入项目 + changelog；返回一次性明文 token（仅本次响应出现） */
     fun createUserWithMembership(
@@ -46,22 +44,28 @@ class UserService(
             throw ApiException(ApiErrorCode.CONFLICT, "用户 $name 已存在")
         }
         val token = AuthService.generateToken()
-        val user = index.createUserWithMembershipWithChangelog(
-            username = name,
-            displayName = displayName.ifBlank { name },
-            tokenHash = AuthService.sha256(token),
-            projectId = projectId,
-            role = role,
-            actor = actorName(actor),
-            action = "user.create",
-            detail = "创建用户 $name（$role）",
-        )
+        val user =
+            index.createUserWithMembershipWithChangelog(
+                username = name,
+                displayName = displayName.ifBlank { name },
+                tokenHash = AuthService.sha256(token),
+                projectId = projectId,
+                role = role,
+                actor = actorName(actor),
+                action = "user.create",
+                detail = "创建用户 $name（$role）",
+            )
         log.info("创建用户 user={} role={} actor={}", name, role, actorName(actor))
         return CreatedUser(UserSummary(user, roleOf(user.id, projectId)), token)
     }
 
     /** 改角色（平台 admin 不可改）+ changelog */
-    fun setRole(id: Long, role: String, projectId: Long?, actor: UserRecord?): UserSummary {
+    fun setRole(
+        id: Long,
+        role: String,
+        projectId: Long?,
+        actor: UserRecord?,
+    ): UserSummary {
         requireValidRole(role)
         val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "平台 admin 角色不可改")
@@ -78,7 +82,10 @@ class UserService(
     }
 
     /** 重置令牌（旧 token 立即失效；明文仅本次响应出现） */
-    fun resetToken(id: Long, projectId: Long?): CreatedUser {
+    fun resetToken(
+        id: Long,
+        projectId: Long?,
+    ): CreatedUser {
         val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         val token = AuthService.generateToken()
         index.updateUserToken(id, AuthService.sha256(token))
@@ -87,7 +94,10 @@ class UserService(
     }
 
     /** 删除用户（平台 admin 与自己不可删）+ changelog */
-    fun deleteUser(id: Long, actor: UserRecord?) {
+    fun deleteUser(
+        id: Long,
+        actor: UserRecord?,
+    ) {
         val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除平台 admin")
         if (actor != null && actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")
@@ -113,14 +123,22 @@ class UserService(
         }
     }
 
-    private fun roleOf(userId: Long?, projectId: Long?): String? =
-        if (userId != null && projectId != null) index.membershipRole(userId, projectId) else null
+    private fun roleOf(
+        userId: Long?,
+        projectId: Long?,
+    ): String? = if (userId != null && projectId != null) index.membershipRole(userId, projectId) else null
 
     private fun actorName(actor: UserRecord?): String = actor?.username ?: "anonymous"
 
     /** 用户 + 其在项目上的角色（Controller 据此转 UserResponse） */
-    data class UserSummary(val user: UserRecord, val role: String?)
+    data class UserSummary(
+        val user: UserRecord,
+        val role: String?,
+    )
 
     /** 创建/重置令牌的结果：用户快照 + 一次性明文 token */
-    data class CreatedUser(val user: UserSummary, val token: String)
+    data class CreatedUser(
+        val user: UserSummary,
+        val token: String,
+    )
 }

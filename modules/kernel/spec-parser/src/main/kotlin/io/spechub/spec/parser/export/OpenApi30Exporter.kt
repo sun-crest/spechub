@@ -18,7 +18,6 @@ import tools.jackson.databind.node.ObjectNode
  * - 根版本 `openapi: 3.0.3`。
  */
 object OpenApi30Exporter {
-
     /** 模型 → 3.0 降级 YAML 文本；降级路径摘要经 downgradeLog 回传（供 UI/审计） */
     fun exportYaml(doc: OpenApiDoc): String = tree(doc).let { SpecModelIO.writeTreeNode(it, SpecFormat.YAML, pretty = true) }
 
@@ -36,7 +35,11 @@ object OpenApi30Exporter {
         return tree
     }
 
-    private fun walkSchemas(node: JsonNode, path: String, log: MutableList<String>) {
+    private fun walkSchemas(
+        node: JsonNode,
+        path: String,
+        log: MutableList<String>,
+    ) {
         if (node is ObjectNode) {
             if (node.get("oneOf") == null && node.get("anyOf") == null) {
                 // schema object 判定：有 type/schema 字样。保守：遍历所有对象，仅当含 type/properties/items 时降级
@@ -54,7 +57,11 @@ object OpenApi30Exporter {
         }
     }
 
-    private fun downgradeSchema(node: ObjectNode, path: String, log: MutableList<String>) {
+    private fun downgradeSchema(
+        node: ObjectNode,
+        path: String,
+        log: MutableList<String>,
+    ) {
         // type 数组 → 标量 + nullable
         node.get("type")?.let { typeNode ->
             if (typeNode.isArray) {

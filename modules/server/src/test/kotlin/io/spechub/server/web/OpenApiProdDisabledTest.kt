@@ -26,7 +26,6 @@ import kotlin.test.assertEquals
 )
 @ActiveProfiles("prod")
 class OpenApiProdDisabledTest : TestDbIsolation() {
-
     @LocalServerPort
     var port: Int = 0
 

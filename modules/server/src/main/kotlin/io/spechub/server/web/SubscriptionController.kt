@@ -1,9 +1,9 @@
 package io.spechub.server.web
 
+import io.spechub.server.service.SubscriptionService
 import io.spechub.spec.index.NotificationRecord
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.index.SubscriptionRecord
-import io.spechub.server.service.SubscriptionService
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
@@ -36,7 +36,6 @@ class SubscriptionController(
     private val auth: AuthService,
     private val subscriptionService: SubscriptionService,
 ) {
-
     data class SubscribeRequest(
         val repoId: Long,
         @field:NotBlank val method: String,
@@ -46,7 +45,10 @@ class SubscriptionController(
     )
 
     @PostMapping
-    fun subscribe(@RequestBody @Valid body: SubscribeRequest, request: HttpServletRequest): SubscriptionRecord {
+    fun subscribe(
+        @RequestBody @Valid body: SubscribeRequest,
+        request: HttpServletRequest,
+    ): SubscriptionRecord {
         auth.requireAuthenticated(request, "订阅")
         return subscriptionService.subscribe(
             repoId = body.repoId,
@@ -59,16 +61,23 @@ class SubscriptionController(
     }
 
     @GetMapping
-    fun list(@RequestParam repoId: Long? = null): List<SubscriptionRecord> = index.listSubscriptions(repoId)
+    fun list(
+        @RequestParam repoId: Long? = null,
+    ): List<SubscriptionRecord> = index.listSubscriptions(repoId)
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    fun unsubscribe(@PathVariable id: Long, request: HttpServletRequest) {
+    fun unsubscribe(
+        @PathVariable id: Long,
+        request: HttpServletRequest,
+    ) {
         auth.requireAuthenticated(request, "取消订阅")
         subscriptionService.unsubscribe(id, auth.currentActor(request))
     }
 
     @GetMapping("/notifications")
-    fun notifications(@RequestParam team: String? = null, @RequestParam limit: Int = 50): List<NotificationRecord> =
-        index.listNotifications(team, limit)
+    fun notifications(
+        @RequestParam team: String? = null,
+        @RequestParam limit: Int = 50,
+    ): List<NotificationRecord> = index.listNotifications(team, limit)
 }

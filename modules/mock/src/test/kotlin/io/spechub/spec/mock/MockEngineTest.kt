@@ -11,16 +11,15 @@ import io.spechub.spec.model.io.SpecHash
 import io.spechub.spec.model.io.SpecModelIO
 import io.spechub.spec.parser.ParseResult
 import io.spechub.spec.parser.SpecParser
+import tools.jackson.databind.JsonNode
+import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.io.path.createTempDirectory
-import tools.jackson.databind.JsonNode
 
 class MockEngineTest {
-
     private fun setup(): Triple<MockEngine, SpecIndexStore, Long> {
         val dir = createTempDirectory("spechub-mock-test")
         val db = IndexDb(dir.resolve("index.db"))
@@ -35,24 +34,39 @@ class MockEngineTest {
         return Triple(MockEngine(index), index, repo.id)
     }
 
-    private fun extractApis(repoId: Long, versionId: Long, doc: OpenApiDoc): List<ApiRecord> =
+    private fun extractApis(
+        repoId: Long,
+        versionId: Long,
+        doc: OpenApiDoc,
+    ): List<ApiRecord> =
         doc.paths.flatMap { (path, item) ->
             item.operations().map { (method, op) ->
                 ApiRecord(
-                    repoId = repoId, versionId = versionId, method = method.uppercase(), path = path,
-                    operationId = op.operationId, tag = op.tags.firstOrNull(), summary = op.summary,
+                    repoId = repoId,
+                    versionId = versionId,
+                    method = method.uppercase(),
+                    path = path,
+                    operationId = op.operationId,
+                    tag = op.tags.firstOrNull(),
+                    summary = op.summary,
                     specJson = SpecModelIO.valueToTree(op).toString(),
                 )
             }
         }
 
-    private fun extractSchemas(repoId: Long, versionId: Long, doc: OpenApiDoc): List<SchemaRecord> =
+    private fun extractSchemas(
+        repoId: Long,
+        versionId: Long,
+        doc: OpenApiDoc,
+    ): List<SchemaRecord> =
         doc.components?.schemas?.map { (name, schema) ->
             SchemaRecord(repoId = repoId, versionId = versionId, name = name, specJson = SpecModelIO.valueToTree(schema).toString())
         } ?: emptyList()
 
-    private fun bodyText(result: MockEngine.MockResult, field: String): String? =
-        SpecModelIO.parseToTree(result.response.body).path(field)?.asText()
+    private fun bodyText(
+        result: MockEngine.MockResult,
+        field: String,
+    ): String? = SpecModelIO.parseToTree(result.response.body).path(field)?.asText()
 
     @Test
     fun `schema 生成：$ref 与 format 样例、enum、array、object 嵌套`() {

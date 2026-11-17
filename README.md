@@ -80,6 +80,8 @@ git init -q --bare -b main /tmp/spechub-origin
 cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
 ```
 
+**质量门禁（R12）**：`./gradlew check`（ktlintCheck + Jackson 2 源码校验 + 全量测试）；CI 见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。单独跑格式检查/修复：`./gradlew ktlintCheck` / `./gradlew ktlintFormat`。
+
 **可选端**：MCP `cd apps/mcp && npm install && npm run build && node dist/index.js`（连 backend 走 HTTP）；CLI `cd apps/cli && go build`（或 `scripts/build-release.sh` 交叉编译四平台）。
 
 > **Profile**：默认 `dev`（未配 admin-token 时鉴权关闭，本地/最小部署零摩擦）；生产设 `SPRING_PROFILES_ACTIVE=prod` 并必须提供 `SPECHUB_ADMIN_TOKEN`，缺失/空串会在配置绑定阶段校验失败、启动即停（不会运行期降级为鉴权关闭）。compose 档通过 `.env` 的 `SPRING_PROFILES_ACTIVE` / `SPECHUB_ADMIN_TOKEN` 注入。

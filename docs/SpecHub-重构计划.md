@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：R1–R11 已完成（R11 于 2026-11-17 实测通过：全量 110 用例绿）；R12 待执行。
+> **日期**：2026-11-16　**状态**：R1–R12 已完成（2026-11-17 实测：全量 110 用例绿，`ktlintCheck` 绿）。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -158,6 +158,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 |---|---|
 | **改动** | 根构建加 `ktlint`（或 detekt）+ spotless；`.editorconfig`；server/kernel test 挂 gate；先以 `warningsAsErrors=false` 跑通再收严 |
 | **验收** | `./gradlew ktlintCheck` 绿 |
+| **状态** | ✅ 2026-11-17 完成：ktlint Gradle 插件 14.2.0 + 引擎 1.8.0；根 `.editorconfig`（4 空格 / LF / 末行换行 / 行长度 off / 测试反引号函数放行）；全量 `ktlintFormat` 后 `ktlintCheck` 绿；`check` 已依赖 `ktlintCheck` 与 `verifyNoJackson2Usage`；新增 `.github/workflows/ci.yml`（JDK 25 + `./gradlew check`）；全量 110 用例绿 |
 
 ---
 

@@ -41,7 +41,9 @@ data class SpecHubProperties(
     val openapiPublic: Boolean = true,
 ) {
     fun gitSourcePath(): Path = Path.of(gitSourceDir)
+
     fun sqlitePath(): Path = Path.of(sqliteDir)
+
     fun artifactsPath(): Path = Path.of(artifactsDir)
 
     /** 生产安全项校验：dev 允许缺省（鉴权关闭），prod 必须显式提供非空 token。 */

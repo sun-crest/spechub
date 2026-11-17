@@ -31,7 +31,6 @@ import kotlin.test.assertTrue
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DocApiTest : TestDbIsolation() {
-
     @LocalServerPort
     var port: Int = 0
 
@@ -61,7 +60,8 @@ class DocApiTest : TestDbIsolation() {
             origin = bare.toAbsolutePath().toString()
         }
 
-        private val SPEC = """
+        private val SPEC =
+            """
             openapi: 3.1.0
             info: { title: Pet Store, version: "1.0.0" }
             paths:
@@ -69,9 +69,10 @@ class DocApiTest : TestDbIsolation() {
                 get:
                   operationId: listPets
                   responses: { "200": { description: ok } }
-        """.trimIndent()
+            """.trimIndent()
 
-        private val HANDOVER = """
+        private val HANDOVER =
+            """
             ---
             title: 宠物店接手分析
             related: [/pets]
@@ -79,14 +80,20 @@ class DocApiTest : TestDbIsolation() {
             # 宠物店接手分析
 
             后台处理器负责订单处理与库存扣减，接入方联调见 GET /pets。
-        """.trimIndent()
+            """.trimIndent()
     }
 
     private val client = HttpClient.newHttpClient()
 
-    private fun req(method: String, path: String, body: String? = null): HttpResponse<String> {
-        val b = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
-            .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
+    private fun req(
+        method: String,
+        path: String,
+        body: String? = null,
+    ): HttpResponse<String> {
+        val b =
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port$path"))
+                .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
         if (body != null) b.header("Content-Type", "application/json")
         return client.send(b.build(), HttpResponse.BodyHandlers.ofString())
     }
@@ -111,8 +118,13 @@ class DocApiTest : TestDbIsolation() {
     @Test
     fun `doc 详情含关联接口节 且 doc 可评论`() {
         req("POST", "/api/repos", """{"url":"file://$origin"}""")
-        val docId = json.readTree(req("GET", "/api/docs").body()).firstOrNull()?.at("/id")?.asLong()
-            ?: throw AssertionError("无 doc")
+        val docId =
+            json
+                .readTree(req("GET", "/api/docs").body())
+                .firstOrNull()
+                ?.at("/id")
+                ?.asLong()
+                ?: throw AssertionError("无 doc")
 
         val detail = json.readTree(req("GET", "/api/docs/$docId").body())
         assertTrue(detail.at("/markdown").asText().contains("关联接口"), "front-matter related → 关联接口节")

@@ -11,8 +11,11 @@ import io.spechub.spec.model.io.SpecModelIO
  */
 
 object IndexMapper {
-
-    fun extractApis(repoId: Long, versionId: Long, doc: OpenApiDoc): List<ApiRecord> =
+    fun extractApis(
+        repoId: Long,
+        versionId: Long,
+        doc: OpenApiDoc,
+    ): List<ApiRecord> =
         doc.paths.flatMap { (path, item) ->
             item.operations().map { (method, op) ->
                 ApiRecord(
@@ -28,7 +31,11 @@ object IndexMapper {
             }
         }
 
-    fun extractSchemas(repoId: Long, versionId: Long, doc: OpenApiDoc): List<SchemaRecord> =
+    fun extractSchemas(
+        repoId: Long,
+        versionId: Long,
+        doc: OpenApiDoc,
+    ): List<SchemaRecord> =
         doc.components?.schemas?.map { (name, schema) ->
             SchemaRecord(
                 repoId = repoId,

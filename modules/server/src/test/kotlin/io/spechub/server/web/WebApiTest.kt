@@ -10,9 +10,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestMethodOrder
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import org.springframework.boot.test.web.server.LocalServerPort
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
 import java.net.http.HttpClient
@@ -42,12 +42,10 @@ import kotlin.test.assertTrue
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 class WebApiTest : TestDbIsolation() {
-
     @LocalServerPort
     var port: Int = 0
 
     companion object {
-
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
         private val TEMPDIR: java.nio.file.Path = kotlin.io.path.createTempDirectory("spechub-test-" + System.nanoTime())
 
@@ -58,6 +56,7 @@ class WebApiTest : TestDbIsolation() {
             registry.add("spechub.sqlite-dir") { TEMPDIR.resolve("sqlite").toString() }
             registry.add("spechub.artifacts-dir") { TEMPDIR.resolve("artifacts").toString() }
         }
+
         private val json = JsonMapper.builder().build()
         private lateinit var origin: String
 
@@ -102,9 +101,13 @@ class WebApiTest : TestDbIsolation() {
 
     private val client = HttpClient.newHttpClient()
 
-    private fun post(path: String, body: String): HttpResponse<String> =
+    private fun post(
+        path: String,
+        body: String,
+    ): HttpResponse<String> =
         client.send(
-            HttpRequest.newBuilder(URI("http://localhost:$port$path"))
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port$path"))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .header("Content-Type", "application/json")
                 .build(),
@@ -119,14 +122,19 @@ class WebApiTest : TestDbIsolation() {
 
     private fun findOriginRepoId(): Long {
         val repos = json.readTree(get("/api/repos").body())
-        val found = repos.firstOrNull { it.get("url").asString() == origin }
-            ?: throw AssertionError("origin 仓未注册：$repos")
+        val found =
+            repos.firstOrNull { it.get("url").asString() == origin }
+                ?: throw AssertionError("origin 仓未注册：$repos")
         return found.get("id").asLong()
     }
 
-    private fun put(path: String, body: String): HttpResponse<String> =
+    private fun put(
+        path: String,
+        body: String,
+    ): HttpResponse<String> =
         client.send(
-            HttpRequest.newBuilder(URI("http://localhost:$port$path"))
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port$path"))
                 .PUT(HttpRequest.BodyPublishers.ofString(body))
                 .header("Content-Type", "application/json")
                 .build(),
@@ -143,7 +151,8 @@ class WebApiTest : TestDbIsolation() {
         assertEquals(200, read.statusCode(), read.body())
 
         // 写回：追加一个 DELETE operation 的新版本文档
-        val newSpec = """
+        val newSpec =
+            """
             openapi: 3.1.0
             info: { title: Pet Store, version: "1.1.0" }
             paths:
@@ -161,7 +170,7 @@ class WebApiTest : TestDbIsolation() {
             components:
               schemas:
                 Pet: { type: object, properties: { name: { type: string } } }
-        """.trimIndent()
+            """.trimIndent()
         val body = """{"path":"specs/pet/openapi.yaml","content":"${newSpec.replace("\n", "\\n").replace("\"", "\\\"")}"}"""
         val resp = put("/api/repos/$repoId/spec", body)
         assertEquals(200, resp.statusCode(), resp.body())
@@ -171,7 +180,12 @@ class WebApiTest : TestDbIsolation() {
 
         // 写回后摄取 → 投影含 removePet
         val apis = json.readTree(get("/api/repos/$repoId/apis").body())
-        val ops = buildList { for (a in apis) { add(a.at("/operationId").asString()) } }
+        val ops =
+            buildList {
+                for (a in apis) {
+                    add(a.at("/operationId").asString())
+                }
+            }
         assertTrue("removePet" in ops, "写回后应能查到 removePet：$ops")
     }
 
@@ -217,7 +231,12 @@ class WebApiTest : TestDbIsolation() {
         assertEquals(1, json.readTree(resp.body()).at("/apiCount").asInt())
 
         val repos = json.readTree(get("/api/repos").body())
-        val urls = buildList { for (r in repos) { add(r.get("url").asString()) } }
+        val urls =
+            buildList {
+                for (r in repos) {
+                    add(r.get("url").asString())
+                }
+            }
         assertTrue(urls.none { it.contains("secret-token-abc") }, "token 不应出现在任何 repo.url：$urls")
         assertTrue(urls.any { it == origin }, "origin 仓应存在且 URL 干净：$urls")
     }

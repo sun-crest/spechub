@@ -1,10 +1,10 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.Role
-import io.spechub.spec.index.SpecIndexStore
 import io.spechub.server.service.UserService
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.Role
+import io.spechub.spec.index.SpecIndexStore
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
@@ -40,12 +40,18 @@ class AuthController(
     private val auth: AuthService,
     private val userService: UserService,
 ) {
-
     private val log = LoggerFactory.getLogger(javaClass)
 
-    data class LoginRequest(val username: String? = null, @field:NotBlank val token: String)
+    data class LoginRequest(
+        val username: String? = null,
+        @field:NotBlank val token: String,
+    )
 
-    data class StatusResponse(val authEnabled: Boolean, val authenticated: Boolean, val username: String? = null)
+    data class StatusResponse(
+        val authEnabled: Boolean,
+        val authenticated: Boolean,
+        val username: String? = null,
+    )
 
     data class MeResponse(
         val authenticated: Boolean,
@@ -68,11 +74,20 @@ class AuthController(
         val createdAt: String? = null,
     )
 
-    data class CreateUserRequest(@field:NotBlank val username: String, val displayName: String = "", val role: String = Role.VIEWER)
+    data class CreateUserRequest(
+        @field:NotBlank val username: String,
+        val displayName: String = "",
+        val role: String = Role.VIEWER,
+    )
 
-    data class UpdateRoleRequest(@field:NotBlank val role: String)
+    data class UpdateRoleRequest(
+        @field:NotBlank val role: String,
+    )
 
-    data class CreateUserResponse(val user: UserResponse, val token: String)
+    data class CreateUserResponse(
+        val user: UserResponse,
+        val token: String,
+    )
 
     @GetMapping("/status")
     fun status(req: HttpServletRequest): StatusResponse {
@@ -81,13 +96,16 @@ class AuthController(
     }
 
     @PostMapping("/login")
-    fun login(@RequestBody @Valid body: LoginRequest): StatusResponse {
+    fun login(
+        @RequestBody @Valid body: LoginRequest,
+    ): StatusResponse {
         if (!auth.authEnabled) {
             throw ApiException(ApiErrorCode.AUTH_NOT_ENABLED, "后端未启用鉴权（未配 spechub.admin-token），无需登录")
         }
         // 兼容 H6：只传 token → 视为 admin 登录
-        val user = auth.userForToken(body.token)
-            ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "令牌无效")
+        val user =
+            auth.userForToken(body.token)
+                ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "令牌无效")
         if (body.username != null && body.username.isNotBlank() && body.username != user.username) {
             throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "用户名与令牌不匹配")
         }
@@ -106,9 +124,12 @@ class AuthController(
         val projectId = defaultProjectId()
         val role = auth.effectiveRole(user, projectId)
         return MeResponse(
-            authenticated = true, authEnabled = true,
-            username = user.username, displayName = user.displayName,
-            platformAdmin = user.isPlatformAdmin, role = role,
+            authenticated = true,
+            authEnabled = true,
+            username = user.username,
+            displayName = user.displayName,
+            platformAdmin = user.isPlatformAdmin,
+            role = role,
             canManage = user.isPlatformAdmin || Role.rank(role) >= Role.rank(Role.ADMIN),
         )
     }
@@ -123,28 +144,39 @@ class AuthController(
     }
 
     @PostMapping("/users")
-    fun createUser(req: HttpServletRequest, @RequestBody @Valid body: CreateUserRequest): CreateUserResponse {
+    fun createUser(
+        req: HttpServletRequest,
+        @RequestBody @Valid body: CreateUserRequest,
+    ): CreateUserResponse {
         val projectId = defaultProjectId()
         auth.requireProjectRole(req, projectId, Role.ADMIN, "创建用户")
-        val created = userService.createUserWithMembership(
-            username = body.username,
-            displayName = body.displayName,
-            role = body.role,
-            projectId = projectId,
-            actor = auth.currentUser(req),
-        )
+        val created =
+            userService.createUserWithMembership(
+                username = body.username,
+                displayName = body.displayName,
+                role = body.role,
+                projectId = projectId,
+                actor = auth.currentUser(req),
+            )
         return CreateUserResponse(toResponse(created.user), created.token)
     }
 
     @PostMapping("/users/{id}/role")
-    fun setRole(req: HttpServletRequest, @PathVariable id: Long, @RequestBody @Valid body: UpdateRoleRequest): UserResponse {
+    fun setRole(
+        req: HttpServletRequest,
+        @PathVariable id: Long,
+        @RequestBody @Valid body: UpdateRoleRequest,
+    ): UserResponse {
         val projectId = defaultProjectId()
         auth.requireProjectRole(req, projectId, Role.ADMIN, "改角色")
         return toResponse(userService.setRole(id, body.role, projectId, auth.currentUser(req)))
     }
 
     @PostMapping("/users/{id}/token")
-    fun resetToken(req: HttpServletRequest, @PathVariable id: Long): CreateUserResponse {
+    fun resetToken(
+        req: HttpServletRequest,
+        @PathVariable id: Long,
+    ): CreateUserResponse {
         val projectId = defaultProjectId()
         auth.requireProjectRole(req, projectId, Role.ADMIN, "重置令牌")
         val created = userService.resetToken(id, projectId)
@@ -153,7 +185,10 @@ class AuthController(
 
     @DeleteMapping("/users/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    fun deleteUser(req: HttpServletRequest, @PathVariable id: Long) {
+    fun deleteUser(
+        req: HttpServletRequest,
+        @PathVariable id: Long,
+    ) {
         val projectId = defaultProjectId()
         auth.requireProjectRole(req, projectId, Role.ADMIN, "删除用户")
         userService.deleteUser(id, auth.currentUser(req))
@@ -163,12 +198,13 @@ class AuthController(
 
     private fun defaultProjectId(): Long? = index.projectIdByName(RepoController.DEFAULT_PROJECT)
 
-    private fun toResponse(summary: UserService.UserSummary): UserResponse = UserResponse(
-        id = checkNotNull(summary.user.id) { "用户记录缺 id" },
-        username = summary.user.username,
-        displayName = summary.user.displayName,
-        platformAdmin = summary.user.isPlatformAdmin,
-        role = summary.role,
-        createdAt = summary.user.createdAt,
-    )
+    private fun toResponse(summary: UserService.UserSummary): UserResponse =
+        UserResponse(
+            id = checkNotNull(summary.user.id) { "用户记录缺 id" },
+            username = summary.user.username,
+            displayName = summary.user.displayName,
+            platformAdmin = summary.user.isPlatformAdmin,
+            role = summary.role,
+            createdAt = summary.user.createdAt,
+        )
 }

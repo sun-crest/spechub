@@ -6,7 +6,9 @@ package io.spechub.server.web.common
  * 禁止在业务代码裸写错误码字符串。
  */
 
-enum class ApiErrorCode(val status: Int) {
+enum class ApiErrorCode(
+    val status: Int,
+) {
     /** 参数/请求语义非法（非校验框架产出的 400） */
     BAD_REQUEST(400),
 

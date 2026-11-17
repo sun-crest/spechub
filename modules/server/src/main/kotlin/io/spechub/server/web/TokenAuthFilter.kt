@@ -25,7 +25,6 @@ class TokenAuthFilter(
     private val json: ObjectMapper,
     private val props: SpecHubProperties,
 ) : OncePerRequestFilter() {
-
     override fun doFilterInternal(
         req: HttpServletRequest,
         res: HttpServletResponse,
@@ -49,7 +48,8 @@ class TokenAuthFilter(
             req.requestURI.startsWith("/actuator/") ||
             req.requestURI.startsWith("/api/auth/") ||
             req.requestURI.startsWith("/mock/") ||
-            (props.openapiPublic && isOpenApiPath(req.requestURI))) {
+            (props.openapiPublic && isOpenApiPath(req.requestURI))
+        ) {
             chain.doFilter(req, res)
         } else {
             reject(req, res, ApiErrorCode.AUTH_UNAUTHORIZED, "unauthorized")
@@ -64,7 +64,12 @@ class TokenAuthFilter(
             uri.startsWith("/webjars/") ||
             uri.startsWith("/swagger-ui/")
 
-    private fun reject(req: HttpServletRequest, res: HttpServletResponse, code: ApiErrorCode, msg: String) {
+    private fun reject(
+        req: HttpServletRequest,
+        res: HttpServletResponse,
+        code: ApiErrorCode,
+        msg: String,
+    ) {
         res.status = code.status
         res.contentType = "application/json"
         res.writer.write(json.writeValueAsString(ApiErrorBody(code.status, code.name, msg, req.requestURI)))

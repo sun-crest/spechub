@@ -4,16 +4,16 @@ import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
 import io.spechub.spec.index.IndexDb
-import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.junit.jupiter.api.io.TempDir
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import org.springframework.boot.test.web.server.LocalServerPort
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
 import java.net.http.HttpClient
@@ -37,7 +37,6 @@ import kotlin.test.assertTrue
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ImportExportApiTest : TestDbIsolation() {
-
     @LocalServerPort
     var port: Int = 0
 
@@ -45,7 +44,6 @@ class ImportExportApiTest : TestDbIsolation() {
     lateinit var db: IndexDb
 
     companion object {
-
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
         private val TEMPDIR: java.nio.file.Path = kotlin.io.path.createTempDirectory("spechub-test-" + System.nanoTime())
 
@@ -56,6 +54,7 @@ class ImportExportApiTest : TestDbIsolation() {
             registry.add("spechub.sqlite-dir") { TEMPDIR.resolve("sqlite").toString() }
             registry.add("spechub.artifacts-dir") { TEMPDIR.resolve("artifacts").toString() }
         }
+
         private val json = JsonMapper.builder().build()
         private lateinit var origin: String
 
@@ -79,7 +78,8 @@ class ImportExportApiTest : TestDbIsolation() {
             origin = bare.toAbsolutePath().toString()
         }
 
-        private val SEED_SPEC = """
+        private val SEED_SPEC =
+            """
             openapi: 3.1.0
             info: { title: Seed Store, version: "1.0.0" }
             paths:
@@ -91,14 +91,20 @@ class ImportExportApiTest : TestDbIsolation() {
             components:
               schemas:
                 Pet: { type: object, properties: { id: { type: integer }, name: { type: string } } }
-        """.trimIndent()
+            """.trimIndent()
     }
 
     private val client = HttpClient.newHttpClient()
 
-    private fun req(method: String, path: String, body: String? = null): HttpResponse<String> {
-        val b = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
-            .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
+    private fun req(
+        method: String,
+        path: String,
+        body: String? = null,
+    ): HttpResponse<String> {
+        val b =
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port$path"))
+                .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
         if (body != null) b.header("Content-Type", "application/json")
         return client.send(b.build(), HttpResponse.BodyHandlers.ofString())
     }
@@ -126,13 +132,18 @@ class ImportExportApiTest : TestDbIsolation() {
     @Test
     fun `J2 导入 Swagger-2-0 写回真源并摄取`() {
         val repoId = seedAndRegister()
-        val swagger = """
+        val swagger =
+            """
             {"swagger":"2.0","info":{"title":"Old API","version":"1"},"host":"old.example.com","basePath":"/api",
              "paths":{"/legacy":{"get":{"operationId":"legacyList","responses":{"200":{"description":"ok","schema":{"type":"array","items":{"type":"string"}}}}}}},
              "definitions":{}}
-        """.trimIndent()
-        val r = req("POST", "/api/import/swagger2",
-            """{"content":${json.writeValueAsString(swagger)},"repoId":$repoId,"path":"specs/import/old-api.yaml"}""")
+            """.trimIndent()
+        val r =
+            req(
+                "POST",
+                "/api/import/swagger2",
+                """{"content":${json.writeValueAsString(swagger)},"repoId":$repoId,"path":"specs/import/old-api.yaml"}""",
+            )
         assertEquals(200, r.statusCode(), r.body())
         val t = json.readTree(r.body())
         assertEquals("Old API", t.at("/title").asText())
@@ -153,14 +164,19 @@ class ImportExportApiTest : TestDbIsolation() {
     @Test
     fun `J1 导入 Postman 写回真源`() {
         val repoId = seedAndRegister()
-        val pm = """
+        val pm =
+            """
             {"info":{"name":"PMS"},"item":[
               {"name":"list","request":{"method":"GET","url":{"path":["pets"],"query":[{"key":"limit","value":"10"}]}}},
               {"name":"create","request":{"method":"POST","url":{"path":["pets"]},"body":{"mode":"raw","raw":"{}"}}}
             ]}
-        """.trimIndent()
-        val r = req("POST", "/api/import/postman",
-            """{"content":${json.writeValueAsString(pm)},"repoId":$repoId,"path":"specs/import/pms.yaml"}""")
+            """.trimIndent()
+        val r =
+            req(
+                "POST",
+                "/api/import/postman",
+                """{"content":${json.writeValueAsString(pm)},"repoId":$repoId,"path":"specs/import/pms.yaml"}""",
+            )
         assertEquals(200, r.statusCode(), r.body())
         assertEquals(2, json.readTree(r.body()).at("/apiCount").asInt())
         val spec = req("GET", "/api/repos/$repoId/spec?path=specs/import/pms.yaml")
@@ -214,11 +230,12 @@ class ImportExportApiTest : TestDbIsolation() {
     @Test
     fun `J4 docx pdf 软依赖 - pandoc 缺失友好报错`() {
         val repoId = seedAndRegister()
-        val pandoc = try {
-            ProcessBuilder("sh", "-c", "command -v pandoc").start().let { it.waitFor() == 0 }
-        } catch (e: Exception) {
-            false
-        }
+        val pandoc =
+            try {
+                ProcessBuilder("sh", "-c", "command -v pandoc").start().let { it.waitFor() == 0 }
+            } catch (e: Exception) {
+                false
+            }
         val status = req("POST", "/api/repos/$repoId/document/pdf").statusCode()
         if (pandoc) {
             assertEquals(200, status, "装了 pandoc 时应生成 pdf")
@@ -231,7 +248,10 @@ class ImportExportApiTest : TestDbIsolation() {
     fun `导出未知 format 400 且 stage 参数生效`() {
         val repoId = seedAndRegister()
         assertEquals(400, req("GET", "/api/repos/$repoId/export/nope").statusCode())
-        assertEquals(200, req("GET", "/api/repos/$repoId/export/openapi31?stage=release").statusCode(),
-            "release 空快照也可导出（空 paths 不报错）")
+        assertEquals(
+            200,
+            req("GET", "/api/repos/$repoId/export/openapi31?stage=release").statusCode(),
+            "release 空快照也可导出（空 paths 不报错）",
+        )
     }
 }

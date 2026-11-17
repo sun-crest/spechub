@@ -31,12 +31,16 @@ class ExportController(
     private val exportService: ExportService,
     private val index: SpecIndexStore,
 ) {
-
     @GetMapping("/{format}")
-    fun export(@PathVariable id: Long, @PathVariable format: String, @RequestParam stage: String = Stage.DRAFT): ResponseEntity<String> {
+    fun export(
+        @PathVariable id: Long,
+        @PathVariable format: String,
+        @RequestParam stage: String = Stage.DRAFT,
+    ): ResponseEntity<String> {
         if (format !in setOf("openapi31", "openapi30", "postman", "markdown", "html")) {
             throw ApiException(
-                ApiErrorCode.VALIDATION, "format ∈ openapi31 | openapi30 | postman | markdown | html",
+                ApiErrorCode.VALIDATION,
+                "format ∈ openapi31 | openapi30 | postman | markdown | html",
                 listOf(ApiErrorBody.FieldError("format", "format ∈ openapi31 | openapi30 | postman | markdown | html")),
             )
         }
@@ -46,15 +50,20 @@ class ExportController(
         index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
 
         val doc = exportService.reconstructOpenApi(id, stage)
-        val (body, mediaType, ext) = when (format) {
-            "openapi31" -> Triple(SpecModelIO.writeDocument(doc, SpecFormat.YAML, pretty = true), "text/yaml;charset=UTF-8", "yaml")
-            "openapi30" -> Triple(OpenApi30Exporter.exportYaml(doc), "text/yaml;charset=UTF-8", "yaml")
-            "postman" -> Triple(PostmanExporter.exportJson(doc), MediaType.APPLICATION_JSON.toString(), "json")
-            "markdown" -> Triple(MarkdownExporter.export(doc), "text/markdown;charset=UTF-8", "md")
-            "html" -> Triple(HtmlPortalExporter.export(doc), "text/html;charset=UTF-8", "html")
-            else -> throw ApiException(ApiErrorCode.BAD_REQUEST, "format 不支持")
-        }
+        val (body, mediaType, ext) =
+            when (format) {
+                "openapi31" -> Triple(SpecModelIO.writeDocument(doc, SpecFormat.YAML, pretty = true), "text/yaml;charset=UTF-8", "yaml")
+                "openapi30" -> Triple(OpenApi30Exporter.exportYaml(doc), "text/yaml;charset=UTF-8", "yaml")
+                "postman" -> Triple(PostmanExporter.exportJson(doc), MediaType.APPLICATION_JSON.toString(), "json")
+                "markdown" -> Triple(MarkdownExporter.export(doc), "text/markdown;charset=UTF-8", "md")
+                "html" -> Triple(HtmlPortalExporter.export(doc), "text/html;charset=UTF-8", "html")
+                else -> throw ApiException(ApiErrorCode.BAD_REQUEST, "format 不支持")
+            }
         val disposition = "attachment; filename=spechub-$format.$ext"
-        return ResponseEntity.ok().header("Content-Type", mediaType).header("Content-Disposition", disposition).body(body)
+        return ResponseEntity
+            .ok()
+            .header("Content-Type", mediaType)
+            .header("Content-Disposition", disposition)
+            .body(body)
     }
 }

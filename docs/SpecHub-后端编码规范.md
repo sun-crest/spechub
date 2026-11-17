@@ -208,6 +208,7 @@ data class LoginRequest(
 - `[强]` 分支/状态值用 enum（`Role.*` 现状正确），禁止裸字符串散落比较；跨层传参用类型化对象而非 `Any`/`Map`。
 - `[强]` 遵守方案 A 第 4 条：**不写多余的 `!!`**；表达「应有但缺失」用 `checkNotNull(x) { "原因" }`。
 - `[推]` 引入 `ktlint`（或 detekt）做静态检查 + `.editorconfig` 对齐格式；CI 门禁。**这是低成本高收益项，优先于大多数手写规范。**
+  **R12 已落地**：ktlint 1.8.0（插件 14.2.0）+ 根 `.editorconfig`；本地 `./gradlew ktlintCheck`，CI 跑 `./gradlew check`。
 
 ---
 

@@ -45,8 +45,7 @@ data class RequestBody(
     val ref: String? = null,
 ) {
     /** 便捷：指定媒体类型的 schema（取第一个匹配的 schema，无则 null） */
-    fun firstSchema(): Schema? =
-        content.values.firstNotNullOfOrNull { it.schema } ?: refSchema()
+    fun firstSchema(): Schema? = content.values.firstNotNullOfOrNull { it.schema } ?: refSchema()
 
     private fun refSchema(): Schema? = null
 }

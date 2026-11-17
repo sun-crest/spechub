@@ -1,11 +1,11 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.CommentRecord
-import io.spechub.spec.index.Role
-import io.spechub.spec.index.SpecIndexStore
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.CommentRecord
+import io.spechub.spec.index.Role
+import io.spechub.spec.index.SpecIndexStore
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
@@ -32,8 +32,9 @@ class CommentController(
     private val index: SpecIndexStore,
     private val auth: AuthService,
 ) {
-
-    data class CommentBody(@field:NotBlank val body: String)
+    data class CommentBody(
+        @field:NotBlank val body: String,
+    )
 
     data class CommentResponse(
         val id: Long,
@@ -47,27 +48,43 @@ class CommentController(
     )
 
     @GetMapping("/apis/{id}/comments")
-    fun comments(@PathVariable id: Long): List<CommentResponse> {
+    fun comments(
+        @PathVariable id: Long,
+    ): List<CommentResponse> {
         val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
         return index.listCommentsForEndpoint(api.repoId, api.method, api.path).map(::toResponse)
     }
 
     @PostMapping("/apis/{id}/comments")
-    fun add(@PathVariable id: Long, @RequestBody @Valid body: CommentBody, request: HttpServletRequest): CommentResponse {
+    fun add(
+        @PathVariable id: Long,
+        @RequestBody @Valid body: CommentBody,
+        request: HttpServletRequest,
+    ): CommentResponse {
         val user = auth.requireAuthenticated(request, "发表评论")
         val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
-        val comment = index.addCommentWithChangelog(
-            repoId = api.repoId, apiId = api.id, docId = null,
-            method = api.method, path = api.path, author = user.username, body = body.body.trim(),
-            actor = user.username, action = "comment",
-            detail = "评论 ${api.method} ${api.path}：${body.body.trim().take(60)}",
-        )
+        val comment =
+            index.addCommentWithChangelog(
+                repoId = api.repoId,
+                apiId = api.id,
+                docId = null,
+                method = api.method,
+                path = api.path,
+                author = user.username,
+                body = body.body.trim(),
+                actor = user.username,
+                action = "comment",
+                detail = "评论 ${api.method} ${api.path}：${body.body.trim().take(60)}",
+            )
         return toResponse(comment)
     }
 
     @DeleteMapping("/comments/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    fun delete(@PathVariable id: Long, request: HttpServletRequest) {
+    fun delete(
+        @PathVariable id: Long,
+        request: HttpServletRequest,
+    ) {
         val actor = auth.requireAuthenticated(request, "删除评论")
         val comment = index.getComment(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评论 $id 不存在")
         val projectId = index.getRepo(comment.repoId)?.projectId
@@ -79,13 +96,24 @@ class CommentController(
             throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "只能删除自己的评论或需 admin 及以上")
         }
         index.deleteCommentWithChangelog(
-            id = id, repoId = comment.repoId, apiId = comment.apiId,
-            actor = actor.username, action = "comment.delete", detail = "删除评论 #${comment.id}",
+            id = id,
+            repoId = comment.repoId,
+            apiId = comment.apiId,
+            actor = actor.username,
+            action = "comment.delete",
+            detail = "删除评论 #${comment.id}",
         )
     }
 
-    private fun toResponse(c: CommentRecord): CommentResponse = CommentResponse(
-        id = checkNotNull(c.id) { "评论记录缺 id" }, apiId = c.apiId, repoId = c.repoId, method = c.method, path = c.path,
-        author = c.author, body = c.body, createdAt = c.createdAt,
-    )
+    private fun toResponse(c: CommentRecord): CommentResponse =
+        CommentResponse(
+            id = checkNotNull(c.id) { "评论记录缺 id" },
+            apiId = c.apiId,
+            repoId = c.repoId,
+            method = c.method,
+            path = c.path,
+            author = c.author,
+            body = c.body,
+            createdAt = c.createdAt,
+        )
 }

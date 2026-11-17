@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.jvm) apply false
     alias(libs.plugins.kotlin.spring) apply false
     alias(libs.plugins.spring.boot) apply false
+    alias(libs.plugins.ktlint) apply false
 }
 
 allprojects {
@@ -43,6 +44,14 @@ subprojects {
                     "-Xtype-use=specify",
                 )
             }
+        }
+
+        // ── R12：ktlint 静态检查（规范 §11）──
+        // 只在 Kotlin 模块挂载；插件默认把 ktlintCheck 接进 check。格式规则见根 .editorconfig。
+        // 引擎版本与插件版本分列 libs.versions.toml（ktlintGradle / ktlintEngine）。
+        apply(plugin = "org.jlleitschuh.gradle.ktlint")
+        configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
+            version.set(libs.versions.ktlintEngine.get())
         }
     }
     // 测试 JVM 释放 native access（sqlite-jdbc 在 JDK 25 的 restricted 加载警告消隐）

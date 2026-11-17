@@ -14,7 +14,6 @@ import kotlin.test.assertTrue
 
 /** R9：请求访问日志只记 method/path/status/durationMs，不泄漏请求体、Authorization 或 query string。 */
 class RequestLogFilterTest {
-
     @Test
     fun `每个请求一条访问日志且不记 body 与 token`() {
         val logger = LoggerFactory.getLogger(RequestLogFilter::class.java) as Logger
