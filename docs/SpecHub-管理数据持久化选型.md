@@ -1,6 +1,6 @@
 # SpecHub · 管理数据持久化最终选型结论
 
-> **日期**：2026-11-16　**状态**：结论版（待团队确认）
+> **日期**：2026-11-16（2026-11-17 补决策）　**状态**：结论已确认——管理库仅 PostgreSQL / MySQL（无 SQLite 管理库）、存量数据重置不迁移、`project` / `repo` 归管理库
 > **范围**：管理数据（用户、角色、项目、仓库注册、评论、订阅、通知、评审、mock 规则、changelog、发布状态）的存储与持久化技术选型。
 > **不覆盖**：投影层（api/schema/doc/FTS/版本快照）继续使用 SQLite + kernel raw JDBC，不随本文迁移；git 继续作为内容真源。
 
@@ -11,7 +11,7 @@
 | 决策项 | 结论 |
 |---|---|
 | 数据分层 | git = 内容真源；管理 DB = 持久管理数据；投影 DB = 可重建索引 |
-| 数据源 | **两个数据源**：管理数据源（PostgreSQL / MySQL）+ 投影数据源（SQLite） |
+| 数据源 | **两个数据源**：管理数据源（PostgreSQL / MySQL，Spring 唯一 DataSource）+ 投影数据源（SQLite，kernel `IndexDb` 自管连接，不进 Spring） |
 | 管理库引擎 | **PostgreSQL 为参考默认；MySQL 8.4 LTS 为受支持替代** |
 | 持久化技术 | **Spring Data JDBC（Repository CRUD）+ JdbcTemplate（自定义 SQL）** |
 | 事务 | 管理域用 Spring `@Transactional`；投影层保留 kernel 显式事务；git + DB 不做分布式事务 |
@@ -28,12 +28,14 @@
 | 层 | 载体 | 内容 | 生命周期 |
 |---|---|---|---|
 | 内容真源 | git | `specs/` 下 OpenAPI、`docs/` 下 Markdown | 永久、可 diff/回滚/评审 |
-| 平台管理数据 | 管理 DB（durable） | 用户、角色、token hash、项目、仓库注册、评论、订阅、通知、评审、mock 规则、changelog、发布状态 | 持久，必须备份/迁移 |
-| 可重建投影 | 投影 DB（disposable） | `api` / `schema` / `doc` 投影、FTS、版本快照、draft/release 投影 | 可随时清空，从 git 重扫 |
+| 平台管理数据 | 管理 DB（durable） | 用户、角色、token hash、项目、仓库注册、评论、订阅、通知、评审、mock 规则、changelog、发布状态（release 标记） | 持久，必须备份；**本阶段存量数据重置，不迁移** |
+| 可重建投影 | 投影 DB（disposable） | `api` / `schema` / `doc` 投影、FTS、版本快照、draft/release 投影副本 | 可随时清空，从 git + 管理库（repo 列表 / release 标记）重扫 |
 
 ### 2.2 关键边界
 
 - **禁止**管理数据外键指向投影表。投影重建（DELETE + INSERT）会级联删除管理数据。
+- **`project` / `repo` 归管理库**（仓库注册是管理数据）。投影库**不保留** `project` / `repo` 表；投影表的 `project_id` / `repo_id` 只是逻辑列，重建时由 server 从管理库读取 repo 列表并传入 id。
+- **发布状态归管理库**：release 标记（`repo_id + path + spec_hash`）无法从 git 重建，必须落管理库；投影层 `version.stage` 与 release 投影副本是重建时按 release 记录重放的派生结果。
 - 管理数据引用内容时使用**稳定键**：`repo_id + path`、`repo_id + method + path`、`repo_id + name`。
 - **管理库内部保留外键**（user ↔ membership、project ↔ repo 等），默认 `ON DELETE RESTRICT`，删除由 Service 显式编排。
 - 投影表引用管理表的 `project_id` / `repo_id` 使用逻辑引用（不建跨库外键）。
@@ -50,7 +52,8 @@
 | **投影数据源** | 可重建索引 | SQLite（每实例一份，WAL） |
 
 - 两个数据源**不共享事务**，不做 XA/JTA。
-- 开发者本地可用两个 SQLite 文件（`platform.db` + `index.db`）降低启动依赖；CI 必须在真实 MySQL/PostgreSQL 上验证管理库。
+- **Spring 侧只有一个 DataSource**：管理库注册为 Spring DataSource，承载 `@Transactional`、Spring Data JDBC 与 Flyway；投影库由 kernel `IndexDb` 以 `DriverManager` 自开连接，不注册为 Spring DataSource，不参与 Spring 事务、Flyway 与 `@Transactional`。
+- **不提供 SQLite 管理库**：管理库只有 PostgreSQL / MySQL 两个 vendor。本地开发与测试一律使用真实引擎（compose dev 服务或 Testcontainers），Flyway 只维护这两套迁移。
 
 ### 3.2 模块归属
 
@@ -233,6 +236,7 @@ modules/mock/
 | 完全禁止标准 JOIN | 标准 JOIN 在两库可移植；禁的是方言 SQL，不是 JOIN |
 | 用大文本/JSON/Upsert 作为选型依据 | 管理层无此需求或两库均能处理；不是决策因素 |
 | 一次部署同时连接 MySQL 与 PostgreSQL 管理库 | 无跨库事务；运维面翻倍；按部署二选一 |
+| 管理库用 SQLite（本地开发降依赖） | 需要第三个 vendor 的 DDL 与类型语义（`BOOLEAN` / `TIMESTAMPTZ` / `IDENTITY` / 大小写唯一全部不一致），本地与 CI 行为分叉；容器化引擎成本可控 |
 
 ---
 
@@ -244,11 +248,14 @@ modules/mock/
 
 ### Phase 1 · 逻辑拆分与边界修复
 - 拆 `PlatformStore` / `ProjectionStore`（可先同库）。
-- 修复 `comment.doc_id`、`mock_rule.api_id` 等指向投影表的外键，改稳定寻址。
+- 外键修复全清单：`comment.doc_id`、`mock_rule.api_id` 改稳定寻址；`membership.project_id`、`comment.repo_id`、`subscription.repo_id`、`notification.repo_id`、`review.repo_id`、`changelog.repo_id` 随 `project` / `repo` 归管理库而成为管理库内部外键。
+- 投影库删除 `project` / `repo` 表；`api` / `schema` / `doc` / `version` 的 `repo_id` 改为逻辑列（无 FK）。
+- 发布状态迁管理库（`release` 表：`repo_id + path + spec_hash + released_at`），投影 `version.stage` 改为重建时重放的派生值。
 - 补「清空投影 → 从 git 重扫 → 管理数据仍在」的重建测试。
 
 ### Phase 2 · 物理拆分两个数据源
 - 管理库独立 DataSource；投影继续 SQLite。
+- **存量数据不迁移**：现有 SQLite 库中的管理数据直接丢弃；新管理库由 Flyway 建表 + 启动种子（default project / admin）重建，不做数据搬运与 username 大小写、时间类型清洗。
 - 管理表 DDL/迁移迁到 server（Flyway per vendor）。
 - 管理 Repository 用 Spring Data JDBC；复杂 SQL 用 JdbcTemplate。
 - `MockEngine` 接入 `MockRuleSource` 端口。
@@ -259,7 +266,7 @@ modules/mock/
 - 审批/写回链路定义次序、幂等与状态机。
 
 ### Phase 4 · 双库与运维
-- CI 双库 Testcontainers 矩阵。
+- CI 双库 Testcontainers 矩阵（当前仓库无 CI 流水线，需先建 CI 骨架）。
 - 备份/恢复演练；支持矩阵文档。
 - 监控：连接池、慢查询、迁移状态。
 
@@ -267,8 +274,10 @@ modules/mock/
 
 ## 11. 验收标准
 
-- [ ] 管理库与投影库可独立重置：删除投影库后可从 git 全量重建，管理数据不受影响。
+- [ ] 管理库与投影库可独立重置：删除投影库后，由 server 从管理库读取 repo 列表与 release 标记，从 git 全量重建投影，管理数据不受影响。
 - [ ] 管理库内无指向投影表的外键；内容引用全部使用稳定键。
+- [ ] 投影库 DDL 不含 `project` / `repo` 表，投影表对管理库零外键。
+- [ ] 空管理库启动即可用：Flyway 建表 + 种子重建 default project 与 admin。
 - [ ] 管理域多步写有明确事务边界；投影层无 Spring 事务注解。
 - [ ] 同一套管理代码在 PostgreSQL 与 MySQL 8.4 LTS 上通过同一组集成测试。
 - [ ] 迁移脚本按 vendor 分离；无 ORM 自动 DDL。
@@ -283,9 +292,12 @@ modules/mock/
 | 项 | 说明 |
 |---|---|
 | Spring Data JDBC 团队熟悉度 | 若不熟悉，可退回纯 `JdbcTemplate`；Repository 只是省样板 |
+| Spring Data JDBC + Kotlin | 不可变 `data class` 构造器映射需 `kotlin-reflect`，`@Version` 与不可变 update 语义需实测；建议 Phase 2 前做 1–2 天 spike |
 | 评审内容体积 | `review.new_content` 可外置为文件/对象存储；当前留在 DB 也可行 |
-| 发布状态持久性 | release 标记在管理库；如需更强保障，可加 git tag/manifest，并明确 RPO |
+| 发布状态持久性 | 已定为管理库 `release` 表（`repo_id + path + spec_hash`）；如需更强保障可加 git tag/manifest，并明确 RPO |
 | mock 规则跨模块 | 通过 `MockRuleSource` 端口解决；不要把 mock 规则放回投影库 |
 | 双库差异 | 时区、collation、生成键、分页需双库测试；不能只测一个 |
 | 许可 | 若产品对外分发/自托管，MySQL GPLv2 需评估；PostgreSQL 许可更宽松 |
 | 多实例演进 | 管理库先支持共享；投影库可继续每实例 SQLite，后续再评估共享索引 |
+| 本地开发依赖容器 | 管理库无 SQLite 后，本地 `./gradlew test` 需 Docker（Testcontainers）；WSL2 需确认 Docker daemon 可用 |
+| CI 载体缺失 | 当前仓库无 CI 配置，「双库同一组集成测试」需随 CI 骨架一起落地，不能只靠本地 |
