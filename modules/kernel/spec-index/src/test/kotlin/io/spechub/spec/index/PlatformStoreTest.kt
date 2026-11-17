@@ -7,7 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/** 尚未迁管理库的过渡管理域：comment / changelog / mock_rule / review。 */
+/** 尚未迁管理库的过渡管理域：changelog / mock_rule / review。 */
 class PlatformStoreTest {
 
     @TempDir
@@ -43,59 +43,6 @@ class PlatformStoreTest {
         assertEquals("B", platform.listMockRules(repoId).single().ruleValue, "更新值")
         platform.deleteMockRule(checkNotNull(r1.id) { "mock rule upsert 应回填 id" })
         assertEquals(0, platform.listMockRules(repoId).size)
-    }
-
-    // ── comment ──────────────────────────────────────────────────────────────
-
-    @Test
-    fun `comment 增查删 - 按 repo+method+path 稳定寻址`() {
-        val (platform, projection) = stores()
-        val repoId = 1L
-        projection.replaceApisForRepo(repoId, listOf(
-            ApiRecord(repoId = repoId, method = "GET", path = "/pets", specJson = "{}"),
-        ))
-        val apiId = projection.listApis(repoId).single().id!!
-
-        val c1 = platform.addComment(repoId, apiId, null, "GET", "/pets", "alice", "这个路径参数缺 required")
-        platform.addComment(repoId, apiId, null, "GET", "/pets", "bob", "收到，下版补上")
-        val list = platform.listCommentsForEndpoint(repoId, "GET", "/pets")
-        assertEquals(2, list.size)
-        assertEquals("alice", list.first().author)
-        assertEquals("收到，下版补上", list.last().body, "时间正序")
-        assertEquals("GET", list.first().method)
-        assertEquals("/pets", list.first().path)
-
-        assertNotNull(platform.getComment(c1.id!!))
-        platform.deleteComment(c1.id!!)
-        assertEquals(1, platform.listCommentsForEndpoint(repoId, "GET", "/pets").size)
-
-        // 投影重建（摄取 DELETE+INSERT）后评论仍在：api_id 非 FK，稳定寻址命中
-        projection.replaceApisForRepo(repoId, listOf(
-            ApiRecord(repoId = repoId, method = "GET", path = "/pets", specJson = "{}"),
-        ))
-        assertEquals(1, platform.listCommentsForEndpoint(repoId, "GET", "/pets").size, "投影重建不丢评论")
-    }
-
-    @Test
-    fun `doc 评论按 repo+path 稳定寻址 - 投影重建后仍命中`() {
-        val (platform, projection) = stores()
-        val repoId = 1L
-        val docPath = "docs/pet/handover.md"
-        projection.replaceDocsForRepo(repoId, listOf(
-            DocRecord(repoId = repoId, path = docPath, title = "接手分析", markdown = "第一版"),
-        ))
-        val doc = projection.listDocs(repoId).single()
-        platform.addComment(repoId, null, doc.id, "", docPath, "alice", "文档评论")
-
-        // doc 投影重建（DELETE + INSERT）：doc.id 变化，评论仍按 repo + path 命中
-        projection.replaceDocsForRepo(repoId, listOf(
-            DocRecord(repoId = repoId, path = docPath, title = "接手分析", markdown = "第二版"),
-        ))
-        val rebuilt = projection.listDocs(repoId).single()
-        assertTrue(rebuilt.id != doc.id, "重建后 doc id 应变化")
-        val comments = platform.listCommentsForDoc(repoId, docPath)
-        assertEquals(1, comments.size, "重建后文档评论仍命中")
-        assertEquals("alice", comments.single().author)
     }
 
     // ── review ───────────────────────────────────────────────────────────────

@@ -118,51 +118,7 @@ class PlatformStore(private val db: IndexDb) {
         )
     }
 
-    // ── comment（轻评论）───────────────────────────────────────────────
-
-    fun addComment(repoId: Long, apiId: Long?, docId: Long?, method: String, path: String, author: String, body: String): CommentRecord = db.transaction { conn ->
-        val id = conn.insert(
-            "INSERT INTO comment (repo_id, api_id, doc_id, method, path, author, body) VALUES (?,?,?,?,?,?,?)",
-            repoId, apiId, docId, method, path, author, body,
-        )
-        CommentRecord(id, repoId, apiId, docId, method, path, author, body)
-    }
-
-    /** 按稳定寻址（repo + method + path）取评论：api 投影重建后依旧命中 */
-    fun listCommentsForEndpoint(repoId: Long, method: String, path: String): List<CommentRecord> = db.transaction { conn ->
-        conn.select("SELECT * FROM comment WHERE repo_id=? AND method=? AND path=? ORDER BY id", repoId, method, path) { rowToComment(it) }
-    }
-
-    fun listCommentsForRepo(repoId: Long, limit: Int = 100): List<CommentRecord> = db.transaction { conn ->
-        conn.select("SELECT * FROM comment WHERE repo_id=? ORDER BY id DESC LIMIT ?", repoId, limit) { rowToComment(it) }
-    }
-
-    /** Doc 域评论（repo + path 稳定寻址：doc 投影重建后 id 会变，评论仍命中） */
-    fun listCommentsForDoc(repoId: Long, path: String): List<CommentRecord> = db.transaction { conn ->
-        conn.select("SELECT * FROM comment WHERE repo_id=? AND path=? AND method='' ORDER BY id", repoId, path) { rowToComment(it) }
-    }
-
-    fun getComment(id: Long): CommentRecord? = db.transaction { conn ->
-        conn.select("SELECT * FROM comment WHERE id=?", id) { rowToComment(it) }.firstOrNull()
-    }
-
-    fun deleteComment(id: Long) = db.transaction { conn ->
-        conn.exec("DELETE FROM comment WHERE id=?", id)
-    }
-
     // ── 内部 SQL 助手 ─────────────────────────────────────────────────────
-
-    private fun rowToComment(r: Map<String, Any?>): CommentRecord = CommentRecord(
-        id = r.long("id"),
-        repoId = r.long("repo_id"),
-        apiId = r.longOrNull("api_id"),
-        docId = r.longOrNull("doc_id"),
-        method = r["method"] as? String ?: "",
-        path = r["path"] as? String ?: "",
-        author = r["author"] as String,
-        body = r["body"] as String,
-        createdAt = r["created_at"] as? String,
-    )
 
     private fun rowToReview(r: Map<String, Any?>): ReviewRecord = ReviewRecord(
         id = r.long("id"),

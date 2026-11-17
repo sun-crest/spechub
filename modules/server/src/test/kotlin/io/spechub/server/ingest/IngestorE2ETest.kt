@@ -119,8 +119,8 @@ class IngestorE2ETest {
 
     /**
      * 选型文档 §11 验收标准：管理库与投影库可独立重置——
-     * 清空投影后从 git 全量重扫，管理数据（用户/成员/评论/mock 规则/订阅/评审/changelog）一条不丢。
-     * 边界：comment.doc_id / mock_rule.api_id 仅为展示快照（非 FK），评论按 repo + method/path 稳定寻址。
+     * 清空投影后从 git 全量重扫，仍由 PlatformStore 承载的管理数据（mock 规则/评审/changelog）一条不丢。
+     * 边界：mock_rule.api_id 仅为展示快照（非 FK）；用户/成员、repo、订阅/通知、评论已迁管理库。
      */
     @Test
     fun `清空投影后从 git 重扫 - 管理数据不丢失`() {
@@ -132,16 +132,13 @@ class IngestorE2ETest {
         val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
         ingestor.ingest(repo)
 
-        // 管理数据（仍由 PlatformStore 承载的部分）：接口评论、文档评论、mock 规则、订阅、评审、changelog
-        // 用户/成员已迁管理库（Phase 2），不在投影重建影响面内，由 AuthApiTest 覆盖。
+        // 管理数据（仍由 PlatformStore 承载的部分）：mock 规则、评审、changelog
+        // 用户/成员、repo、订阅/通知、评论已迁管理库，不在投影重建影响面内。
         val api = projection.listApis(repo.id).first { it.operationId == "listPets" }
         val doc = projection.listDocs(repo.id).first { it.path == "docs/pet/handover.md" }
-        platform.addComment(repo.id, api.id, null, api.method, api.path, "alice", "接口评论")
-        platform.addComment(repo.id, null, doc.id, "", doc.path, "alice", "文档评论")
         platform.upsertMockRule(MockRuleRecord(repoId = repo.id, apiId = api.id, fieldPattern = "name", ruleType = "value", ruleValue = "x"))
         val review = platform.createReview(repo.id, "specs/pet/openapi.yaml", "new content", "", null, "alice")
         platform.addChangelog(repo.id, api.id, "alice", "spec.write", "写回")
-        assertEquals(2, platform.listCommentsForRepo(repo.id).size, "前置：接口 + 文档评论各一条")
 
         clearProjection(db)
 
@@ -152,8 +149,6 @@ class IngestorE2ETest {
 
         // 管理数据全部仍在（assertAll：一次报告所有丢失项，避免逐个修才发现下一个）
         assertAll(
-            { assertEquals(2, platform.listCommentsForRepo(repo.id).size, "接口 + 文档评论都应保留") },
-            { assertEquals(1, platform.listCommentsForDoc(repo.id, doc.path).size, "文档评论按 repo+path 稳定寻址命中") },
             { assertEquals(1, platform.listMockRules(repo.id).size, "mock 规则应保留") },
             { assertNotNull(platform.getReview(checkNotNull(review.id) { "createReview 应回填 id" }), "评审应保留") },
             { assertEquals(1, platform.listChangelogs(repo.id, null, limit = 10).size, "changelog 应保留") },

@@ -44,9 +44,13 @@ class CommentApiTest : TestDbIsolation() {
     @Autowired
     lateinit var db: IndexDb
 
+    /** 管理库 JdbcTemplate（comment 已迁管理库，按 schema 隔离清理） */
+    @Autowired
+    lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
+
     @BeforeEach
     fun cleanProjection() {
-        db.execute("DELETE FROM comment")
+        jdbc.update("DELETE FROM comment")
         db.execute("DELETE FROM changelog")
         db.execute("DELETE FROM mock_rule")
         db.execute("DELETE FROM version")

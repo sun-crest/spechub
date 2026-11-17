@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import io.spechub.server.service.CommentService
 import io.spechub.server.service.RepoService
 
 /*
@@ -34,6 +35,7 @@ class CommentController(
     private val projection: ProjectionStore,
     private val platform: PlatformStore,
     private val repoService: RepoService,
+    private val commentService: CommentService,
     private val auth: AuthService,
 ) {
 
@@ -53,14 +55,14 @@ class CommentController(
     @GetMapping("/apis/{id}/comments")
     fun comments(@PathVariable id: Long): List<CommentView> {
         val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
-        return platform.listCommentsForEndpoint(api.repoId, api.method, api.path).map(::toView)
+        return commentService.listForEndpoint(api.repoId, api.method, api.path).map(::toView)
     }
 
     @PostMapping("/apis/{id}/comments")
     fun add(@PathVariable id: Long, @RequestBody @Valid body: CommentBody, request: HttpServletRequest): CommentView {
         val user = auth.requireAuthenticated(request, "发表评论")
         val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
-        val comment = platform.addComment(api.repoId, api.id, null, api.method, api.path, user.username, body.body.trim())
+        val comment = commentService.add(api.repoId, api.id, null, api.method, api.path, user.username, body.body.trim())
         platform.addChangelog(api.repoId, api.id, user.username, "comment", "评论 ${api.method} ${api.path}：${body.body.trim().take(60)}")
         return toView(comment)
     }
@@ -69,7 +71,7 @@ class CommentController(
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun delete(@PathVariable id: Long, request: HttpServletRequest) {
         val actor = auth.requireAuthenticated(request, "删除评论")
-        val comment = platform.getComment(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评论 $id 不存在")
+        val comment = commentService.get(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评论 $id 不存在")
         val projectId = repoService.getRepo(comment.repoId)?.projectId
         val role = auth.effectiveRole(actor, projectId)
         val isAuthor = actor.username == comment.author
@@ -77,7 +79,7 @@ class CommentController(
         if (!isAuthor && !isManager && !actor.isPlatformAdmin) {
             throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "只能删除自己的评论或需 admin 及以上")
         }
-        platform.deleteComment(id)
+        commentService.delete(id)
         platform.addChangelog(comment.repoId, comment.apiId, actor.username, "comment.delete", "删除评论 #${comment.id}")
     }
 
