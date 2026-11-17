@@ -76,7 +76,7 @@ class IngestorE2ETest {
         val db = IndexDb(temp.resolve("idx.db")).also { it.migrate() }
         val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, { _, _ -> }, props())
+        val ingestor = Ingestor(git, projection, platform, IngestHooks(), props())
 
         val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
         val result = ingestor.ingest(repo)
@@ -101,7 +101,7 @@ class IngestorE2ETest {
         val db = IndexDb(temp.resolve("idx2.db")).also { it.migrate() }
         val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, { _, _ -> }, props())
+        val ingestor = Ingestor(git, projection, platform, IngestHooks(), props())
         val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
 
         ingestor.ingest(repo)
@@ -128,7 +128,7 @@ class IngestorE2ETest {
         val db = IndexDb(temp.resolve("idx-rebuild.db")).also { it.migrate() }
         val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, { _, _ -> }, props())
+        val ingestor = Ingestor(git, projection, platform, IngestHooks(), props())
         val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
         ingestor.ingest(repo)
 
@@ -139,7 +139,6 @@ class IngestorE2ETest {
         platform.addComment(repo.id, api.id, null, api.method, api.path, "alice", "接口评论")
         platform.addComment(repo.id, null, doc.id, "", doc.path, "alice", "文档评论")
         platform.upsertMockRule(MockRuleRecord(repoId = repo.id, apiId = api.id, fieldPattern = "name", ruleType = "value", ruleValue = "x"))
-        platform.upsertSubscription(repo.id, api.id, api.method, api.path, "pay-team")
         val review = platform.createReview(repo.id, "specs/pet/openapi.yaml", "new content", "", null, "alice")
         platform.addChangelog(repo.id, api.id, "alice", "spec.write", "写回")
         assertEquals(2, platform.listCommentsForRepo(repo.id).size, "前置：接口 + 文档评论各一条")
@@ -156,7 +155,6 @@ class IngestorE2ETest {
             { assertEquals(2, platform.listCommentsForRepo(repo.id).size, "接口 + 文档评论都应保留") },
             { assertEquals(1, platform.listCommentsForDoc(repo.id, doc.path).size, "文档评论按 repo+path 稳定寻址命中") },
             { assertEquals(1, platform.listMockRules(repo.id).size, "mock 规则应保留") },
-            { assertEquals(1, platform.listSubscriptions(repo.id).size, "订阅应保留") },
             { assertNotNull(platform.getReview(checkNotNull(review.id) { "createReview 应回填 id" }), "评审应保留") },
             { assertEquals(1, platform.listChangelogs(repo.id, null, limit = 10).size, "changelog 应保留") },
         )

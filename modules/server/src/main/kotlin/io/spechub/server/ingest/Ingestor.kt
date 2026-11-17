@@ -26,10 +26,7 @@ class Ingestor(
     private val git: GitStore,
     private val projection: ProjectionStore,
     private val platform: PlatformStore,
-    /** 同步状态回写管理库（repo 已迁管理库；以函数注入避免 kernel-级测试依赖 Spring Data） */
-    private val updateSyncStatus: (repoId: Long, status: String, error: String?) -> Unit,
-    /** 摄取完成后重放发布状态（release 标记在管理库；投影重建后恢复 release 快照） */
-    private val replayReleases: (repoId: Long, projection: ProjectionStore) -> Unit,
+    private val hooks: IngestHooks,
     private val props: SpecHubProperties,
 ) {
 
@@ -46,7 +43,7 @@ class Ingestor(
         val repoDir = gitSourceFor(repo.url)
         // 目录名用干净 URL（含 token 的 override 只喂给 git 命令参数，不落盘）
         val effectiveUrl = urlOverride ?: repo.url
-        updateSyncStatus(repo.id, SyncStatus.SYNCING, null)
+        hooks.updateSyncStatus(repo.id, SyncStatus.SYNCING, null)
         val messages = mutableListOf<String>()
         return try {
             git.ensureMirror(effectiveUrl, repoDir)
@@ -102,11 +99,11 @@ class Ingestor(
             projection.replaceDocsForRepo(repo.id, docs)
 
             val result = IngestResult(repo.id, apis.size, schemas.size, versionCount, docs.size, messages)
-            replayReleases(repo.id, projection)
-            updateSyncStatus(repo.id, SyncStatus.OK, null)
+            hooks.replayReleases(repo.id, projection)
+            hooks.updateSyncStatus(repo.id, SyncStatus.OK, null)
             result
         } catch (e: Exception) {
-            updateSyncStatus(repo.id, SyncStatus.ERROR, e.message?.take(500))
+            hooks.updateSyncStatus(repo.id, SyncStatus.ERROR, e.message?.take(500))
             throw e
         }
     }
@@ -166,8 +163,8 @@ class Ingestor(
 
     /** I7：某接口结构变化 → 对其每个订阅方落一条通知（消费团队可查/后续挂 webhook） */
     private fun notifySubscribers(repoId: Long, method: String, path: String, hash: String) {
-        for (s in platform.listSubscriptionsForEndpoint(repoId, method, path)) {
-            platform.addNotification(s.team, repoId, method, path, "结构变更：$method $path → specHash ${hash.take(10)}…")
+        for (s in hooks.subscriptionsForEndpoint(repoId, method, path)) {
+            hooks.addNotification(s.team, repoId, method, path, "结构变更：$method $path → specHash ${hash.take(10)}…")
         }
     }
 

@@ -119,10 +119,15 @@ class SubscriptionApiTest : TestDbIsolation() {
 
     private fun get(path: String) = req("GET", path)
 
+    /** 管理库 JdbcTemplate（subscription/notification 已迁管理库，按 schema 隔离清理） */
+    @Autowired
+    lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
+
     @BeforeEach
     fun cleanProjection() {
-        db.execute("DELETE FROM notification")
-        db.execute("DELETE FROM subscription")
+        // 订阅/通知在管理库；投影清理仍在 SQLite
+        jdbc.update("DELETE FROM notification")
+        jdbc.update("DELETE FROM subscription")
         db.execute("DELETE FROM changelog")
         db.execute("DELETE FROM mock_rule")
         db.execute("DELETE FROM version")

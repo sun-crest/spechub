@@ -7,7 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/** 管理域：project / repo / changelog / mock_rule / user / comment / subscription / review。 */
+/** 尚未迁管理库的过渡管理域：comment / changelog / mock_rule / review。 */
 class PlatformStoreTest {
 
     @TempDir
@@ -96,29 +96,6 @@ class PlatformStoreTest {
         val comments = platform.listCommentsForDoc(repoId, docPath)
         assertEquals(1, comments.size, "重建后文档评论仍命中")
         assertEquals("alice", comments.single().author)
-    }
-
-    // ── subscription / notification ──────────────────────────────────────────
-
-    @Test
-    fun `subscription 幂等 upsert 与通知记录`() {
-        val (platform, _) = stores()
-        val repoId = 1L
-
-        val s1 = platform.upsertSubscription(repoId, null, "GET", "/pets", "pay-team")
-        val s2 = platform.upsertSubscription(repoId, null, "GET", "/pets", "pay-team")
-        assertEquals(s1.id, s2.id, "同（repo,method,path,team）幂等 upsert")
-        assertEquals(1, platform.listSubscriptions(repoId).size)
-
-        platform.addNotification("pay-team", repoId, "GET", "/pets", "结构变更 a")
-        platform.addNotification("pay-team", repoId, "GET", "/pets", "结构变更 b")
-        assertEquals(2, platform.listNotifications("pay-team").size)
-        assertEquals(1, platform.listSubscriptionsForEndpoint(repoId, "GET", "/pets").size)
-
-        assertEquals("GET", platform.listSubscriptionsForEndpoint(repoId, "GET", "/pets").single().method)
-        platform.deleteSubscription(s1.id!!)
-        assertEquals(0, platform.listSubscriptions(repoId).size, "取消订阅后查询为空")
-        assertEquals(2, platform.listNotifications("pay-team").size, "通知历史不随订阅删除而清空（供审计）")
     }
 
     // ── review ───────────────────────────────────────────────────────────────
