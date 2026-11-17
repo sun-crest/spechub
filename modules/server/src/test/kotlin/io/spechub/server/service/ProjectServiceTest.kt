@@ -68,7 +68,7 @@ class ProjectServiceTest : TestDbIsolation() {
         val project = projects.create(orgs.defaultOrgId(), "删除测试", uniqueSlug())
         val id = assertNotNull(project.id)
 
-        assertFailsWith<IllegalArgumentException> { projects.delete(id) }
+        assertFailsWith<IllegalStateException> { projects.delete(id) }
 
         projects.archive(id)
         projects.delete(id)
@@ -82,7 +82,7 @@ class ProjectServiceTest : TestDbIsolation() {
         repos.register(id, "file:///project-delete-${UUID.randomUUID()}", "main")
         projects.archive(id)
 
-        assertFailsWith<IllegalArgumentException> { projects.delete(id) }
+        assertFailsWith<IllegalStateException> { projects.delete(id) }
         assertNotNull(projects.get(id))
     }
 }

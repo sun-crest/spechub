@@ -14,4 +14,7 @@ interface MembershipRepository : CrudRepository<MembershipEntity, Long> {
     fun deleteAllByUserId(userId: Long): Int
 
     fun findAllByProjectId(projectId: Long): List<MembershipEntity>
+
+    /** 删除项目前清理成员关系（FK RESTRICT）；集合式删除。 */
+    fun deleteAllByProjectId(projectId: Long): Int
 }

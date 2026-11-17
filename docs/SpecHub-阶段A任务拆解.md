@@ -200,14 +200,17 @@
 
 ### A5 · 项目 CRUD API（M）
 
-- [ ] `GET/POST /api/projects`；`GET/PATCH/DELETE /api/projects/{id}`。
-- [ ] `POST /api/projects/{id}/transfer`（转移 owner）。
-- [ ] `POST /api/projects/{id}/archive`（归档）。
-- [ ] 可见性变更：`PATCH` body 携带 `visibility`。
-- [ ] 权限：`org_admin` 创建；`project owner` 改设置/转移/删除；`admin` 按需要可改可见性。
-- [ ] 校验：slug 唯一、owner 必须是项目成员、删除前必须归档。
-- [ ] 项目级 changelog（`repo_id=null`，带 `org_id`）。
-- [ ] `ProjectApiTest`：CRUD、权限、slug 冲突、归档/删除、owner 转移。
+- [x] `GET/POST /api/projects`；`GET/PATCH/DELETE /api/projects/{id}`（独立 `ProjectController`，替换原只读列表端点）。
+- [x] `POST /api/projects/{id}/transfer`（转移 owner；新 owner 必须是项目成员，旧 owner 降为 admin）。
+- [x] `POST /api/projects/{id}/archive`（归档）。
+- [x] 可见性变更：`PATCH` body 携带 `visibility`（仅可见性时 admin+ 可改，其余 owner）。
+- [x] 权限：`org_admin` 创建；`project owner` 改设置/转移/删除；`project admin` 可改可见性。
+- [x] 校验：slug 唯一（冲突 409）、owner 必须是组织成员/项目成员、删除前必须归档且无仓库（冲突 409）。
+- [x] 删除时先清项目成员关系（`membership` FK RESTRICT）。
+- [x] 项目级 changelog（`repo_id=null`，带 `org_id`）：create/update/archive/transfer/delete。
+- [x] `ProjectApiTest`：CRUD、列表可见、slug 冲突、权限分层、归档/删除、owner 转移。
+
+**状态**：✅ 2026-11-17 完成；PostgreSQL / MySQL 全量测试与 `:server:ktlintCheck` 通过。
 
 ### A6 · 多项目成员 API + UI（M）
 

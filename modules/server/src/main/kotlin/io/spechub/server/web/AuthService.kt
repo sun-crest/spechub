@@ -326,6 +326,23 @@ class AuthService(
         op: String,
     ) = requireRepoRole(req, repoId, Role.ADMIN, op)
 
+    /** require：组织级管理（创建项目等），需要 org_admin / 平台 admin；dev 免登录放行。 */
+    fun requireOrgAdmin(
+        req: HttpServletRequest,
+        op: String,
+    ): UserRecord {
+        if (!authEnabled) {
+            return currentUser(req) ?: UserRecord(id = -1, username = "anonymous", tokenHash = "")
+        }
+        val user =
+            currentUser(req)
+                ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
+        val uid = user.id ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
+        val orgId = currentOrgId(req)
+        if (user.isPlatformAdmin || orgs.isOrgAdmin(uid, orgId)) return user
+        throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要组织管理员")
+    }
+
     /** require：轻交互（评论等）需「有登录用户」即可，不必 editor+；未启用鉴权放行 */
     fun requireAuthenticated(
         req: HttpServletRequest,

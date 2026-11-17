@@ -37,28 +37,6 @@ class ApiQueryController(
 ) {
     // ── 只读 · F 组 list_projects / get_api ───────────────────────────────
 
-    data class ProjectView(
-        val id: Long,
-        val name: String,
-        val slug: String?,
-        val visibility: String,
-        val archived: Boolean,
-        val ownerId: Long?,
-    )
-
-    @GetMapping("/projects")
-    fun projects(request: HttpServletRequest): List<ProjectView> =
-        auth.visibleProjects(request).map { project ->
-            ProjectView(
-                id = checkNotNull(project.id) { "project 必有 id" },
-                name = project.name,
-                slug = project.slug,
-                visibility = project.visibility,
-                archived = project.archived,
-                ownerId = project.ownerId,
-            )
-        }
-
     @GetMapping("/apis")
     fun search(
         request: HttpServletRequest,

@@ -1,9 +1,12 @@
 package io.spechub.server.service
 
+import io.spechub.server.repository.MembershipEntity
+import io.spechub.server.repository.MembershipRepository
 import io.spechub.server.repository.ProjectEntity
 import io.spechub.server.repository.ProjectRepository
 import io.spechub.server.repository.RepoRepository
 import io.spechub.spec.index.ProjectRecord
+import io.spechub.spec.index.Role
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -18,6 +21,7 @@ import java.time.Instant
 class ProjectService(
     private val projects: ProjectRepository,
     private val repos: RepoRepository,
+    private val memberships: MembershipRepository,
     private val orgs: OrgService,
 ) {
     companion object {
@@ -87,6 +91,9 @@ class ProjectService(
         val resolvedSlug = normalizeSlug(slug ?: name)
         require(VISIBILITIES.contains(visibility)) { "visibility ∈ $VISIBILITIES" }
         require(projects.findByOrgIdAndSlug(orgId, resolvedSlug) == null) { "项目 slug $resolvedSlug 已存在" }
+        if (ownerId != null) {
+            require(orgs.membership(ownerId, orgId)?.status == OrgService.STATUS_ACTIVE) { "owner 必须是组织成员" }
+        }
         val saved =
             projects.save(
                 ProjectEntity(
@@ -100,6 +107,9 @@ class ProjectService(
                     createdAt = Instant.now(),
                 ),
             )
+        if (ownerId != null) {
+            ensureOwnerMembership(ownerId, checkNotNull(saved.id) { "project 创建后应回填 id" })
+        }
         return saved
     }
 
@@ -142,6 +152,16 @@ class ProjectService(
         ownerId: Long,
     ): ProjectEntity {
         val project = projects.findById(id).orElse(null) ?: throw IllegalArgumentException("项目 $id 不存在")
+        val newOwnerMembership =
+            memberships.findByUserIdAndProjectId(ownerId, id)
+                ?: throw IllegalArgumentException("新 owner 必须是项目成员")
+        val previousOwnerId = project.ownerId
+        memberships.save(newOwnerMembership.copy(role = Role.OWNER))
+        if (previousOwnerId != null && previousOwnerId != ownerId) {
+            memberships.findByUserIdAndProjectId(previousOwnerId, id)?.let {
+                memberships.save(it.copy(role = Role.ADMIN))
+            }
+        }
         return projects.save(project.copy(ownerId = ownerId))
     }
 
@@ -149,8 +169,9 @@ class ProjectService(
     @Transactional
     fun delete(id: Long) {
         val project = projects.findById(id).orElse(null) ?: throw IllegalArgumentException("项目 $id 不存在")
-        require(project.archived) { "项目 $id 必须先归档再删除" }
-        require(repos.countByProjectId(id) == 0L) { "项目 $id 仍有仓库，不能删除" }
+        check(project.archived) { "项目 $id 必须先归档再删除" }
+        check(repos.countByProjectId(id) == 0L) { "项目 $id 仍有仓库，不能删除" }
+        memberships.deleteAllByProjectId(id)
         projects.deleteById(id)
     }
 
@@ -159,7 +180,21 @@ class ProjectService(
     fun ensureDefaultProjectOwner(ownerId: Long) {
         val orgId = orgs.defaultOrgId()
         val project = projects.findByOrgIdAndSlug(orgId, DEFAULT_PROJECT) ?: return
+        val projectId = checkNotNull(project.id) { "project 必有 id" }
         if (project.ownerId == null) projects.save(project.copy(ownerId = ownerId))
+        ensureOwnerMembership(ownerId, projectId)
+    }
+
+    private fun ensureOwnerMembership(
+        userId: Long,
+        projectId: Long,
+    ) {
+        val existing = memberships.findByUserIdAndProjectId(userId, projectId)
+        if (existing != null) {
+            if (existing.role != Role.OWNER) memberships.save(existing.copy(role = Role.OWNER))
+        } else {
+            memberships.save(MembershipEntity(userId = userId, projectId = projectId, role = Role.OWNER))
+        }
     }
 
     fun slugify(name: String): String {
