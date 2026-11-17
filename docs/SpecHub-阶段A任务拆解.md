@@ -70,37 +70,40 @@
 
 ### A1 · 管理库 V3 迁移（L）
 
-迁移文件：`modules/server/src/main/resources/db/migration/{postgresql,mysql}/V3__multi_project.sql`（具体版本号按现有序列命名）。
+迁移文件：[postgresql/V3__multi_project.sql](modules/server/src/main/resources/db/migration/postgresql/V3__multi_project.sql)、[mysql/V3__multi_project.sql](modules/server/src/main/resources/db/migration/mysql/V3__multi_project.sql)。
 
 **新增表**
 
-- [ ] `org`：`id/name/slug/status/created_at`；bootstrap 一行 `default`。
-- [ ] `org_membership`：`id/user_id/org_id/org_role/status/created_at`；唯一 `(user_id, org_id)`；`org_role ∈ org_admin | org_member`。
-- [ ] `git_connection`：`id/org_id/provider/external_account_id/display_name/credentials_enc/webhook_secret_enc/status/created_at`；阶段 A 允许只建表，不要求外部 provider。
-- [ ] `repo_binding`：`id/repo_id/kind/connection_id/external_repo_id/remote_url/branch/status/created_at/retired_at`；`kind ∈ managed|external`，`status ∈ candidate|active|retired`；**同一 `repo_id` 至多一条 `active`**（PG 部分唯一索引；MySQL 可空标志位 + 唯一索引）。
-- [ ] `org_domain` 可留到 D2，不阻塞 A。
+- [x] `org`：`id/name/slug/status/plan/trial_ends_at/quota_json/suspended_reason/created_at`；bootstrap 一行 `default`。
+- [x] `org_membership`：`id/user_id/org_id/org_role/status/created_at`；唯一 `(user_id, org_id)`；`org_role ∈ org_admin | org_member`。
+- [x] `git_connection`：`id/org_id/provider/external_account_id/display_name/credentials_enc/webhook_secret_enc/status/created_at`；阶段 A 只建表，不要求外部 provider。
+- [x] `repo_binding`：`id/repo_id/kind/connection_id/external_repo_id/remote_url/branch/status/created_at/retired_at`；`kind ∈ managed|external`，`status ∈ candidate|active|retired`；**同一 `repo_id` 至多一条 `active`**（PG 部分唯一索引；MySQL 生成列 `active_flag` + 唯一键）。
+- [x] `org_domain` 留到 D2，不阻塞 A。
 
 **改表**
 
-- [ ] `project`：加 `org_id/slug/description/visibility/owner_id/archived`；唯一 `(org_id, slug)`；现有 `default` 回填。
-- [ ] `repo`：加 `connection_id`（可空）、`external_repo_id`；现有 URL 回填 `sha256(url)`；保留 `(project_id, url)` 唯一键到 D1。
-- [ ] `membership`：补 `project(id)` 外键与索引（project 已在管理库）。
-- [ ] `repo/comment/subscription/notification/review/mock_rule/changelog/release_marker`：加 `org_id` 并回填默认 org，补 `(org_id, ...)` 索引。
-- [ ] `app_user`：不删除字段；为所有现有用户写 `org_membership`；`is_platform_admin=1` → `org_admin`。
+- [x] `project`：加 `org_id/slug/description/visibility/owner_id/archived`；唯一 `(org_id, slug)`；现有 `default` 回填。
+- [x] `repo`：加 `org_id`、`connection_id`（可空）、`external_repo_id`；现有 URL 回填 `md5(url)` 占位（D1 换 provider 稳定 ID）；保留 `(project_id, url)` 唯一键到 D1。
+- [x] `membership`：补 `project(id)` 外键（V1 已有索引）。
+- [x] `repo/comment/subscription/notification/review/mock_rule/changelog/release_marker`：加 `org_id` 并回填默认 org，补 `(org_id, ...)` 索引。
+- [x] `app_user`：不删除字段；为所有现有用户写 `org_membership`；`is_platform_admin=1` → `org_admin`。
 
 **回填与兼容**
 
-- [ ] 先建默认 org（`name=default`、`slug=default`），再回填所有 `org_id`。
-- [ ] `project.owner_id`：默认项目取平台 admin 用户。
-- [ ] 每个现有 `repo` 创建一条 `active` binding：`kind=managed`（或 `local`），`branch` 取 `repo.branch`，`connection_id` 可空。
-- [ ] 迁移可重复执行（幂等）或由 Flyway 保证一次性；不删除现有数据。
+- [x] 过渡策略：新列先允许 NULL，A2 写入路径补齐；回填保证现有数据可读、旧代码可启动。
+- [x] 先建默认 org（`name=default`、`slug=default`），再回填所有 `org_id`。
+- [x] `project.owner_id`：默认项目取平台 admin 用户（不存在则留空）。
+- [x] 每个现有 `repo` 创建一条 `active` binding：`kind=managed`、`branch` 取 `repo.branch`、`connection_id` 为空。
+- [x] 迁移由 Flyway 一次性执行；不删除现有数据。
 
 **验收**
 
-- [ ] PostgreSQL 18.6：现有 V2 数据升级成功，约束生效。
-- [ ] MySQL 8.4：同上。
-- [ ] 空库从 V1 直接跑到 V3。
-- [ ] 单主约束：插入第二条 `active` binding 失败。
+- [x] PostgreSQL 18.6：现有 V2 数据升级 + 回填验证通过（临时容器）。
+- [x] MySQL 8.4：现有 V2 数据升级 + 回填验证通过（临时容器）。
+- [x] 空库从 V1 直接跑到 V3（`AuthApiTest`，双库）。
+- [x] 单主约束：插入第二条 `active` binding 失败（PG/MySQL 均验证）。
+
+**状态**：✅ 2026-11-17 完成。
 
 ### A2 · 领域模型与 Service（L）
 
