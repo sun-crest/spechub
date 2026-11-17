@@ -4,11 +4,14 @@ import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
 import io.spechub.spec.index.IndexDb
+import io.spechub.spec.index.MockRuleRecord
 import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.SyncStatus
 import io.spechub.server.config.SpecHubProperties
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertAll
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -115,6 +118,69 @@ class IngestorE2ETest {
         assertTrue(projection.listApis(repo.id).all { it.operationId != null })
     }
 
+    /**
+     * 选型文档 §11 验收标准：管理库与投影库可独立重置——
+     * 清空投影后从 git 全量重扫，管理数据（用户/成员/评论/mock 规则/订阅/评审/changelog）一条不丢。
+     *
+     * 当前红灯（2 项），精确指向 Phase 1 剩余修复：
+     * - `comment.doc_id` 的 ON DELETE CASCADE → 文档评论随 doc 投影清空被删；
+     * - `mock_rule.api_id` 的 ON DELETE CASCADE → mock 规则随 api 投影清空被删。
+     * 去掉这两处跨边界 FK 后删除 @Disabled 即可转绿。
+     */
+    @Disabled("Phase 1 剩余项：去 comment.doc_id / mock_rule.api_id 跨边界 FK 后启用")
+    @Test
+    fun `清空投影后从 git 重扫 - 管理数据不丢失`() {
+        val origin = seedOriginWithDocs()
+        val db = IndexDb(temp.resolve("idx-rebuild.db")).also { it.migrate() }
+        val platform = PlatformStore(db)
+        val projection = ProjectionStore(db)
+        val ingestor = Ingestor(git, projection, platform, props())
+        val repo = platform.insertRepo("default", origin.toString(), "main")
+        ingestor.ingest(repo)
+
+        // 管理数据：用户/成员、接口评论、文档评论、mock 规则（挂 api）、订阅（挂 api）、评审、changelog
+        val user = platform.createUser("alice", "Alice", "hash-alice")
+        val userId = checkNotNull(user.id) { "createUser 应回填 id" }
+        val projectId = checkNotNull(platform.projectIdByName("default")) { "default project 应存在" }
+        platform.setMembership(userId, projectId, "editor")
+        val api = projection.listApis(repo.id).first { it.operationId == "listPets" }
+        val doc = projection.listDocs(repo.id).first { it.path == "docs/pet/handover.md" }
+        platform.addComment(repo.id, api.id, null, api.method, api.path, "alice", "接口评论")
+        platform.addComment(repo.id, null, doc.id, "", doc.path, "alice", "文档评论")
+        platform.upsertMockRule(MockRuleRecord(repoId = repo.id, apiId = api.id, fieldPattern = "name", ruleType = "value", ruleValue = "x"))
+        platform.upsertSubscription(repo.id, api.id, api.method, api.path, "pay-team")
+        val review = platform.createReview(repo.id, "specs/pet/openapi.yaml", "new content", "", null, "alice")
+        platform.addChangelog(repo.id, api.id, "alice", "spec.write", "写回")
+        assertEquals(2, platform.listCommentsForRepo(repo.id).size, "前置：接口 + 文档评论各一条")
+
+        clearProjection(db)
+
+        // 从 git 全量重扫（投影重建的唯一输入是真源 + 管理库的 repo 列表）
+        val result = ingestor.ingest(repo)
+        assertEquals(2, result.apiCount, "投影应从 git 重建")
+        assertEquals(1, projection.listDocs(repo.id).size, "doc 投影应从 git 重建")
+
+        // 管理数据全部仍在（assertAll：一次报告所有丢失项，避免逐个修才发现下一个）
+        assertAll(
+            { assertNotNull(platform.findByUsername("alice"), "用户应保留") },
+            { assertEquals("editor", platform.membershipRole(userId, projectId), "成员关系应保留") },
+            { assertEquals(2, platform.listCommentsForRepo(repo.id).size, "接口 + 文档评论都应保留") },
+            { assertEquals(1, platform.listMockRules(repo.id).size, "mock 规则应保留") },
+            { assertEquals(1, platform.listSubscriptions(repo.id).size, "订阅应保留") },
+            { assertNotNull(platform.getReview(checkNotNull(review.id) { "createReview 应回填 id" }), "评审应保留") },
+            { assertEquals(1, platform.listChangelogs(repo.id, null, limit = 10).size, "changelog 应保留") },
+        )
+    }
+
+    /** Phase 1 同库过渡：显式清空投影表。Phase 2 物理拆分后改为删除投影库文件。 */
+    private fun clearProjection(db: IndexDb) {
+        if (db.fts5Available) db.execute("DELETE FROM doc_fts")
+        db.execute("DELETE FROM doc")
+        db.execute("DELETE FROM api")
+        db.execute("DELETE FROM schema")
+        db.execute("DELETE FROM version")
+    }
+
     // ── 前置 git 用具 ──────────────────────────────────────────────────────
 
     private fun seedOrigin(): Path {
@@ -127,6 +193,23 @@ class IngestorE2ETest {
         cli.run(work, listOf("init", "-b", "main")).require("init")
         git.stage(work, listOf(".")).require("stage")
         git.commit(work, "seed spec", Identity("tester", "t@spechub.test")).require("commit")
+        cli.run(work, listOf("remote", "add", "origin", origin.toString())).require("add remote")
+        cli.run(work, listOf("push", "origin", "main")).require("push")
+        return origin
+    }
+
+    private fun seedOriginWithDocs(): Path {
+        val origin = temp.resolve("origin-docs").also { Files.createDirectories(it) }
+        cli.run(origin, listOf("init", "--bare", "-b", "main")).require("init bare")
+
+        val work = temp.resolve("seedwork-docs")
+        Files.createDirectories(work.resolve("specs/pet"))
+        Files.createDirectories(work.resolve("docs/pet"))
+        Files.writeString(work.resolve("specs/pet/openapi.yaml"), specFixture)
+        Files.writeString(work.resolve("docs/pet/handover.md"), "# 接手分析\n\n服务器处理器负责订单处理与库存扣减。")
+        cli.run(work, listOf("init", "-b", "main")).require("init")
+        git.stage(work, listOf(".")).require("stage")
+        git.commit(work, "seed spec and doc", Identity("tester", "t@spechub.test")).require("commit")
         cli.run(work, listOf("remote", "add", "origin", origin.toString())).require("add remote")
         cli.run(work, listOf("push", "origin", "main")).require("push")
         return origin
