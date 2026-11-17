@@ -170,7 +170,7 @@ modules/mock/
 - 扁平实体：只放 `projectId`、`repoId` 等 ID 字段，不做 ORM 关联映射。
 - 单表 CRUD 为主；每个聚合独立 Repository。
 - 主键：`BIGINT` 自增/identity；`Long`。
-- 时间：`Instant` + UTC；PG 用 `timestamptz`，MySQL 用 `DATETIME(6)` 并显式配置 UTC。
+- 时间：`Instant` + UTC；PG 用 `timestamptz`，MySQL 用 `DATETIME(6)` 并**强制 JVM UTC**（spike 实测：非 UTC JVM 下往返漂移 8 小时）。
 - 布尔：PG `BOOLEAN`，MySQL `TINYINT(1)`；由迁移脚本定义，ORM 只做映射。
 - 大文本：`TEXT` / `LONGTEXT`；JPA/Spring Data JDBC 不生成 DDL。
 
@@ -216,13 +216,13 @@ modules/mock/
 
 ### 8.2 强制规则
 
-1. **DDL/迁移**：Flyway 按 vendor 维护（`db/migration/postgresql`、`db/migration/mysql`）；Flyway 10+ 需显式引入 `flyway-database-postgresql` 与 `flyway-mysql` 模块（核心不再自带）；禁止 ORM 自动建表。
+1. **DDL/迁移**：Flyway 按 vendor 维护（`db/migration/postgresql`、`db/migration/mysql`，`classpath:db/migration/{vendor}` 占位符实测可用）；**Boot 4 必须引入 `spring-boot-starter-flyway`**（自动配置已从 autoconfigure 拆出，只加 `flyway-core` 不触发迁移），另需 `flyway-database-postgresql` 与 `flyway-mysql` 模块；禁止 ORM 自动建表。
 2. **类型映射**：统一 `BIGINT IDENTITY`、`VARCHAR`、`TEXT`/`LONGTEXT`、`BOOLEAN`/`TINYINT(1)`、`TIMESTAMPTZ`/`DATETIME(6)`。
-3. **时间**：统一 UTC；MySQL 服务端 `--default-time-zone=+00:00`，Connector/J 配置 `connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true`；PG 用 `timestamptz`，JDBC 按 `Instant` 读取。
+3. **时间**：统一 UTC；**JVM 必须 UTC**（`-Duser.timezone=UTC`，容器部署默认 UTC）——MySQL `DATETIME(6)` 在非 UTC JVM 下 `Instant` 往返漂移（spike 实测 8 小时），JVM UTC 后一致；MySQL 服务端另配 `--default-time-zone=+00:00`，Connector/J 配置 `connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true`。备选 `TIMESTAMP(6)`：不依赖 JVM 时区，但有 2038 上限。PG 用 `timestamptz`，JDBC 按 `Instant` 读取（微秒精度往返一致）。
 4. **大小写/collation**：显式设计；用户名不敏感唯一在 PG 用 `lower()` 唯一索引，MySQL 用 CI 索引；`token_hash` 用区分大小写/二进制比较。
 5. **命名**：小写 snake_case；避开 `schema`、`version` 等潜在保留字。
 6. **SQL**：禁方言函数、方言 upsert、方言分页语法；分页用 `LIMIT/OFFSET`。
-7. **测试**：Testcontainers 同时跑 PostgreSQL 18.x 与 MySQL 8.4.x（固定小版本）；CI 双库矩阵（仓库当前无 CI，需先建骨架）。
+7. **测试**：Testcontainers 同时跑 PostgreSQL 18.x 与 MySQL 8.4.x（固定小版本）；Testcontainers 2.0 坐标为 `testcontainers-*`，需显式 `platform("org.testcontainers:testcontainers-bom:2.0.5")`（Boot 4 BOM 未将模块版本传递到 Gradle）；共享容器 + 每类 schema/database 隔离。CI 双库矩阵（仓库当前无 CI，需先建骨架）。
 8. **备份**：只备份管理库；投影库可重建。
 
 ---
@@ -259,6 +259,7 @@ modules/mock/
 - [x] 补「清空投影 → 从 git 重扫 → 管理数据仍在」的重建测试。✅ 2026-11-17：`IngestorE2ETest` 覆盖 7 类管理数据，已启用转绿。
 
 ### Phase 2 · 物理拆分两个数据源
+> **前置 spike 已完成（2026-11-17）**：Spring Data JDBC + Kotlin 不可变实体、`@Version` 乐观锁、Flyway 双 vendor、双库 Testcontainers 均实测通过；结论与复现见 `spike/persistence/README.md`。
 - 管理库独立 DataSource；投影继续 SQLite。
 - **存量数据不迁移**：现有 SQLite 库中的管理数据直接丢弃；新管理库由 Flyway 建表 + 启动种子（default project / admin）重建，不做数据搬运与 username 大小写、时间类型清洗。
 - 管理表 DDL/迁移迁到 server（Flyway per vendor）。
@@ -297,12 +298,14 @@ modules/mock/
 | 项 | 说明 |
 |---|---|
 | Spring Data JDBC 团队熟悉度 | 若不熟悉，可退回纯 `JdbcTemplate`；Repository 只是省样板 |
-| Spring Data JDBC + Kotlin | 不可变 `data class` 构造器映射需 `kotlin-reflect`，`@Version` 与不可变 update 语义需实测；建议 Phase 2 前做 1–2 天 spike |
+| Spring Data JDBC + Kotlin | ✅ spike 已验证：构造器映射需 `kotlin-reflect`；`@Version` insert=0、update 递增，旧版本更新抛 `OptimisticLockingFailureException` |
 | 评审内容体积 | `review.new_content` 可外置为文件/对象存储；当前留在 DB 也可行 |
 | 发布状态持久性 | 已定为管理库 `release` 表（`repo_id + path + spec_hash`）；如需更强保障可加 git tag/manifest，并明确 RPO |
 | mock 规则跨模块 | 通过 `MockRuleSource` 端口解决；不要把 mock 规则放回投影库 |
 | 双库差异 | 时区、collation、生成键、分页需双库测试；不能只测一个 |
 | MySQL 版本路线 | 9.7 LTS 已于 2026-04 GA，但 Flyway / Connector-J 对 9.x 支持待实测；本阶段锁 8.4，2027 年前评估升级（8.4 → 9.7 路径受支持） |
+| MySQL 时区 | `DATETIME(6)` 强依赖 JVM UTC（spike 实测非 UTC 漂移 8 小时）；部署与测试必须设置 `-Duser.timezone=UTC`，否则改用 `TIMESTAMP(6)`（2038 上限） |
+| Testcontainers 2.0 | 坐标改为 `testcontainers-*`，且 Boot 4 BOM 不传递模块版本，需显式 `testcontainers-bom`（已写入 §8.2） |
 | 许可 | 若产品对外分发/自托管，MySQL GPLv2 需评估；PostgreSQL 许可更宽松 |
 | 多实例演进 | 管理库先支持共享；投影库可继续每实例 SQLite，后续再评估共享索引 |
 | 本地开发依赖容器 | 管理库无 SQLite 后，本地 `./gradlew test` 需 Docker（Testcontainers）；WSL2 需确认 Docker daemon 可用 |
