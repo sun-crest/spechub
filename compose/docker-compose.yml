@@ -54,6 +54,9 @@ services:
       # 对外 URL（用户浏览器）与内置 Gitea 地址（compose 网络内用服务名）
       SPECHUB_EXTERNAL_URL: ${SPECHUB_EXTERNAL_URL:-http://localhost:8080}
       SPECHUB_GITEA_URL: http://gitea:3000
+      # profile：默认 dev（鉴权关闭）；prod 时必须同时注入 SPECHUB_ADMIN_TOKEN（缺失→启动失败）
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SPECHUB_ADMIN_TOKEN: ${SPECHUB_ADMIN_TOKEN:-}
     ports:
       - "${SPECHUB_PORT:-8080}:8080"
     volumes:

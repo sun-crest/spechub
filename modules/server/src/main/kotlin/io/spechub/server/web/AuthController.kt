@@ -1,15 +1,14 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.Role
-import io.spechub.spec.index.SpecIndexStore
-import io.spechub.spec.index.UserRecord
-import io.spechub.server.config.SpecHubProperties
-import io.spechub.server.web.common.ApiErrorBody
+import io.spechub.server.service.UserService
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.Role
+import io.spechub.spec.index.SpecIndexStore
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -31,18 +30,28 @@ import org.springframework.web.bind.annotation.RestController
  * - POST /api/auth/users/{id}/token    重置 token（admin+）
  * - DELETE /api/auth/users/{id}    删除用户（owner）
  * 本组端点自身放行（TokenAuthFilter 不拦 /api/auth 前缀），所以端点内自行做身份/角色校验。
+ *
+ * R4：用户域业务编排下沉至 `UserService`；本类只保留 HTTP 映射、声明式校验与 DTO 转换。
  */
 @RestController
 @RequestMapping("/api/auth")
 class AuthController(
-    private val props: SpecHubProperties,
     private val index: SpecIndexStore,
     private val auth: AuthService,
+    private val userService: UserService,
 ) {
+    private val log = LoggerFactory.getLogger(javaClass)
 
-    data class LoginRequest(val username: String? = null, @field:NotBlank val token: String)
+    data class LoginRequest(
+        val username: String? = null,
+        @field:NotBlank val token: String,
+    )
 
-    data class StatusResponse(val authEnabled: Boolean, val authenticated: Boolean, val username: String? = null)
+    data class StatusResponse(
+        val authEnabled: Boolean,
+        val authenticated: Boolean,
+        val username: String? = null,
+    )
 
     data class MeResponse(
         val authenticated: Boolean,
@@ -56,7 +65,7 @@ class AuthController(
         val canManage: Boolean = false,
     )
 
-    data class UserView(
+    data class UserResponse(
         val id: Long,
         val username: String,
         val displayName: String,
@@ -65,11 +74,20 @@ class AuthController(
         val createdAt: String? = null,
     )
 
-    data class CreateUserRequest(@field:NotBlank val username: String, val displayName: String = "", val role: String = Role.VIEWER)
+    data class CreateUserRequest(
+        @field:NotBlank val username: String,
+        val displayName: String = "",
+        val role: String = Role.VIEWER,
+    )
 
-    data class UpdateRoleRequest(@field:NotBlank val role: String)
+    data class UpdateRoleRequest(
+        @field:NotBlank val role: String,
+    )
 
-    data class CreateUserResponse(val user: UserView, val token: String)
+    data class CreateUserResponse(
+        val user: UserResponse,
+        val token: String,
+    )
 
     @GetMapping("/status")
     fun status(req: HttpServletRequest): StatusResponse {
@@ -78,16 +96,21 @@ class AuthController(
     }
 
     @PostMapping("/login")
-    fun login(@RequestBody @Valid body: LoginRequest): StatusResponse {
+    fun login(
+        @RequestBody @Valid body: LoginRequest,
+    ): StatusResponse {
         if (!auth.authEnabled) {
             throw ApiException(ApiErrorCode.AUTH_NOT_ENABLED, "后端未启用鉴权（未配 spechub.admin-token），无需登录")
         }
         // 兼容 H6：只传 token → 视为 admin 登录
-        val user = auth.userForToken(body.token)
-            ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "令牌无效")
+        val user =
+            auth.userForToken(body.token)
+                ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "令牌无效")
         if (body.username != null && body.username.isNotBlank() && body.username != user.username) {
             throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "用户名与令牌不匹配")
         }
+        // R9 审计：认证事件只记 username，不记凭据本身（§6.1）
+        log.info("登录成功 user={}", user.username)
         return StatusResponse(true, true, user.username)
     }
 
@@ -98,12 +121,15 @@ class AuthController(
             // 未启用鉴权：报告环境 + 未认证（前端据此免登录只读）
             return MeResponse(authenticated = user != null, authEnabled = auth.authEnabled)
         }
-        val defaultProjectId = index.projectIdByName(RepoController.DEFAULT_PROJECT)
-        val role = auth.effectiveRole(user, defaultProjectId)
+        val projectId = defaultProjectId()
+        val role = auth.effectiveRole(user, projectId)
         return MeResponse(
-            authenticated = true, authEnabled = true,
-            username = user.username, displayName = user.displayName,
-            platformAdmin = user.isPlatformAdmin, role = role,
+            authenticated = true,
+            authEnabled = true,
+            username = user.username,
+            displayName = user.displayName,
+            platformAdmin = user.isPlatformAdmin,
+            role = role,
             canManage = user.isPlatformAdmin || Role.rank(role) >= Role.rank(Role.ADMIN),
         )
     }
@@ -111,83 +137,74 @@ class AuthController(
     // ── 成员管理（需要 default project admin+ 或平台 admin；MVP 单项目 default） ──
 
     @GetMapping("/users")
-    fun users(req: HttpServletRequest): List<UserView> {
-        auth.requireProjectRole(req, index.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "查看成员")
-        val projectId = index.projectIdByName(RepoController.DEFAULT_PROJECT)
-        return index.listUsers().map { user ->
-            UserView(
-                id = user.id as Long, username = user.username, displayName = user.displayName,
-                platformAdmin = user.isPlatformAdmin,
-                role = projectId?.let { index.membershipRole(user.id as Long, it) },
-                createdAt = user.createdAt,
-            )
-        }
+    fun users(req: HttpServletRequest): List<UserResponse> {
+        val projectId = defaultProjectId()
+        auth.requireProjectRole(req, projectId, Role.ADMIN, "查看成员")
+        return userService.listUsers(projectId).map(::toResponse)
     }
 
     @PostMapping("/users")
-    fun createUser(req: HttpServletRequest, @RequestBody @Valid body: CreateUserRequest): CreateUserResponse {
-        auth.requireProjectRole(req, index.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "创建用户")
-        val username = body.username.trim()
-        if (!Role.ALL.contains(body.role)) {
-            throw ApiException(
-                ApiErrorCode.VALIDATION,
-                "role ∈ ${Role.ALL}",
-                listOf(ApiErrorBody.FieldError("role", "role ∈ ${Role.ALL}")),
+    fun createUser(
+        req: HttpServletRequest,
+        @RequestBody @Valid body: CreateUserRequest,
+    ): CreateUserResponse {
+        val projectId = defaultProjectId()
+        auth.requireProjectRole(req, projectId, Role.ADMIN, "创建用户")
+        val created =
+            userService.createUserWithMembership(
+                username = body.username,
+                displayName = body.displayName,
+                role = body.role,
+                projectId = projectId,
+                actor = auth.currentUser(req),
             )
-        }
-        if (index.findByUsername(username) != null) {
-            throw ApiException(ApiErrorCode.CONFLICT, "用户 $username 已存在")
-        }
-        val token = AuthService.generateToken()
-        val user = index.createUser(username, body.displayName.ifBlank { username }, AuthService.sha256(token))
-        val projectId = index.projectIdByName(RepoController.DEFAULT_PROJECT)
-        if (projectId != null) index.setMembership(user.id!!, projectId, body.role)
-        index.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.create", detail = "创建用户 $username（$body.role）")
-        return CreateUserResponse(toView(user, projectId), token)
+        return CreateUserResponse(toResponse(created.user), created.token)
     }
 
     @PostMapping("/users/{id}/role")
-    fun setRole(req: HttpServletRequest, @PathVariable id: Long, @RequestBody @Valid body: UpdateRoleRequest): UserView {
-        auth.requireProjectRole(req, index.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "改角色")
-        if (!Role.ALL.contains(body.role)) {
-            throw ApiException(ApiErrorCode.VALIDATION, "role ∈ ${Role.ALL}", listOf(ApiErrorBody.FieldError("role", "role ∈ ${Role.ALL}")))
-        }
-        val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
-        if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "平台 admin 角色不可改")
-        val projectId = index.projectIdByName(RepoController.DEFAULT_PROJECT)
-        if (projectId != null) index.setMembership(id, projectId, body.role)
-        index.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.role", detail = "用户 ${user.username} → $body.role")
-        return toView(user, projectId)
+    fun setRole(
+        req: HttpServletRequest,
+        @PathVariable id: Long,
+        @RequestBody @Valid body: UpdateRoleRequest,
+    ): UserResponse {
+        val projectId = defaultProjectId()
+        auth.requireProjectRole(req, projectId, Role.ADMIN, "改角色")
+        return toResponse(userService.setRole(id, body.role, projectId, auth.currentUser(req)))
     }
 
     @PostMapping("/users/{id}/token")
-    fun resetToken(req: HttpServletRequest, @PathVariable id: Long): CreateUserResponse {
-        auth.requireProjectRole(req, index.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "重置令牌")
-        val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
-        val token = AuthService.generateToken()
-        // 无公开 updateToken 字段 → 删除重建不可取（保留 id/role）。这里用内部更新：
-        index.updateUserToken(id, AuthService.sha256(token))
-        return CreateUserResponse(toView(user, index.projectIdByName(RepoController.DEFAULT_PROJECT)), token)
+    fun resetToken(
+        req: HttpServletRequest,
+        @PathVariable id: Long,
+    ): CreateUserResponse {
+        val projectId = defaultProjectId()
+        auth.requireProjectRole(req, projectId, Role.ADMIN, "重置令牌")
+        val created = userService.resetToken(id, projectId)
+        return CreateUserResponse(toResponse(created.user), created.token)
     }
 
     @DeleteMapping("/users/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    fun deleteUser(req: HttpServletRequest, @PathVariable id: Long) {
-        val actor = auth.currentUser(req)
-        auth.requireProjectRole(req, index.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "删除用户")
-        val user = index.findUserById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
-        if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除平台 admin")
-        if (actor != null && actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")
-        index.deleteUser(id)
-        index.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.delete", detail = "删除用户 ${user.username}")
+    fun deleteUser(
+        req: HttpServletRequest,
+        @PathVariable id: Long,
+    ) {
+        val projectId = defaultProjectId()
+        auth.requireProjectRole(req, projectId, Role.ADMIN, "删除用户")
+        userService.deleteUser(id, auth.currentUser(req))
     }
 
     // ── 内部 ───────────────────────────────────────────────────────────────
 
-    private fun toView(user: UserRecord, projectId: Long?): UserView = UserView(
-        id = user.id as Long, username = user.username, displayName = user.displayName,
-        platformAdmin = user.isPlatformAdmin,
-        role = projectId?.let { index.membershipRole(user.id as Long, it) },
-        createdAt = user.createdAt,
-    )
+    private fun defaultProjectId(): Long? = index.projectIdByName(RepoController.DEFAULT_PROJECT)
+
+    private fun toResponse(summary: UserService.UserSummary): UserResponse =
+        UserResponse(
+            id = checkNotNull(summary.user.id) { "用户记录缺 id" },
+            username = summary.user.username,
+            displayName = summary.user.displayName,
+            platformAdmin = summary.user.isPlatformAdmin,
+            role = summary.role,
+            createdAt = summary.user.createdAt,
+        )
 }

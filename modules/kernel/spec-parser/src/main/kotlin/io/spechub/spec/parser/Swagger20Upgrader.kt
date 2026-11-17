@@ -25,7 +25,6 @@ import tools.jackson.databind.node.ObjectNode
  */
 
 object Swagger20Upgrader {
-
     private const val DEFAULT_MEDIA = "application/json"
     private const val FORM_MEDIA = "application/x-www-form-urlencoded"
 
@@ -103,7 +102,10 @@ object Swagger20Upgrader {
 
     // ── servers ─────────────────────────────────────────────────────────────
 
-    private fun buildServers(tree: ObjectNode, log: MutableList<UpgradeRecord>) {
+    private fun buildServers(
+        tree: ObjectNode,
+        log: MutableList<UpgradeRecord>,
+    ) {
         val host = tree.get("host")?.asString()
         val basePath = tree.get("basePath")?.asString() ?: ""
         val schemes = tree.remove("schemes")?.let { textList(it) } ?: listOf("https")
@@ -128,7 +130,13 @@ object Swagger20Upgrader {
 
     // ── pathItem / operation ────────────────────────────────────────────────
 
-    private fun convertPathItem(item: ObjectNode, rootConsumes: List<String>?, rootProduces: List<String>?, base: String, log: MutableList<UpgradeRecord>) {
+    private fun convertPathItem(
+        item: ObjectNode,
+        rootConsumes: List<String>?,
+        rootProduces: List<String>?,
+        base: String,
+        log: MutableList<UpgradeRecord>,
+    ) {
         val consumes = textListOf(item, "consumes")?.takeIf { it.isNotEmpty() } ?: rootConsumes
         val produces = textListOf(item, "produces")?.takeIf { it.isNotEmpty() } ?: rootProduces
         item.remove("consumes")
@@ -139,7 +147,13 @@ object Swagger20Upgrader {
         }
     }
 
-    private fun convertOperation(op: ObjectNode, consumes: List<String>?, produces: List<String>?, base: String, log: MutableList<UpgradeRecord>) {
+    private fun convertOperation(
+        op: ObjectNode,
+        consumes: List<String>?,
+        produces: List<String>?,
+        base: String,
+        log: MutableList<UpgradeRecord>,
+    ) {
         op.remove("consumes")
         op.remove("produces")
 
@@ -149,7 +163,10 @@ object Swagger20Upgrader {
         val bodyParams = NODE.arrayNode()
         val formParams = NODE.arrayNode()
         params?.forEach { p ->
-            if (p is ObjectNode && p.get("\$ref") != null) { rest.add(p.deepCopy()); return@forEach }
+            if (p is ObjectNode && p.get("\$ref") != null) {
+                rest.add(p.deepCopy())
+                return@forEach
+            }
             when (p.get("in")?.asString()) {
                 "body" -> bodyParams.add(p.deepCopy())
                 "formData" -> formParams.add(p.deepCopy())
@@ -202,7 +219,11 @@ object Swagger20Upgrader {
 
     // ── parameter / response / securityScheme ───────────────────────────────
 
-    private fun convertParameter(node: ObjectNode, base: String, log: MutableList<UpgradeRecord>): ObjectNode {
+    private fun convertParameter(
+        node: ObjectNode,
+        base: String,
+        log: MutableList<UpgradeRecord>,
+    ): ObjectNode {
         val schema = NODE.objectNode()
         for (key in SCHEMA_KEYS) node.get(key)?.let { schema.set(key, it) }
         for (key in SCHEMA_KEYS) node.remove(key)
@@ -217,7 +238,12 @@ object Swagger20Upgrader {
         return node
     }
 
-    private fun convertResponse(node: ObjectNode, produces: List<String>?, base: String, log: MutableList<UpgradeRecord>) {
+    private fun convertResponse(
+        node: ObjectNode,
+        produces: List<String>?,
+        base: String,
+        log: MutableList<UpgradeRecord>,
+    ) {
         val mediaType = first(produces) ?: DEFAULT_MEDIA
         node.get("schema")?.let { schema ->
             node.set("content", NODE.objectNode().set(mediaType, NODE.objectNode().set("schema", schema)))
@@ -229,33 +255,45 @@ object Swagger20Upgrader {
     private fun convertSecurityScheme(node: ObjectNode): ObjectNode {
         val out = NODE.objectNode()
         when (node.get("type")?.asString()) {
-            "basic" -> out.put("type", "http").put("scheme", "basic")
+            "basic" -> {
+                out.put("type", "http").put("scheme", "basic")
+            }
+
             "apiKey" -> {
                 out.put("type", "apiKey")
                 node.get("name")?.let { out.set("name", it) }
                 node.get("in")?.let { out.set("in", it) }
             }
+
             "oauth2" -> {
                 out.put("type", "oauth2")
                 val flowNode = NODE.objectNode()
                 for (k in listOf("authorizationUrl", "tokenUrl", "refreshUrl")) node.get(k)?.let { flowNode.set(k, it) }
                 node.get("scopes")?.let { flowNode.set("scopes", it) }
-                val oauthKey = when (node.get("flow")?.asString()) {
-                    "password" -> "password"
-                    "application" -> "clientCredentials"
-                    "accessCode" -> "authorizationCode"
-                    else -> "implicit"
-                }
+                val oauthKey =
+                    when (node.get("flow")?.asString()) {
+                        "password" -> "password"
+                        "application" -> "clientCredentials"
+                        "accessCode" -> "authorizationCode"
+                        else -> "implicit"
+                    }
                 out.set("flows", NODE.objectNode().set(oauthKey, flowNode))
             }
-            else -> node.get("type")?.let { out.set("type", it) }
+
+            else -> {
+                node.get("type")?.let { out.set("type", it) }
+            }
         }
         return out
     }
 
     // ── $ref 重写 + 公共辅助 ───────────────────────────────────────────────
 
-    private fun rewriteRefs(node: JsonNode, from: String, to: String) {
+    private fun rewriteRefs(
+        node: JsonNode,
+        from: String,
+        to: String,
+    ) {
         if (node is ObjectNode) {
             node.get("\$ref")?.let { ref ->
                 val text = ref.asText()
@@ -267,10 +305,27 @@ object Swagger20Upgrader {
         }
     }
 
-    private val SCHEMA_KEYS = listOf(
-        "type", "format", "items", "enum", "default", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
-        "minLength", "maxLength", "pattern", "minItems", "maxItems", "uniqueItems", "multipleOf", "minProperties", "maxProperties",
-    )
+    private val SCHEMA_KEYS =
+        listOf(
+            "type",
+            "format",
+            "items",
+            "enum",
+            "default",
+            "minimum",
+            "maximum",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "minLength",
+            "maxLength",
+            "pattern",
+            "minItems",
+            "maxItems",
+            "uniqueItems",
+            "multipleOf",
+            "minProperties",
+            "maxProperties",
+        )
 
     /** 2.0 parameter → 3.1 schema：有 schema 用 schema，否则把内联字段构造为 schema 对象 */
     private fun ensureSchema(param: ObjectNode): ObjectNode {
@@ -280,7 +335,10 @@ object Swagger20Upgrader {
         return schema
     }
 
-    private fun textListOf(node: ObjectNode, key: String): List<String>? = (node.get(key) as? ArrayNode)?.let { textList(it) }
+    private fun textListOf(
+        node: ObjectNode,
+        key: String,
+    ): List<String>? = (node.get(key) as? ArrayNode)?.let { textList(it) }
 
     private fun textList(arr: JsonNode): List<String> = (arr as? ArrayNode)?.mapNotNull { if (it.isTextual) it.asString() else null } ?: emptyList()
 

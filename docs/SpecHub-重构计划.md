@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：R1–R3 已完成（2026-11-16 实测通过：server 全量用例绿，含 `ErrorContractTest` 5 + `ValidationContractTest` 6）；R4–R12 待执行。
+> **日期**：2026-11-16　**状态**：R1–R12 已完成（2026-11-17 实测：全量 110 用例绿，`ktlintCheck` 绿）。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -77,6 +77,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **现状证据** | `AuthController.createUser` 内联「createUser + setMembership + addChangelog」三步；`ReviewController` 审批编排；`SubscriptionController.subscribe` 内嵌「apiId 尽力关联」业务规则 |
 | **改动** | ① 新建 `server/service/UserService.kt`（`createUserWithMembership/setRole/resetToken/deleteUser`，编排 + changelog 收口，内部用 R6 复合原语）；② 新建 `server/service/SubscriptionService.kt`（`subscribe/unsubscribe` 含关联规则 + changelog）；③ 评论/文档评论/mock 规则等**单次 Store 写 + changelog** 的小写路径暂以 R6 复合 API 收口（§1.2 允许薄 Controller） |
 | **验收** | 涉改 Controller 只剩 HTTP 映射 + 校验 + 转换；业务规则在 Service |
+| **状态** | ✅ 2026-11-16 完成：新建 `server/service/UserService`（`listUsers/createUserWithMembership/setRole/resetToken/deleteUser`，角色值域/同名冲突/平台 admin 保护/不能删自己等规则与 changelog 全部收口）与 `server/service/SubscriptionService`（`subscribe/unsubscribe`，apiId 尽力关联规则 + changelog）；`AuthController`、`SubscriptionController` 只剩 HTTP 映射、声明式校验、鉴权入口与 DTO 转换；用户创建改用新增 `SpecIndexStore.createUserWithMembership` 单事务复合原语（R6 用户路径先行落地，新增 2 例：单事务落库 / membership FK 失败时 user 全量回滚）；全量 99 用例绿 |
 
 #### R5 · Spec 写回编排下沉　`[强]`（规范 §1.2）
 
@@ -86,6 +87,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **改动** | ① 新建 `server/service/SpecWriteService.kt`：`writeOrQueue(repo, path, content, actor)`（含鉴权→评审分支）、`approve(...)`（全序编排）、`reject(...)`、`importWrite(...)`；② `ReviewController / ApiQueryController / ImportController / RepoController` 编排全部下沉；`requireOtherReviewer` 规则上移；③ `SpecWriter`/`Ingestor` 维持基础设施角色 |
 | **测试** | `ReviewApiTest` 补「approve 全链路状态一致」用例 |
 | **验收** | 涉改 4 个 Controller 的 git+数据库编排引用归零；鉴权/非鉴权分支只在 Service 一处判定 |
+| **状态** | ✅ 2026-11-16 完成：新建 `server/service/SpecWriteService`（`writeOrQueue` 直写/评审唯一分支、`approve/reject` 全序编排、`importWrite`、`registerRepo`）；`ReviewController / ApiQueryController / ImportController / RepoController` 的 git 写回、摄取、评审落定、注册编排全部下沉，`requireOtherReviewer` 与待审状态校验移入 Service；`AuthService` 增 `requireRole(user,...)` 供 Service 复用，`UrlTokenStore` 收口 token 注入；`ReviewApiTest` 新增「approve 全链路状态一致」用例（review 行/version/changelog/投影/sync_status 五方核对）；全量 100 用例绿 |
 
 ---
 
@@ -99,6 +101,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **改动** | ① `SpecIndexStore` 新增复合原语 `createUserWithMembership(username, displayName, tokenHash, projectId, role): UserRecord`（单 `db.transaction`）；② git 侧固定次序「先落 review/直写记录 → git commit+push → 索引重建」，失败抛错即停、重试幂等（git/specHash 幂等已具备），Service 注释写清承诺语义；③ 小写路径「写 + changelog」复合化 |
 | **测试** | kernel 层 `SpecIndexStoreTest` 补「中途失败全量回滚」（注入失败点断言 membership 也不存在） |
 | **验收** | 所有「结果一致性要求」的写路径：要么单事务、要么有明确次序与失败重试语义（注释注明） |
+| **状态** | ✅ 2026-11-16 完成：① `createUserWithMembership`（含 changelog 变体）单事务，中途失败回滚用例已补；② `SpecWriteService` 注释写明直写/审批固定次序与重试幂等，`SpecWriter` 标明 git+changelog 物理不可原子、次序为「push 成功 → 留痕」；③ 评论/文档评论/mock 规则/订阅/用户角色与删除/发布/评审创建与落定全部改为「写 + changelog」单事务复合原语（kernel 事务内 `insertChangelog` 助手 + 复合 API）；kernel 复合原语用例 6 例（含 R4 先行的 2 例）；全量 104 用例绿 |
 
 ---
 
@@ -111,6 +114,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **现状证据** | main 侧 38 处 `!!`（[ReviewController.kt](../modules/server/src/main/kotlin/io/spechub/server/web/ReviewController.kt) 5、[CommentController.kt](../modules/server/src/main/kotlin/io/spechub/server/web/CommentController.kt) 2、[DocController.kt](../modules/server/src/main/kotlin/io/spechub/server/web/DocController.kt) 1 等，多为 `record.id!!`） |
 | **改动** | 逐处评估：SQLite 必有 id → `checkNotNull(x){"原因"}`；编译器已确认非空的 → 删除；`user.id!!` → 走已含 null 判定的 `effectiveRole` 签名 |
 | **验收** | main 侧 `grep "!!"` 归零（kernel 确需处留注释说明） |
+| **状态** | ✅ 2026-11-16 完成：main 侧 `!!` 全量归零（存量实际 5 处，R4/R5 重构已顺带消除大部分）：`CommentController` 删除权限改走 `auth.effectiveRole(actor, projectId)`（消除 `actor.id!!`），评论/Doc 评论 `id!!` 改 `checkNotNull`；kernel `PostmanImporter` 改局部非空绑定、`MockEngine.resolveRef` 拆循环条件；全量 104 用例绿 |
 
 #### R8 · 出参 DTO 统一 `*Response`　`[强]`（规范 §4.1、§13 第 5 项）
 
@@ -119,6 +123,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **现状证据** | `UserView/CommentView/DocCommentView/ReviewView/ReviewDetail` + `toView` |
 | **改动** | 统一改 `UserResponse/CommentResponse/DocCommentResponse/ReviewResponse/ReviewDetailResponse`；`toView→toResponse`；跨文件共享的独立成文件（§4.2 阈值）。**JSON 字段不变**，纯改名 |
 | **验收** | main 侧无 `*View`/`toView` 残留；既有测试通过（无行为变更） |
+| **状态** | ✅ 2026-11-16 完成：`UserView→UserResponse`、`CommentView→CommentResponse`、`DocCommentView→DocCommentResponse`、`ReviewView→ReviewResponse`、`ReviewDetail→ReviewDetailResponse`，`toView→toResponse`；均为 Controller 内嵌套 DTO、无跨文件共享，故未拆独立文件；JSON 字段与行为未变；`modules/*/src/main` grep `*View`/`toView` 归零；全量 104 用例绿 |
 
 #### R9 · 日志纪律 + 请求日志　`[强]`（规范 §6）
 
@@ -127,6 +132,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **现状证据** | 仅 [ApplicationInit.kt](../modules/server/src/main/kotlin/io/spechub/server/ingest/ApplicationInit.kt)、[ReindexRunner.kt](../modules/server/src/main/kotlin/io/spechub/server/ingest/ReindexRunner.kt) 有 slf4j；无请求访问日志 |
 | **改动** | ① 新增 `RequestLogFilter`：`method path status durationMs`（**不记请求体/响应体/token**）；② 关键编排落 INFO（`writeOrQueue/approve/import/register`，与 changelog 互补不替代）；③ 审计一致核对 |
 | **验收** | 每个 HTTP 请求一条访问日志；token 关键字日志零出现（grep 审计） |
+| **状态** | ✅ 2026-11-16 完成：新增 `RequestLogFilter`（`@Order(HIGHEST_PRECEDENCE)` 先于鉴权，401/403 也记录；只记 `method path status durationMs`，`requestURI` 不含 query，不记 body/Authorization/token）；`SpecWriteService` 补 `writeOrQueue/approve/reject/import/register` INFO，`UserService` 补创建/改角色/重置令牌/删除，`SubscriptionService` 补订阅/取消，`AuthController` 补登录成功（仅 username）；注册仓库补 `insertRepoWithChangelog` 同事务 changelog，达成 §6.2「创建仓库 = changelog + INFO」双记录；新增 `RequestLogFilterTest` 断言单条日志且不含 token/body；全量 105 用例绿 |
 
 #### R10 · 配置分层　`[推]`（规范 §7）
 
@@ -135,14 +141,16 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 | **改动** | ① `application.yml` 拆公共 + `application-dev.yml`（默认）+ `application-prod.yml`；② `SpecHubProperties` 加 `@Validated` + 必填项校验（prod 安全项未配 → **启动即 fail**）；③ logback 基础配置 |
 | **测试** | prod profile 冒烟「缺必填项 → 启动失败而非运行期降级」 |
 | **验收** | profile 隔离生效；安全配置缺失在启动期显式报错 |
+| **状态** | ✅ 2026-11-16 完成：`application.yml` 拆公共 + `application-dev.yml`（`spring.profiles.default=dev`）+ `application-prod.yml`；`SpecHubProperties` 加 `@Validated` 与 `@field:NotBlank/@Min`，prod 由 `require-admin-token=true` 触发 `@AssertTrue`（缺失/空 `admin-token` 在配置绑定期即失败）；`AuthService` 空串按「未启用」处理；新增 `logback-spring.xml` 控制台基础格式；`compose/.env.example`、`compose/docker-compose.yml`、README 补 profile 与 `SPECHUB_ADMIN_TOKEN` 说明；新增 `SpecHubPropertiesValidationTest`（dev 可启动 / prod 缺 token 启动失败）；全量 107 用例绿 |
 
 #### R11 · springdoc 落地　`[推]`（规范 §8）
 
 | | |
 |---|---|
-| **改动** | 引入 `springdoc-openapi-starter-webmvc`；新/重构端点逐步补 `@Operation/@Tag`；`/v3/api-docs` + swagger-ui 可用；迁移期保留文件头注释清单为唯一文档，直到全端点带注解 |
-| **测试** | 冒烟断言 `/v3/api-docs` 200 |
-| **验收** | API 文档机器可读；注释清单信息无丢失 |
+| **改动** | ① 引入 `springdoc-openapi-starter-webmvc-ui` 3.x（Boot 4 基线；UI 可选 [Knife4j Next](https://central.sonatype.com/artifact/com.baizhukui/knife4j-openapi3-boot4-spring-boot-starter) 5.8+ 的 boot4 starter，一律 `runtimeOnly`）；② 新/重构端点逐步补 `@Operation/@Tag`（`swagger-annotations-jakarta` 走 `compileOnly`）；③ `/v3/api-docs` 与 UI 入口可用；④ 遵守 root `CLAUDE.md`「Jackson 2 使用边界」与规范 §1.1：Jackson 2 仅文档层运行时传递，业务编译期不可见；⑤ 迁移期保留文件头注释清单为唯一文档，直到全端点带注解 |
+| **测试** | 冒烟断言 `/v3/api-docs` 200；若用 Knife4j Next 加 `/doc.html` 与静态资源 200；`./gradlew verifyNoJackson2Usage` 绿；`dependencyInsight` 核对 `compileClasspath` 无 Jackson 2 实现包（`jackson-annotations` 例外） |
+| **验收** | API 文档机器可读；注释清单信息无丢失；Jackson 2 零业务使用（编译期隔离 + 源码校验双绿） |
+| **状态** | ✅ 2026-11-17 完成：引入 Knife4j Next 5.8.2（`com.baizhukui:knife4j-openapi3-boot4-spring-boot-starter`，Boot 4 / springdoc 3.0.3）为 `runtimeOnly`，`swagger-annotations-jakarta` 2.2.55 为 `compileOnly`；新增 `OpenApiConfig` 全局 info；`TokenAuthFilter` 增加 `spechub.openapi-public` 文档白名单（dev 放行 `/v3/api-docs`、`/doc.html`、`/webjars`，prod 关闭并禁用 springdoc/knife4j）；Jackson 2 仅文档层 runtime（2.22.4，swagger-core 要求 ≥2.22.1），Jackson 3 强制回落 Boot BOM 的 3.1.7；新增 `OpenApiDocsTest`（api-docs / UI / 静态资源 200，业务端点仍 401）与 `OpenApiProdDisabledTest`（prod 文档端点 401）；全量 110 用例绿 |
 
 #### R12 · 工具链：ktlint/detekt + CI　`[推]`（规范 §11）
 
@@ -150,6 +158,7 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 |---|---|
 | **改动** | 根构建加 `ktlint`（或 detekt）+ spotless；`.editorconfig`；server/kernel test 挂 gate；先以 `warningsAsErrors=false` 跑通再收严 |
 | **验收** | `./gradlew ktlintCheck` 绿 |
+| **状态** | ✅ 2026-11-17 完成：ktlint Gradle 插件 14.2.0 + 引擎 1.8.0；根 `.editorconfig`（4 空格 / LF / 末行换行 / 行长度 off / 测试反引号函数放行）；全量 `ktlintFormat` 后 `ktlintCheck` 绿；`check` 已依赖 `ktlintCheck` 与 `verifyNoJackson2Usage`；新增 `.github/workflows/ci.yml`（JDK 25 + `./gradlew check`）；全量 110 用例绿 |
 
 ---
 

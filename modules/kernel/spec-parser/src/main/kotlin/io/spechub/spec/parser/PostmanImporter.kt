@@ -18,7 +18,6 @@ import tools.jackson.databind.node.ObjectNode
  * - `info.name` → OpenAPI `info.title`（空回退「Postman 导入」）。
  */
 object PostmanImporter {
-
     fun importCollection(root: JsonNode): ParseResult {
         if (root !is ObjectNode) {
             return ParseResult.Failure(listOf(ParseIssue.error("root-not-object", "Postman collection 根必须是 JSON 对象")))
@@ -54,7 +53,11 @@ object PostmanImporter {
 
     // ── 递归展开 item（folder 可嵌套）──────────────────────────────────────
 
-    private fun walkItems(items: ArrayNode, paths: ObjectNode, issues: MutableList<ParseIssue>) {
+    private fun walkItems(
+        items: ArrayNode,
+        paths: ObjectNode,
+        issues: MutableList<ParseIssue>,
+    ) {
         for (item in items) {
             if (item !is ObjectNode) continue
             item.get("item")?.let { sub -> if (sub.isArray) walkItems(sub as ArrayNode, paths, issues) }
@@ -81,11 +84,12 @@ object PostmanImporter {
             val segs = mutableListOf<String>()
             for (i in 0 until pathArr.size()) {
                 val s = pathArr.get(i)?.asString() ?: continue
-                segs += when {
-                    s.contains("{{") -> "{" + s.substringAfter("{{").substringBefore("}}").trim() + "}"
-                    s.startsWith(":") && s.length > 1 -> "{" + s.substring(1) + "}"
-                    else -> s
-                }
+                segs +=
+                    when {
+                        s.contains("{{") -> "{" + s.substringAfter("{{").substringBefore("}}").trim() + "}"
+                        s.startsWith(":") && s.length > 1 -> "{" + s.substring(1) + "}"
+                        else -> s
+                    }
             }
             return "/" + segs.joinToString("/").trimEnd('/').ifBlank { "/" }
         }
@@ -98,7 +102,10 @@ object PostmanImporter {
         return "/" + withoutQuery.trimEnd('/').trimStart('/').ifBlank { null } ?: return null
     }
 
-    private fun buildOperation(request: ObjectNode, issues: MutableList<ParseIssue>): ObjectNode {
+    private fun buildOperation(
+        request: ObjectNode,
+        issues: MutableList<ParseIssue>,
+    ): ObjectNode {
         val op = NODE.objectNode()
         op.set("responses", NODE.objectNode().set("200", NODE.objectNode().put("description", "（Postman 导入占位）")))
 
@@ -125,13 +132,19 @@ object PostmanImporter {
         // body → requestBody
         (request.get("body") as? ObjectNode)?.let { body ->
             val rb = buildRequestBody(body)
-            if (rb != null) op.set("requestBody", rb)
-            else issues += ParseIssue.warning("body-unsupported", "body.mode=${body.get("mode")} 无法转 schema（跳过请求体）", "requestBody")
+            if (rb != null) {
+                op.set("requestBody", rb)
+            } else {
+                issues += ParseIssue.warning("body-unsupported", "body.mode=${body.get("mode")} 无法转 schema（跳过请求体）", "requestBody")
+            }
         }
         return op
     }
 
-    private fun parameterNode(src: ObjectNode, `in`: String): ObjectNode {
+    private fun parameterNode(
+        src: ObjectNode,
+        `in`: String,
+    ): ObjectNode {
         val node = NODE.objectNode().put("name", src.get("key")?.asString() ?: "param").put("in", `in`)
         (src.get("description") as? String)?.let { node.put("description", it) }
         node.set("schema", NODE.objectNode().put("type", "string"))
@@ -139,14 +152,16 @@ object PostmanImporter {
     }
 
     private fun buildRequestBody(body: ObjectNode): ObjectNode? {
-        when (body.get("mode")?.asString()) {
+        // mode 缺失/未知 → 不构造请求体（与下方 else 分支等价）
+        val mode = body.get("mode")?.asString() ?: return null
+        when (mode) {
             "raw" -> {
                 val content = NODE.objectNode().set("application/json", NODE.objectNode().set("schema", NODE.objectNode()))
                 return NODE.objectNode().set("content", content)
             }
+
             "urlencoded", "formdata" -> {
                 val props = NODE.objectNode()
-                val mode = body.get("mode")!!.asString()
                 val arr = body.get(mode) as? ArrayNode ?: return null
                 for (i in 0 until arr.size()) {
                     val p = arr.get(i) ?: continue
@@ -161,17 +176,21 @@ object PostmanImporter {
                 val content = NODE.objectNode().set("application/x-www-form-urlencoded", NODE.objectNode().set("schema", schema))
                 return NODE.objectNode().set("content", content)
             }
-            else -> return null
+
+            else -> {
+                return null
+            }
         }
     }
 
-    private fun inferScalar(value: String?): String = when {
-        value == null || value.isBlank() -> "string"
-        value.trim().toLongOrNull() != null -> "integer"
-        value.trim().toDoubleOrNull() != null -> "number"
-        value == "true" || value == "false" -> "boolean"
-        else -> "string"
-    }
+    private fun inferScalar(value: String?): String =
+        when {
+            value == null || value.isBlank() -> "string"
+            value.trim().toLongOrNull() != null -> "integer"
+            value.trim().toDoubleOrNull() != null -> "number"
+            value == "true" || value == "false" -> "boolean"
+            else -> "string"
+        }
 
     private val NODE: JsonNodeFactory = JsonNodeFactory.instance
 }

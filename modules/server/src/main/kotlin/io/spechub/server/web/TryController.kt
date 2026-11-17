@@ -1,11 +1,11 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.SpecIndexStore
-import io.spechub.spec.model.Operation
-import io.spechub.spec.model.io.SpecModelIO
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.model.Operation
+import io.spechub.spec.model.io.SpecModelIO
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import org.slf4j.LoggerFactory
@@ -31,8 +31,9 @@ import java.time.Duration
  */
 @RestController
 @RequestMapping("/api")
-class TryController(private val index: SpecIndexStore) {
-
+class TryController(
+    private val index: SpecIndexStore,
+) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     data class TryRequest(
@@ -52,7 +53,10 @@ class TryController(private val index: SpecIndexStore) {
     )
 
     @PostMapping("/apis/{id}/try")
-    fun tryIt(@PathVariable id: Long, @RequestBody @Valid req: TryRequest): TryResponse {
+    fun tryIt(
+        @PathVariable id: Long,
+        @RequestBody @Valid req: TryRequest,
+    ): TryResponse {
         val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
 
         val base = req.baseUrl.trim()
@@ -64,9 +68,11 @@ class TryController(private val index: SpecIndexStore) {
         for ((k, v) in req.pathParams) path = path.replace("{$k}", v)
         val target = buildUrl(base, path, req.queryParams)
 
-        val builder = HttpRequest.newBuilder(URI.create(target))
-            .timeout(Duration.ofSeconds(10))
-            .header("Accept", "application/json")
+        val builder =
+            HttpRequest
+                .newBuilder(URI.create(target))
+                .timeout(Duration.ofSeconds(10))
+                .header("Accept", "application/json")
         for ((k, v) in req.headers) builder.header(k, v)
         if (req.body != null) {
             builder.header("Content-Type", "application/json")
@@ -75,17 +81,20 @@ class TryController(private val index: SpecIndexStore) {
             builder.method(api.method, HttpRequest.BodyPublishers.noBody())
         }
 
-        val client = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(5))
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build()
+        val client =
+            HttpClient
+                .newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build()
         val started = System.nanoTime()
-        val resp = try {
-            client.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream())
-        } catch (e: Exception) {
-            log.warn("try 请求目标失败 {}：{}", target, e.message)
-            throw ApiException(ApiErrorCode.UPSTREAM_ERROR, "请求目标失败，请检查 baseUrl")
-        }
+        val resp =
+            try {
+                client.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream())
+            } catch (e: Exception) {
+                log.warn("try 请求目标失败 {}：{}", target, e.message)
+                throw ApiException(ApiErrorCode.UPSTREAM_ERROR, "请求目标失败，请检查 baseUrl")
+            }
 
         val truncatedBody = resp.body().readNBytes(MAX_BODY + 1)
         val truncated = truncatedBody.size > MAX_BODY
@@ -93,17 +102,28 @@ class TryController(private val index: SpecIndexStore) {
         val bodyText = String(trimmed, StandardCharsets.UTF_8)
         val elapsedMs = (System.nanoTime() - started) / 1_000_000
 
-        val headers = resp.headers().map().entries.associate { it.key to it.value }
+        val headers =
+            resp
+                .headers()
+                .map()
+                .entries
+                .associate { it.key to it.value }
         return TryResponse(resp.statusCode(), headers, bodyText, truncated, elapsedMs)
     }
 
-    private fun buildUrl(base: String, path: String, query: Map<String, String>): String {
+    private fun buildUrl(
+        base: String,
+        path: String,
+        query: Map<String, String>,
+    ): String {
         val sb = StringBuilder(base.trimEnd('/')).append(path)
         if (query.isNotEmpty()) {
             sb.append(if (path.contains('?')) '&' else '?')
-            sb.append(query.entries.joinToString("&") { (k, v) ->
-                "${URLEncoder.encode(k, StandardCharsets.UTF_8)}=${URLEncoder.encode(v, StandardCharsets.UTF_8)}"
-            })
+            sb.append(
+                query.entries.joinToString("&") { (k, v) ->
+                    "${URLEncoder.encode(k, StandardCharsets.UTF_8)}=${URLEncoder.encode(v, StandardCharsets.UTF_8)}"
+                },
+            )
         }
         return sb.toString()
     }

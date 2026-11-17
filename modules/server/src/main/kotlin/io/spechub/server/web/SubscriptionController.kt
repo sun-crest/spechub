@@ -1,10 +1,9 @@
 package io.spechub.server.web
 
+import io.spechub.server.service.SubscriptionService
 import io.spechub.spec.index.NotificationRecord
 import io.spechub.spec.index.SpecIndexStore
 import io.spechub.spec.index.SubscriptionRecord
-import io.spechub.server.web.common.ApiErrorCode
-import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
@@ -26,14 +25,17 @@ import org.springframework.web.bind.annotation.RestController
  * - DELETE /api/subscriptions/{id}      取消订阅（204）
  * - GET    /api/subscriptions/notifications?team=&limit=   变更通知（摄取期由 Ingestor 写入）
  * 通知触发：Ingestor 比对 specHash 判定结构变化（幂等续跑同内容不通知），见 §6.4 决策 5 消费侧默认读 release。
+ *
+ * R4：订阅/取消的业务编排（apiId 尽力关联 + changelog）下沉至 `SubscriptionService`；
+ * 本类只保留 HTTP 映射、鉴权入口与薄查询。
  */
 @RestController
 @RequestMapping("/api/subscriptions")
 class SubscriptionController(
     private val index: SpecIndexStore,
     private val auth: AuthService,
+    private val subscriptionService: SubscriptionService,
 ) {
-
     data class SubscribeRequest(
         val repoId: Long,
         @field:NotBlank val method: String,
@@ -43,33 +45,39 @@ class SubscriptionController(
     )
 
     @PostMapping
-    fun subscribe(@RequestBody @Valid body: SubscribeRequest, request: HttpServletRequest): SubscriptionRecord {
+    fun subscribe(
+        @RequestBody @Valid body: SubscribeRequest,
+        request: HttpServletRequest,
+    ): SubscriptionRecord {
         auth.requireAuthenticated(request, "订阅")
-        index.getRepo(body.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${body.repoId} 不存在")
-        // api_id 尽力关联（method+path 命中当前投影则填，便于详情展示；非 FK）
-        val apiId = index.listApis(body.repoId, method = body.method.uppercase(), keyword = body.path.removePrefix("/"))
-            .firstOrNull { it.path == body.path }?.id
-        val sub = index.upsertSubscription(
-            body.repoId, apiId, body.method.uppercase(), body.path, body.team.trim(), body.notifyUrl.trim(),
+        return subscriptionService.subscribe(
+            repoId = body.repoId,
+            method = body.method,
+            path = body.path,
+            team = body.team,
+            notifyUrl = body.notifyUrl,
+            actor = auth.currentActor(request),
         )
-        index.addChangelog(body.repoId, apiId, auth.currentActor(request), "subscription",
-            "${body.team} 订阅 ${body.method.uppercase()} ${body.path}")
-        return sub
     }
 
     @GetMapping
-    fun list(@RequestParam repoId: Long? = null): List<SubscriptionRecord> = index.listSubscriptions(repoId)
+    fun list(
+        @RequestParam repoId: Long? = null,
+    ): List<SubscriptionRecord> = index.listSubscriptions(repoId)
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    fun unsubscribe(@PathVariable id: Long, request: HttpServletRequest) {
+    fun unsubscribe(
+        @PathVariable id: Long,
+        request: HttpServletRequest,
+    ) {
         auth.requireAuthenticated(request, "取消订阅")
-        val sub = index.getSubscription(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "订阅 $id 不存在")
-        index.deleteSubscription(id)
-        index.addChangelog(sub.repoId, sub.apiId, auth.currentActor(request), "subscription.delete", "取消订阅：${sub.team} ${sub.method} ${sub.path}")
+        subscriptionService.unsubscribe(id, auth.currentActor(request))
     }
 
     @GetMapping("/notifications")
-    fun notifications(@RequestParam team: String? = null, @RequestParam limit: Int = 50): List<NotificationRecord> =
-        index.listNotifications(team, limit)
+    fun notifications(
+        @RequestParam team: String? = null,
+        @RequestParam limit: Int = 50,
+    ): List<NotificationRecord> = index.listNotifications(team, limit)
 }

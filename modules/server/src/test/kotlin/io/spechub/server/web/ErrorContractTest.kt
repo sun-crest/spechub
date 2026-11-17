@@ -35,7 +35,6 @@ import kotlin.test.assertTrue
 )
 @Import(TestBombController::class)
 class ErrorContractTest : TestDbIsolation() {
-
     @LocalServerPort
     var port: Int = 0
 
@@ -56,7 +55,12 @@ class ErrorContractTest : TestDbIsolation() {
 
     private val client = HttpClient.newHttpClient()
 
-    private fun send(method: String, path: String, body: String?, token: String? = null): HttpResponse<String> {
+    private fun send(
+        method: String,
+        path: String,
+        body: String?,
+        token: String? = null,
+    ): HttpResponse<String> {
         val builder = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
         builder.method(method, if (body != null) HttpRequest.BodyPublishers.ofString(body) else HttpRequest.BodyPublishers.noBody())
         if (body != null) builder.header("Content-Type", "application/json")
@@ -64,11 +68,23 @@ class ErrorContractTest : TestDbIsolation() {
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
     }
 
-    private fun get(path: String, token: String? = ADMIN) = send("GET", path, body = null, token = token)
-    private fun post(path: String, body: String, token: String? = ADMIN) = send("POST", path, body, token)
+    private fun get(
+        path: String,
+        token: String? = ADMIN,
+    ) = send("GET", path, body = null, token = token)
+
+    private fun post(
+        path: String,
+        body: String,
+        token: String? = ADMIN,
+    ) = send("POST", path, body, token)
 
     /** 断言错误体结构：status/code/message/instance 齐全，code 与状态绑定 */
-    private fun assertErrorBody(bodyStr: String, expectedStatus: Int, expectedCode: String) {
+    private fun assertErrorBody(
+        bodyStr: String,
+        expectedStatus: Int,
+        expectedCode: String,
+    ) {
         val t = json.readTree(bodyStr)
         assertEquals(expectedStatus, t.at("/status").asInt(), "status 应与 HTTP 一致：$bodyStr")
         assertEquals(expectedCode, t.at("/code").asText(), "code 应与语义映射一致：$bodyStr")
@@ -119,7 +135,11 @@ class ErrorContractTest : TestDbIsolation() {
         assertFalse(body.contains("IllegalStateException"), "500 响应不得含异常类名：$body")
     }
 
-    private fun assertEqualError(a: String, b: String, msg: String) {
+    private fun assertEqualError(
+        a: String,
+        b: String,
+        msg: String,
+    ) {
         assertEquals(json.readTree(a).at("/code").asText(), json.readTree(b).at("/code").asText(), msg)
         assertEquals(json.readTree(a).at("/status").asInt(), json.readTree(b).at("/status").asInt(), msg)
     }

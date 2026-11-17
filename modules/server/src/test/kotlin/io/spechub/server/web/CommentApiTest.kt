@@ -4,16 +4,16 @@ import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
 import io.spechub.spec.index.IndexDb
-import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.junit.jupiter.api.io.TempDir
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import org.springframework.boot.test.web.server.LocalServerPort
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
 import java.net.http.HttpClient
@@ -36,7 +36,6 @@ import kotlin.test.assertEquals
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class CommentApiTest : TestDbIsolation() {
-
     @LocalServerPort
     var port: Int = 0
 
@@ -56,7 +55,6 @@ class CommentApiTest : TestDbIsolation() {
     }
 
     companion object {
-
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
         private val TEMPDIR: java.nio.file.Path = kotlin.io.path.createTempDirectory("spechub-test-" + System.nanoTime())
 
@@ -67,6 +65,7 @@ class CommentApiTest : TestDbIsolation() {
             registry.add("spechub.sqlite-dir") { TEMPDIR.resolve("sqlite").toString() }
             registry.add("spechub.artifacts-dir") { TEMPDIR.resolve("artifacts").toString() }
         }
+
         private val json = JsonMapper.builder().build()
         private lateinit var origin: String
 
@@ -106,9 +105,15 @@ class CommentApiTest : TestDbIsolation() {
 
     private val client = HttpClient.newHttpClient()
 
-    private fun req(method: String, path: String, body: String? = null): HttpResponse<String> {
-        val b = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
-            .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
+    private fun req(
+        method: String,
+        path: String,
+        body: String? = null,
+    ): HttpResponse<String> {
+        val b =
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port$path"))
+                .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
         if (body != null) b.header("Content-Type", "application/json")
         return client.send(b.build(), HttpResponse.BodyHandlers.ofString())
     }
@@ -116,7 +121,10 @@ class CommentApiTest : TestDbIsolation() {
     private fun get(path: String) = req("GET", path)
 
     /** ArrayNode（tools.jackson 3）的简单查找：找第一个指定字段值等于 value 的子节点 */
-    private fun tools.jackson.databind.JsonNode?.findFirst(field: String, value: String): tools.jackson.databind.JsonNode? {
+    private fun tools.jackson.databind.JsonNode?.findFirst(
+        field: String,
+        value: String,
+    ): tools.jackson.databind.JsonNode? {
         val arr = this ?: return null
         for (i in 0 until arr.size()) {
             val n = arr.get(i)
@@ -127,11 +135,12 @@ class CommentApiTest : TestDbIsolation() {
 
     private fun ensureRepoAndApi(): Pair<Long, Long> {
         val repos = json.readTree(get("/api/repos").body())
-        val repoId = if (repos.size() == 0) {
-            json.readTree(req("POST", "/api/repos", """{"url":"file://$origin"}""").body()).at("/repo/id").asLong()
-        } else {
-            repos.get(0)?.at("/id")?.asLong() ?: throw AssertionError("无 repo")
-        }
+        val repoId =
+            if (repos.size() == 0) {
+                json.readTree(req("POST", "/api/repos", """{"url":"file://$origin"}""").body()).at("/repo/id").asLong()
+            } else {
+                repos.get(0)?.at("/id")?.asLong() ?: throw AssertionError("无 repo")
+            }
         val apisBody = get("/api/apis").body()
         val apis = json.readTree(apisBody)
         val api = apis.findFirst("path", "/pets") ?: throw AssertionError("无 /pets api; apis=$apisBody")
@@ -160,7 +169,10 @@ class CommentApiTest : TestDbIsolation() {
         assertTrue(log.toString().contains("\"action\":\"comment\""), "changelog 含 comment 动作")
     }
 
-    private fun assertTrue(cond: Boolean, msg: String) {
+    private fun assertTrue(
+        cond: Boolean,
+        msg: String,
+    ) {
         if (!cond) throw AssertionError(msg)
     }
 
@@ -171,16 +183,35 @@ class CommentApiTest : TestDbIsolation() {
 
         // 第一次写回（无 HEAD^ → diff 为空），第二次写回应有 diff 摘要
         val v1 = spec.replace("title: Pet Store", "title: Pet Store beta")
-        assertEquals(200, req("PUT", "/api/repos/$repoId/spec",
-            json.writeValueAsString(mapOf("path" to "specs/pet/openapi.yaml", "content" to v1))).statusCode())
+        assertEquals(
+            200,
+            req(
+                "PUT",
+                "/api/repos/$repoId/spec",
+                json.writeValueAsString(mapOf("path" to "specs/pet/openapi.yaml", "content" to v1)),
+            ).statusCode(),
+        )
         val v2 = spec.replace("title: Pet Store", "title: Pet Store v2")
-        assertEquals(200, req("PUT", "/api/repos/$repoId/spec",
-            json.writeValueAsString(mapOf("path" to "specs/pet/openapi.yaml", "content" to v2))).statusCode())
+        assertEquals(
+            200,
+            req(
+                "PUT",
+                "/api/repos/$repoId/spec",
+                json.writeValueAsString(mapOf("path" to "specs/pet/openapi.yaml", "content" to v2)),
+            ).statusCode(),
+        )
 
         // 最新一条 spec.write 的 detail 应含 diff 摘要（+1/-1 specs/...）
         val log = json.readTree(get("/api/repos/$repoId/changelog").body())
         assertTrue(log.get(0)?.at("/action")?.asText() == "spec.write", "最新一条为 spec.write：$log")
-        assertTrue(log.get(0)?.at("/detail")?.asText()?.contains("diff +") == true, "detail 含 diff 摘要：${log.get(0)}")
+        assertTrue(
+            log
+                .get(0)
+                ?.at("/detail")
+                ?.asText()
+                ?.contains("diff +") == true,
+            "detail 含 diff 摘要：${log.get(0)}",
+        )
 
         // 全局变更流（跨 repo）应包含该写操作
         val global = json.readTree(get("/api/changelog?limit=50").body())

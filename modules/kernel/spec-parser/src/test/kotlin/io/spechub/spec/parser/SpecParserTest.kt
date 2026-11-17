@@ -11,9 +11,7 @@ import kotlin.test.assertTrue
 
 /** C1–C4：版本探测 / 3.0→3.1 语义升级 / 变更日志 / 错误容错 */
 class SpecParserTest {
-
-    private fun loadFixture(path: String): String =
-        checkNotNull(javaClass.classLoader.getResource(path)).readText()
+    private fun loadFixture(path: String): String = checkNotNull(javaClass.classLoader.getResource(path)).readText()
 
     // ── C1 · 版本探测与直通 ──────────────────────────────────────────────
 
@@ -48,9 +46,20 @@ class SpecParserTest {
         val get = doc.paths.getValue("/pets").get
         assertTrue(get != null)
         // 参数 schema：type: integer + nullable → [integer, null]
-        assertEquals(listOf("integer", "null"), get.parameters.single().schema?.typeNames())
+        assertEquals(
+            listOf("integer", "null"),
+            get.parameters
+                .single()
+                .schema
+                ?.typeNames(),
+        )
 
-        val respSchema = get.responses.getValue("200").content.getValue("application/json").schema!!
+        val respSchema =
+            get.responses
+                .getValue("200")
+                .content
+                .getValue("application/json")
+                .schema!!
         assertEquals(listOf("integer", "null"), respSchema.properties.getValue("id").typeNames())
         // exclusiveMinimum: true + minimum: 0 → 数值 0，minimum 移除
         val count = respSchema.properties.getValue("count")
@@ -70,7 +79,10 @@ class SpecParserTest {
     fun `3_0 嵌套 properties 中的 nullable 递归升级`() {
         val result = SpecParser.parse(loadFixture("openapi/PetStore-3.0.yaml"))
         assertTrue(result is ParseResult.Success)
-        val pet = result.doc.components!!.schemas.getValue("Pet")
+        val pet =
+            result.doc.components!!
+                .schemas
+                .getValue("Pet")
         assertEquals(listOf("string"), pet.properties.getValue("name").typeNames())
         assertEquals(listOf("integer", "null"), pet.properties.getValue("age").typeNames())
     }
@@ -93,22 +105,23 @@ class SpecParserTest {
 
     @Test
     fun `nullable 无 type 时标记需人工复核`() {
-        val result = SpecParser.parse(
-            """
-            openapi: 3.0.0
-            info: { title: t, version: "1" }
-            paths:
-              /x:
-                get:
-                  responses:
-                    "200":
-                      description: ok
-                      content:
-                        application/json:
-                          schema:
-                            nullable: true
-            """.trimIndent(),
-        )
+        val result =
+            SpecParser.parse(
+                """
+                openapi: 3.0.0
+                info: { title: t, version: "1" }
+                paths:
+                  /x:
+                    get:
+                      responses:
+                        "200":
+                          description: ok
+                          content:
+                            application/json:
+                              schema:
+                                nullable: true
+                """.trimIndent(),
+            )
         assertTrue(result is ParseResult.Success)
         assertTrue(result.upgradeLog.any { it.kind == UpgradeKind.NULLABLE_TO_TYPE && it.review == ReviewFlag.NEEDS_REVIEW })
         assertTrue(result.issues.any { it.kind == "nullable-without-type" })
@@ -123,7 +136,14 @@ class SpecParserTest {
         assertTrue(result is ParseResult.Success, "2.0 应升级成功：$result")
         result as ParseResult.Success
         assertEquals("3.1.0", result.doc.openapi)
-        assertEquals("a.example.com", result.doc.servers.firstOrNull()?.url?.removePrefix("https://").let { it?.substringBefore("/") })
+        assertEquals(
+            "a.example.com",
+            result.doc.servers
+                .firstOrNull()
+                ?.url
+                ?.removePrefix("https://")
+                .let { it?.substringBefore("/") },
+        )
     }
 
     @Test

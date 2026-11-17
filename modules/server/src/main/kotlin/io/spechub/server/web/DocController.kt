@@ -1,9 +1,9 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.CommentRecord
-import io.spechub.spec.index.SpecIndexStore
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
+import io.spechub.spec.index.CommentRecord
+import io.spechub.spec.index.SpecIndexStore
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
@@ -28,10 +28,11 @@ class DocController(
     private val index: SpecIndexStore,
     private val auth: AuthService,
 ) {
+    data class DocCommentBody(
+        @field:NotBlank val body: String,
+    )
 
-    data class DocCommentBody(@field:NotBlank val body: String)
-
-    data class DocCommentView(
+    data class DocCommentResponse(
         val id: Long,
         val docId: Long?,
         val author: String,
@@ -40,29 +41,54 @@ class DocController(
     )
 
     @GetMapping
-    fun list(@RequestParam repoId: Long? = null, @RequestParam q: String? = null): List<io.spechub.spec.index.DocRecord> =
-        if (!q.isNullOrBlank()) index.searchDocs(q, repoId) else index.listDocs(repoId)
+    fun list(
+        @RequestParam repoId: Long? = null,
+        @RequestParam q: String? = null,
+    ): List<io.spechub.spec.index.DocRecord> = if (!q.isNullOrBlank()) index.searchDocs(q, repoId) else index.listDocs(repoId)
 
     @GetMapping("/{id}")
-    fun detail(@PathVariable id: Long): io.spechub.spec.index.DocRecord =
-        index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
+    fun detail(
+        @PathVariable id: Long,
+    ): io.spechub.spec.index.DocRecord = index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
 
     @GetMapping("/{id}/comments")
-    fun comments(@PathVariable id: Long): List<DocCommentView> {
+    fun comments(
+        @PathVariable id: Long,
+    ): List<DocCommentResponse> {
         index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
-        return index.listCommentsForDoc(id).map(::toView)
+        return index.listCommentsForDoc(id).map(::toResponse)
     }
 
     @PostMapping("/{id}/comments")
-    fun addComment(@PathVariable id: Long, @RequestBody @Valid body: DocCommentBody, request: HttpServletRequest): DocCommentView {
+    fun addComment(
+        @PathVariable id: Long,
+        @RequestBody @Valid body: DocCommentBody,
+        request: HttpServletRequest,
+    ): DocCommentResponse {
         val user = auth.requireAuthenticated(request, "发表文档评论")
         val doc = index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
-        val comment = index.addComment(doc.repoId, apiId = null, docId = doc.id, method = "", path = "", author = user.username, body = body.body.trim())
-        index.addChangelog(doc.repoId, null, user.username, "doc.comment", "评论文档 ${doc.title}：${body.body.trim().take(40)}")
-        return toView(comment)
+        val comment =
+            index.addCommentWithChangelog(
+                repoId = doc.repoId,
+                apiId = null,
+                docId = doc.id,
+                method = "",
+                path = "",
+                author = user.username,
+                body = body.body.trim(),
+                actor = user.username,
+                action = "doc.comment",
+                detail = "评论文档 ${doc.title}：${body.body.trim().take(40)}",
+            )
+        return toResponse(comment)
     }
 
-    private fun toView(c: CommentRecord): DocCommentView = DocCommentView(
-        id = c.id!!, docId = c.docId, author = c.author, body = c.body, createdAt = c.createdAt,
-    )
+    private fun toResponse(c: CommentRecord): DocCommentResponse =
+        DocCommentResponse(
+            id = checkNotNull(c.id) { "文档评论记录缺 id" },
+            docId = c.docId,
+            author = c.author,
+            body = c.body,
+            createdAt = c.createdAt,
+        )
 }

@@ -4,12 +4,13 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** E4：SQLite 表 + 唯一键 + 幂等重建 + api↔schema 引用可解析 */
 class SpecIndexStoreTest {
-
     @TempDir
     lateinit var temp: Path
 
@@ -45,17 +46,23 @@ class SpecIndexStoreTest {
         val store = newStore()
         val repo = store.insertRepo("default", "https://example.com/o/r.git")
         val v = store.upsertVersion(repo.id, "specs/pet/openapi.yaml", "h1")
-        store.replaceApisForRepo(repo.id, listOf(
-            ApiRecord(repoId = repo.id, versionId = v.id, method = "GET", path = "/pets", operationId = "listPets", tag = "pets", summary = "list", specJson = "{}"),
-            ApiRecord(repoId = repo.id, versionId = v.id, method = "POST", path = "/pets", operationId = "createPet", tag = "pets", specJson = "{}"),
-        ))
+        store.replaceApisForRepo(
+            repo.id,
+            listOf(
+                ApiRecord(repoId = repo.id, versionId = v.id, method = "GET", path = "/pets", operationId = "listPets", tag = "pets", summary = "list", specJson = "{}"),
+                ApiRecord(repoId = repo.id, versionId = v.id, method = "POST", path = "/pets", operationId = "createPet", tag = "pets", specJson = "{}"),
+            ),
+        )
         assertEquals(2, store.countApis(repo.id))
 
         // 增量重扫：换了一批（删旧 / 增新）→ 全量替换，不残留
-        store.replaceApisForRepo(repo.id, listOf(
-            ApiRecord(repoId = repo.id, versionId = v.id, method = "GET", path = "/pets", operationId = "listPets", tag = "pets", specJson = "{}"),
-            ApiRecord(repoId = repo.id, versionId = v.id, method = "GET", path = "/pets/{id}", operationId = "getPet", specJson = "{}"),
-        ))
+        store.replaceApisForRepo(
+            repo.id,
+            listOf(
+                ApiRecord(repoId = repo.id, versionId = v.id, method = "GET", path = "/pets", operationId = "listPets", tag = "pets", specJson = "{}"),
+                ApiRecord(repoId = repo.id, versionId = v.id, method = "GET", path = "/pets/{id}", operationId = "getPet", specJson = "{}"),
+            ),
+        )
         assertEquals(2, store.countApis(repo.id))
         assertEquals(setOf("/pets", "/pets/{id}"), store.listApis(repo.id).map { it.path }.toSet(), "无残留旧 path")
     }
@@ -64,10 +71,13 @@ class SpecIndexStoreTest {
     fun `api 查询支持按 method tag 关键字过滤`() {
         val store = newStore()
         val repo = store.insertRepo("default", "https://example.com/o/r.git")
-        store.replaceApisForRepo(repo.id, listOf(
-            ApiRecord(repoId = repo.id, method = "GET", path = "/pets", operationId = "listPets", summary = "list all pets", specJson = "{}"),
-            ApiRecord(repoId = repo.id, method = "POST", path = "/pets", operationId = "createPet", summary = "create pet", specJson = "{}"),
-        ))
+        store.replaceApisForRepo(
+            repo.id,
+            listOf(
+                ApiRecord(repoId = repo.id, method = "GET", path = "/pets", operationId = "listPets", summary = "list all pets", specJson = "{}"),
+                ApiRecord(repoId = repo.id, method = "POST", path = "/pets", operationId = "createPet", summary = "create pet", specJson = "{}"),
+            ),
+        )
         assertEquals(1, store.listApis(repo.id, method = "GET").size)
         assertEquals(1, store.listApis(repo.id, keyword = "create").size)
         assertEquals(1, store.listAllApis(keyword = "list").size)
@@ -77,10 +87,13 @@ class SpecIndexStoreTest {
     fun `schema 投影以 repo+name 幂等且可取回`() {
         val store = newStore()
         val repo = store.insertRepo("default", "https://example.com/o/r.git")
-        store.replaceSchemasForRepo(repo.id, listOf(
-            SchemaRecord(repoId = repo.id, name = "Pet", specJson = """{"type":["object"]}"""),
-            SchemaRecord(repoId = repo.id, name = "Owner", specJson = """{"type":["object"]}"""),
-        ))
+        store.replaceSchemasForRepo(
+            repo.id,
+            listOf(
+                SchemaRecord(repoId = repo.id, name = "Pet", specJson = """{"type":["object"]}"""),
+                SchemaRecord(repoId = repo.id, name = "Owner", specJson = """{"type":["object"]}"""),
+            ),
+        )
         val pet = store.getSchema(repo.id, "Pet")
         assertNotNull(pet)
         assertEquals("""{"type":["object"]}""", pet.specJson)
@@ -191,9 +204,12 @@ class SpecIndexStoreTest {
     fun `comment 增查删 - 按 repo+method+path 稳定寻址`() {
         val store = newStore()
         val repo = store.insertRepo("default", "https://example.com/o/r.git")
-        store.replaceApisForRepo(repo.id, listOf(
-            ApiRecord(repoId = repo.id, method = "GET", path = "/pets", specJson = "{}"),
-        ))
+        store.replaceApisForRepo(
+            repo.id,
+            listOf(
+                ApiRecord(repoId = repo.id, method = "GET", path = "/pets", specJson = "{}"),
+            ),
+        )
         val apiId = store.listApis(repo.id).single().id!!
 
         val c1 = store.addComment(repo.id, apiId, null, "GET", "/pets", "alice", "这个路径参数缺 required")
@@ -210,9 +226,12 @@ class SpecIndexStoreTest {
         assertEquals(1, store.listCommentsForEndpoint(repo.id, "GET", "/pets").size)
 
         // 投影重建（摄取 DELETE+INSERT）后评论仍在：api_id 非 FK，稳定寻址命中
-        store.replaceApisForRepo(repo.id, listOf(
-            ApiRecord(repoId = repo.id, method = "GET", path = "/pets", specJson = "{}"),
-        ))
+        store.replaceApisForRepo(
+            repo.id,
+            listOf(
+                ApiRecord(repoId = repo.id, method = "GET", path = "/pets", specJson = "{}"),
+            ),
+        )
         assertEquals(1, store.listCommentsForEndpoint(repo.id, "GET", "/pets").size, "投影重建不丢评论")
     }
 
@@ -264,16 +283,171 @@ class SpecIndexStoreTest {
         assertEquals(0, store.listReviews(repoId = repo.id, status = ReviewStatus.PENDING).size, "两条均处理后无待审")
     }
 
+    // ── R6 复合原语（R4 用户创建先行使用）─────────────────────────────────────
+
+    @Test
+    fun `createUserWithMembership 单事务创建用户与成员关系`() {
+        val store = newStore()
+        val projectId = store.upsertProject("default")
+        val user = store.createUserWithMembership("alice", "Alice", "hash", projectId, Role.VIEWER)
+        assertEquals("alice", store.findUserById(checkNotNull(user.id))?.username, "用户已落库")
+        assertEquals(Role.VIEWER, store.membershipRole(checkNotNull(user.id), projectId), "成员关系已落库")
+    }
+
+    @Test
+    fun `createUserWithMembership 中途失败全量回滚`() {
+        val store = newStore()
+        // projectId 不存在 → membership 插入触发 FK 失败；验证同一事务内 app_user 插入也回滚
+        assertFailsWith<Exception> {
+            store.createUserWithMembership("bob", "Bob", "hash", projectId = 999_999, role = Role.VIEWER)
+        }
+        assertNull(store.findByUsername("bob"), "成员关系插入失败应回滚用户创建，不留半用户")
+    }
+
+    @Test
+    fun `createUserWithMembershipWithChangelog 用户、成员、留痕同事务`() {
+        val store = newStore()
+        val projectId = store.upsertProject("default")
+        val user =
+            store.createUserWithMembershipWithChangelog(
+                "carol",
+                "Carol",
+                "hash",
+                projectId,
+                Role.VIEWER,
+                actor = "admin",
+                action = "user.create",
+                detail = "创建用户 carol",
+            )
+        assertNotNull(user.id)
+        assertEquals(Role.VIEWER, store.membershipRole(checkNotNull(user.id), projectId))
+        assertEquals(1, store.listChangelogs(null, null).count { it.action == "user.create" })
+    }
+
+    @Test
+    fun `promotePathWithChangelog 发布与留痕同事务`() {
+        val store = newStore()
+        val repo = store.insertRepo("default", "https://example.com/o/r.git")
+        val v1 = store.upsertVersion(repo.id, "specs/pet/openapi.yaml", "hash-a")
+        store.replaceApisForRepo(repo.id, listOf(ApiRecord(repoId = repo.id, versionId = v1.id, method = "GET", path = "/pets", specJson = """{"v":1}""")))
+
+        val promoted =
+            store.promotePathWithChangelog(
+                repo.id,
+                "specs/pet/openapi.yaml",
+                "spechub-bot",
+                ChangelogAction.PROMOTE,
+            ) { p -> "发布 ${p.path} → release" }
+        assertNotNull(promoted)
+        assertEquals(Stage.RELEASE, promoted.stage)
+        val logs = store.listChangelogs(repo.id, null).filter { it.action == ChangelogAction.PROMOTE }
+        assertEquals(1, logs.size, "发布留痕 1 条")
+        assertEquals("spechub-bot", logs.single().actor)
+    }
+
+    @Test
+    fun `小写路径复合原语同时落主写与 changelog`() {
+        val store = newStore()
+        val repo = store.insertRepo("default", "https://example.com/o/r.git")
+
+        val comment =
+            store.addCommentWithChangelog(
+                repo.id,
+                null,
+                null,
+                "GET",
+                "/pets",
+                "alice",
+                "hi",
+                "alice",
+                "comment",
+                "评论 GET /pets",
+            )
+        assertNotNull(comment.id)
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "comment" })
+
+        val rule =
+            store.upsertMockRuleWithChangelog(
+                MockRuleRecord(repoId = repo.id, apiId = null, fieldPattern = "user.name", ruleType = "value", ruleValue = "A"),
+                "spechub-bot",
+                "mock.rule",
+                "规则 user.name",
+            )
+        assertNotNull(rule.id)
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "mock.rule" })
+
+        val sub =
+            store.upsertSubscriptionWithChangelog(
+                repo.id,
+                null,
+                "GET",
+                "/pets",
+                "pay-team",
+                "",
+                "alice",
+                "subscription",
+                "订阅 GET /pets",
+            )
+        assertNotNull(sub.id)
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "subscription" })
+
+        store.deleteSubscriptionWithChangelog(
+            checkNotNull(sub.id),
+            sub.repoId,
+            sub.apiId,
+            "alice",
+            "subscription.delete",
+            "取消订阅",
+        )
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "subscription.delete" })
+    }
+
+    @Test
+    fun `review 复合原语状态与留痕同事务`() {
+        val store = newStore()
+        val repo = store.insertRepo("default", "https://example.com/o/r.git")
+        val review =
+            store.createReviewWithChangelog(
+                repo.id,
+                "specs/pet/openapi.yaml",
+                "v2",
+                "",
+                "hash",
+                "alice",
+                actor = "alice",
+                action = "review.create",
+                detail = { r -> "提交评审 #${r.id}" },
+            )
+        assertNotNull(review.id)
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "review.create" })
+
+        store.resolveReviewWithChangelog(
+            repo.id,
+            checkNotNull(review.id),
+            ReviewStatus.APPROVED,
+            "reviewer",
+            null,
+            actor = "reviewer",
+            action = "review.approve",
+            detail = "批准评审",
+        )
+        assertEquals(ReviewStatus.APPROVED, store.getReview(checkNotNull(review.id))?.status)
+        assertEquals(1, store.listChangelogs(repo.id, null).count { it.action == "review.approve" })
+    }
+
     // ── K Doc 域：摄取投影 + 全文检索（K2 中文子串）────────────────────────
 
     @Test
     fun `doc 摄取与全文检索 中文子串命中`() {
         val store = newStore()
         val repo = store.insertRepo("default", "https://example.com/o/r.git")
-        store.replaceDocsForRepo(repo.id, listOf(
-            DocRecord(repoId = repo.id, path = "docs/petstore/handover.md", title = "接手分析", markdown = "# 接手分析\n\n服务器处理器负责订单处理与库存扣减。"),
-            DocRecord(repoId = repo.id, path = "docs/petstore/requirements.md", title = "需求说明", markdown = "# 需求\n\n支持宠物目录检索。"),
-        ))
+        store.replaceDocsForRepo(
+            repo.id,
+            listOf(
+                DocRecord(repoId = repo.id, path = "docs/petstore/handover.md", title = "接手分析", markdown = "# 接手分析\n\n服务器处理器负责订单处理与库存扣减。"),
+                DocRecord(repoId = repo.id, path = "docs/petstore/requirements.md", title = "需求说明", markdown = "# 需求\n\n支持宠物目录检索。"),
+            ),
+        )
 
         assertEquals(2, store.listDocs(repo.id).size)
         val doc = store.listDocs().first()

@@ -1,8 +1,8 @@
 package io.spechub.server.ingest
 
-import io.spechub.spec.index.SpecIndexStore
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.web.UrlTokenStore
+import io.spechub.spec.index.SpecIndexStore
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component

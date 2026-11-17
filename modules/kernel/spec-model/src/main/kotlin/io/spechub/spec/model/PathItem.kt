@@ -28,12 +28,19 @@ data class PathItem(
     val ref: String? = null,
 ) {
     /** 本路径项存在的全部 [方法名 → Operation] 对（按声明顺序） */
-    fun operations(): List<Pair<String, Operation>> = buildList {
-        listOf(
-            "get" to get, "put" to put, "post" to post, "delete" to delete,
-            "options" to options, "head" to head, "patch" to patch, "trace" to trace,
-        ).forEach { (name, op) -> if (op != null) add(name to op) }
-    }
+    fun operations(): List<Pair<String, Operation>> =
+        buildList {
+            listOf(
+                "get" to get,
+                "put" to put,
+                "post" to post,
+                "delete" to delete,
+                "options" to options,
+                "head" to head,
+                "patch" to patch,
+                "trace" to trace,
+            ).forEach { (name, op) -> if (op != null) add(name to op) }
+        }
 }
 
 @JsonInclude(JsonInclude.Include.NON_EMPTY)

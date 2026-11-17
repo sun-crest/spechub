@@ -3,14 +3,14 @@ package io.spechub.server.web
 import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
-import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.junit.jupiter.api.io.TempDir
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import org.springframework.boot.test.web.server.LocalServerPort
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
 import java.net.http.HttpClient
@@ -36,12 +36,10 @@ import kotlin.test.assertTrue
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class AuthApiTest : TestDbIsolation() {
-
     @LocalServerPort
     var port: Int = 0
 
     companion object {
-
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
         private val TEMPDIR: java.nio.file.Path = kotlin.io.path.createTempDirectory("spechub-test-" + System.nanoTime())
 
@@ -52,6 +50,7 @@ class AuthApiTest : TestDbIsolation() {
             registry.add("spechub.sqlite-dir") { TEMPDIR.resolve("sqlite").toString() }
             registry.add("spechub.artifacts-dir") { TEMPDIR.resolve("artifacts").toString() }
         }
+
         private val json = JsonMapper.builder().build()
         private const val ADMIN = "test-admin-token-123"
         private lateinit var origin: String
@@ -92,9 +91,16 @@ class AuthApiTest : TestDbIsolation() {
 
     private val client = HttpClient.newHttpClient()
 
-    private fun req(method: String, path: String, token: String? = null, body: String? = null): HttpResponse<String> {
-        val b = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
-            .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
+    private fun req(
+        method: String,
+        path: String,
+        token: String? = null,
+        body: String? = null,
+    ): HttpResponse<String> {
+        val b =
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port$path"))
+                .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
         if (body != null) b.header("Content-Type", "application/json")
         if (token != null) b.header("Authorization", "Bearer $token")
         return client.send(b.build(), HttpResponse.BodyHandlers.ofString())
@@ -149,7 +155,11 @@ class AuthApiTest : TestDbIsolation() {
 
     private var seq = 0
 
-    private fun createUser(adminToken: String, base: String, role: String): Triple<String, Long, String> {
+    private fun createUser(
+        adminToken: String,
+        base: String,
+        role: String,
+    ): Triple<String, Long, String> {
         val username = "${base}_${System.nanoTime()}"
         val r = req("POST", "/api/auth/users", token = adminToken, body = """{"username":"$username","role":"$role"}""")
         assertEquals(200, r.statusCode(), r.body())

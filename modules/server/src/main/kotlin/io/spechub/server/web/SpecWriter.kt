@@ -1,10 +1,10 @@
 package io.spechub.server.web
 
+import io.spechub.server.config.SpecHubProperties
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
 import io.spechub.spec.index.ChangelogAction
 import io.spechub.spec.index.RepoRecord
-import io.spechub.server.config.SpecHubProperties
 import org.springframework.stereotype.Component
 import java.nio.file.Files
 import java.nio.file.Path
@@ -28,13 +28,20 @@ class SpecWriter(
     /** 平台提交身份（写入 commit 由这台机器统一署名，便于真源审计） */
     private val bot = Identity("spechub-bot", "specbot@spechub.test")
 
-    data class WriteResult(val commit: String, val branch: String)
+    data class WriteResult(
+        val commit: String,
+        val branch: String,
+    )
 
     /**
      * 覆写/新建 spec 文件并提交推送回真源。
      * @param path 仓内相对路径（如 `specs/pet/openapi.yaml`）
      */
-    fun writeSpec(repo: RepoRecord, path: String, content: String): WriteResult {
+    fun writeSpec(
+        repo: RepoRecord,
+        path: String,
+        content: String,
+    ): WriteResult {
         val work = workDirFor(repo)
         ensureSyncedWork(repo, work)
 
@@ -44,15 +51,20 @@ class SpecWriter(
         git.stage(work, listOf(path)).require("stage $path")
         val commit = git.commit(work, "chore(spechub): update $path", bot).require("commit $path")
         // 本次提交的增量摘要（对比上一提交 HEAD^；首次提交无 HEAD^ 容错为空）
-        val diffStat = try {
-            git.diffStat(work, "HEAD^").joinToString("; ") { "+${it.added}/-${it.deleted} ${it.path}" }
-        } catch (e: Exception) {
-            ""
-        }
+        val diffStat =
+            try {
+                git.diffStat(work, "HEAD^").joinToString("; ") { "+${it.added}/-${it.deleted} ${it.path}" }
+            } catch (e: Exception) {
+                ""
+            }
         git.push(work, "origin", repo.branch).require("push")
         val short = git.commitHash(work, "HEAD")
+        // R6 承诺语义：git commit+push 与 DB changelog 物理上不可同事务；固定次序为
+        // 「push 成功 → 留痕」，push 失败即停（不留痕），重试由 git/specHash 幂等兜底。
         index.addChangelog(
-            repoId = repo.id, apiId = null, actor = bot.name,
+            repoId = repo.id,
+            apiId = null,
+            actor = bot.name,
             action = ChangelogAction.SPEC_WRITE,
             detail = "PUT spec $path → commit $short（${repo.branch}）; diff ${diffStat.ifEmpty { "（首次/无增量）" }}",
         )
@@ -60,7 +72,10 @@ class SpecWriter(
     }
 
     /** 该仓全部 spec 文件相对路径（工作树视角，含 specs/ 目录内） */
-    fun listSpecs(repo: RepoRecord, branch: String? = null): List<String> {
+    fun listSpecs(
+        repo: RepoRecord,
+        branch: String? = null,
+    ): List<String> {
         val work = workDirFor(repo)
         ensureSyncedWork(repo, work)
         val all = git.listFiles(work, branch ?: repo.branch)
@@ -69,7 +84,10 @@ class SpecWriter(
     }
 
     /** 读取单个 spec 文件内容（工作树） */
-    fun readSpec(repo: RepoRecord, path: String): String? {
+    fun readSpec(
+        repo: RepoRecord,
+        path: String,
+    ): String? {
         val work = workDirFor(repo)
         ensureSyncedWork(repo, work)
         val file = work.resolve(path)
@@ -77,7 +95,10 @@ class SpecWriter(
     }
 
     /** 工作树同步到远端最新（增量 clone 或 fetch+reset） */
-    private fun ensureSyncedWork(repo: RepoRecord, work: Path) {
+    private fun ensureSyncedWork(
+        repo: RepoRecord,
+        work: Path,
+    ) {
         val effectiveUrl = urlTokens.get(repo.id) ?: repo.url
         if (git.isGitRepo(work)) {
             git.syncWorkingToRemote(work, "origin", repo.branch).require("sync $work")
@@ -88,9 +109,15 @@ class SpecWriter(
     }
 
     private fun workDirFor(repo: RepoRecord): Path {
-        val orgRepo = repo.url.removeSuffix(".git")
-            .substringAfter("://")
-            .replace(Regex("[^A-Za-z0-9._-]"), "_")
-        return props.gitSourcePath().toAbsolutePath().resolve("repos-work").resolve(orgRepo)
+        val orgRepo =
+            repo.url
+                .removeSuffix(".git")
+                .substringAfter("://")
+                .replace(Regex("[^A-Za-z0-9._-]"), "_")
+        return props
+            .gitSourcePath()
+            .toAbsolutePath()
+            .resolve("repos-work")
+            .resolve(orgRepo)
     }
 }

@@ -49,13 +49,19 @@ class GitCli(
      * @param args 子命令及其参数（不含 `git` 前缀）
      * @param env 追加的环境变量
      */
-    fun run(workingDir: Path?, args: List<String>, env: Map<String, String> = emptyMap()): GitResult {
-        val command = buildList {
-            add(gitPath)
-            add("-c"); add("core.quotepath=false")
-            add("--no-pager")
-            addAll(args)
-        }
+    fun run(
+        workingDir: Path?,
+        args: List<String>,
+        env: Map<String, String> = emptyMap(),
+    ): GitResult {
+        val command =
+            buildList {
+                add(gitPath)
+                add("-c")
+                add("core.quotepath=false")
+                add("--no-pager")
+                addAll(args)
+            }
         val pb = ProcessBuilder(command)
         if (workingDir != null) pb.directory(workingDir.toFile())
         pb.environment().apply {
@@ -63,11 +69,12 @@ class GitCli(
             env.forEach { (k, v) -> put(k, v) }
         }
 
-        val process = try {
-            pb.start()
-        } catch (e: java.io.IOException) {
-            return GitResult(127, "", "无法启动 git 子进程（$gitPath）：${e.message}")
-        }
+        val process =
+            try {
+                pb.start()
+            } catch (e: java.io.IOException) {
+                return GitResult(127, "", "无法启动 git 子进程（$gitPath）：${e.message}")
+            }
 
         val outFut: Future<String> = pool.submit(Callable { readAll(process.inputStream) })
         val errFut: Future<String> = pool.submit(Callable { readAll(process.errorStream) })
@@ -85,6 +92,5 @@ class GitCli(
         return GitResult(process.exitValue(), out, err)
     }
 
-    private fun readAll(stream: InputStream): String =
-        stream.bufferedReader(StandardCharsets.UTF_8).use(BufferedReader::readText)
+    private fun readAll(stream: InputStream): String = stream.bufferedReader(StandardCharsets.UTF_8).use(BufferedReader::readText)
 }

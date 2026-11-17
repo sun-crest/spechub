@@ -29,7 +29,6 @@ import kotlin.test.assertTrue
     ],
 )
 class ValidationContractTest : TestDbIsolation() {
-
     @LocalServerPort
     var port: Int = 0
 
@@ -50,7 +49,11 @@ class ValidationContractTest : TestDbIsolation() {
 
     private val client = HttpClient.newHttpClient()
 
-    private fun send(method: String, path: String, body: String? = null): HttpResponse<String> {
+    private fun send(
+        method: String,
+        path: String,
+        body: String? = null,
+    ): HttpResponse<String> {
         val builder = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
         builder.method(method, if (body != null) HttpRequest.BodyPublishers.ofString(body) else HttpRequest.BodyPublishers.noBody())
         if (body != null) builder.header("Content-Type", "application/json")
@@ -58,17 +61,25 @@ class ValidationContractTest : TestDbIsolation() {
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
     }
 
-    private fun post(path: String, body: String) = send("POST", path, body)
+    private fun post(
+        path: String,
+        body: String,
+    ) = send("POST", path, body)
+
     private fun get(path: String) = send("GET", path)
 
     /** 断言：400 + code=VALIDATION + fieldErrors 含指定字段 */
-    private fun assertValidation(bodyStr: String, field: String) {
+    private fun assertValidation(
+        bodyStr: String,
+        field: String,
+    ) {
         val t = json.readTree(bodyStr)
         assertEquals(400, t.at("/status").asInt(), "应为 400：$bodyStr")
         assertEquals("VALIDATION", t.at("/code").asText(), "应为 VALIDATION：$bodyStr")
-        val fields = buildList {
-            for (f in t.at("/fieldErrors")) add(f.at("/field").asText())
-        }
+        val fields =
+            buildList {
+                for (f in t.at("/fieldErrors")) add(f.at("/field").asText())
+            }
         assertTrue(field in fields, "fieldErrors 应含「$field」：$bodyStr")
     }
 

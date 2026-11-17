@@ -1,9 +1,9 @@
 package io.spechub.server.config
 
+import io.spechub.server.ingest.Ingestor
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.index.IndexDb
 import io.spechub.spec.index.SpecIndexStore
-import io.spechub.server.ingest.Ingestor
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -21,8 +21,9 @@ import java.nio.file.Path
 @Configuration
 @EnableConfigurationProperties(SpecHubProperties::class)
 @EnableScheduling
-class KernelConfig(private val props: SpecHubProperties) {
-
+class KernelConfig(
+    private val props: SpecHubProperties,
+) {
     @Bean
     fun gitStore(): GitStore = GitStore()
 
@@ -46,5 +47,7 @@ class KernelConfig(private val props: SpecHubProperties) {
 
     /** Mock 规则引擎（I3：零 Spring 内核模块，此处接线注入索引） */
     @Bean
-    fun mockEngine(): io.spechub.spec.mock.MockEngine = io.spechub.spec.mock.MockEngine(specIndexStore())
+    fun mockEngine(): io.spechub.spec.mock.MockEngine =
+        io.spechub.spec.mock
+            .MockEngine(specIndexStore())
 }

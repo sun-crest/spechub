@@ -1,9 +1,9 @@
 package io.spechub.server.ingest
 
-import io.spechub.spec.index.SpecIndexStore
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.web.AuthService
 import io.spechub.server.web.RepoController
+import io.spechub.spec.index.SpecIndexStore
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
@@ -16,7 +16,6 @@ class ApplicationInit(
     private val props: SpecHubProperties,
     private val auth: AuthService,
 ) : ApplicationRunner {
-
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun run(args: ApplicationArguments) {

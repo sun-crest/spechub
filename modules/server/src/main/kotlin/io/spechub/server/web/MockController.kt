@@ -35,11 +35,13 @@ class MockController(
     private val index: SpecIndexStore,
     private val auth: AuthService,
 ) {
-
     // ── 真实 mock 服务：/mock/{repoId}/{spec 路径} ───────────────────────────────
 
     @RequestMapping("/mock/{repoId}/**")
-    fun mock(@PathVariable repoId: Long, request: HttpServletRequest): ResponseEntity<String> {
+    fun mock(
+        @PathVariable repoId: Long,
+        request: HttpServletRequest,
+    ): ResponseEntity<String> {
         val prefix = "/mock/$repoId"
         val path = request.requestURI.substringAfter(prefix).ifBlank { "/" }
         val method = request.method ?: "GET"
@@ -47,7 +49,8 @@ class MockController(
         if (result == null) {
             throw ApiException(ApiErrorCode.MOCK_NO_MATCH, "repo $repoId 无匹配 $method $path 的接口")
         }
-        return ResponseEntity.status(result.response.status)
+        return ResponseEntity
+            .status(result.response.status)
             .contentType(MediaType.parseMediaType(result.response.mediaType.ifBlank { "application/json" }))
             .header("X-Mock-Stage", result.stage)
             .header("X-Mock-Api-Id", result.apiId?.toString() ?: "")
@@ -64,32 +67,42 @@ class MockController(
     )
 
     @GetMapping("/api/repos/{id}/mock/rules")
-    fun rules(@PathVariable id: Long): List<MockRuleRecord> {
+    fun rules(
+        @PathVariable id: Long,
+    ): List<MockRuleRecord> {
         index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         return index.listMockRules(id)
     }
 
     @PostMapping("/api/repos/{id}/mock/rules")
-    fun addRule(@PathVariable id: Long, @RequestBody @Valid req: RuleRequest, request: jakarta.servlet.http.HttpServletRequest): MockRuleRecord {
+    fun addRule(
+        @PathVariable id: Long,
+        @RequestBody @Valid req: RuleRequest,
+        request: jakarta.servlet.http.HttpServletRequest,
+    ): MockRuleRecord {
         auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "配置 mock 规则")
         if (!VALID_TYPES.contains(req.ruleType)) {
             throw ApiException(
-                ApiErrorCode.VALIDATION, "ruleType ∈ value/pattern/script",
+                ApiErrorCode.VALIDATION,
+                "ruleType ∈ value/pattern/script",
                 listOf(ApiErrorBody.FieldError("ruleType", "ruleType ∈ value/pattern/script")),
             )
         }
         index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
-        val rule = index.upsertMockRule(
-            MockRuleRecord(repoId = id, apiId = req.apiId, fieldPattern = req.fieldPattern.trim(), ruleType = req.ruleType, ruleValue = req.ruleValue),
+        return index.upsertMockRuleWithChangelog(
+            rule = MockRuleRecord(repoId = id, apiId = req.apiId, fieldPattern = req.fieldPattern.trim(), ruleType = req.ruleType, ruleValue = req.ruleValue),
+            actor = "spechub-bot",
+            action = "mock.rule",
+            detail = "Mock 规则 [${req.ruleType}] ${req.fieldPattern} = ${req.ruleValue.take(60)}",
         )
-        index.addChangelog(repoId = id, apiId = req.apiId, actor = "spechub-bot", action = "mock.rule",
-            detail = "Mock 规则 [${req.ruleType}] ${req.fieldPattern} = ${req.ruleValue.take(60)}")
-        return rule
     }
 
     @DeleteMapping("/api/mock/rules/{ruleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    fun deleteRule(@PathVariable ruleId: Long, request: jakarta.servlet.http.HttpServletRequest) {
+    fun deleteRule(
+        @PathVariable ruleId: Long,
+        request: jakarta.servlet.http.HttpServletRequest,
+    ) {
         val rule = index.getMockRule(ruleId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "规则 $ruleId 不存在")
         auth.requireRepoRole(request, rule.repoId, io.spechub.spec.index.Role.EDITOR, "删除 mock 规则")
         index.deleteMockRule(ruleId)
@@ -108,13 +121,20 @@ class MockController(
     )
 
     @GetMapping("/api/apis/{id}/mock/preview")
-    fun preview(@PathVariable id: Long): MockPreview {
+    fun preview(
+        @PathVariable id: Long,
+    ): MockPreview {
         val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
-        val result = engine.generate(api.repoId, api.method, api.path)
-            ?: throw ApiException(ApiErrorCode.INTERNAL, "mock 生成失败（spec 无响应 schema？）")
+        val result =
+            engine.generate(api.repoId, api.method, api.path)
+                ?: throw ApiException(ApiErrorCode.INTERNAL, "mock 生成失败（spec 无响应 schema？）")
         return MockPreview(
-            method = api.method, requestPath = api.path, stage = result.stage,
-            status = result.response.status, mediaType = result.response.mediaType, body = result.response.body,
+            method = api.method,
+            requestPath = api.path,
+            stage = result.stage,
+            status = result.response.status,
+            mediaType = result.response.mediaType,
+            body = result.response.body,
             mockUrl = "/mock/${api.repoId}${api.path}",
         )
     }
