@@ -52,33 +52,44 @@ spechub/
 | **系统 git** | 任意 | ✅ | git-store 以子进程驱动镜像 / 写回 | Dockerfile 也专门 `apt-get install git` |
 | **Node.js + npm** | Node ≥18（无 engines 硬约束，Vite 6 下限） | ✅（web / mcp） | React 前端 + TS MCP server | 实测 Node 24 |
 | **Go** | 1.27（`toolchain go1.27.4`） | ⚠️ 仅 CLI | `apps/cli` 交叉编译 | 只跑 web/backend 可跳过 |
-| **Docker + Compose** | — | ⚠️ 可选（仅 compose 档） | gitea 托管 + 容器化 backend | 用本地目录档可完全不需要 |
+| **Docker + Compose** | — | ⚠️ 建议（起管理库 / 全套） | PostgreSQL 管理库、可选 gitea / 容器化 backend | 本机已有 PostgreSQL 18.6 / MySQL 8.4 时可不装；集成测试用 Testcontainers 也需要 Docker |
 | **Gradle** | 9.9.1 wrapper | 由 `./gradlew` 提供，无需预装 | — | — |
+| **PostgreSQL**（或 MySQL 8.4） | 18.6（参考默认值） | ✅ | 管理库：项目 / 仓库 / 用户 / 评论等 | **Phase 2 起后端启动必需**；Flyway 自动建表，`SPECHUB_DB_*` 可改地址与凭据 |
 | **SQLite** | 内嵌 `sqlite-jdbc` | 无需安装 | 索引存储 `spechub-index.db` | 无独立数据库服务 |
 
 ### 启动方式
 
 **方式 A · docker compose（含 gitea，贴近生产）**
 ```bash
-docker compose up -d --build          # gitea(:3000) + backend(:8080)，Dockerfile 内自动 bootJar
+docker compose -f compose/docker-compose.yml up -d --build   # gitea(:3000) + backend(:8080)，Dockerfile 内自动 bootJar
 cd apps/web && npm install && npm run dev   # → http://localhost:5173（被占顺延 5174），/api 代理到 :8080
 ```
 
-**方式 B · 本地目录档（无需 docker，纯本地 git 仓）**
+**方式 B · 本地目录档（本地管理库 + 纯本地 git 仓，无需 gitea / backend 容器）**
+
+> Phase 2 起管理库是后端启动硬依赖（Flyway 启动自动建表）。没有本机 PostgreSQL 时用下面的 compose 只起 db；已有 PG / MySQL 则跳过第 1 步，建一个空库并把 `SPECHUB_DB_*` 指向它。
+
 ```bash
-# 1) 后端 bootJar + 起服务（SPECHUB_* 三个目录启动时自动创建）
+# 1) 管理库：compose 只起 postgres:18.6（localhost:5432，spechub/spechub）
+docker compose -f compose/docker-compose.yml up -d --wait db
+
+# 2) 后端 bootJar + 起服务（SPECHUB_* 三个目录启动时自动创建）
 ./gradlew :server:bootJar
 SPECHUB_GIT_SOURCE_DIR=/tmp/spechub-gitsource SPECHUB_SQLITE_DIR=/tmp/spechub-sqlite \
   SPECHUB_ARTIFACTS_DIR=/tmp/spechub-artifacts \
+  SPECHUB_DB_URL=jdbc:postgresql://localhost:5432/spechub SPECHUB_DB_USER=spechub \
+  SPECHUB_DB_PASSWORD=spechub \
   java -jar modules/server/build/libs/spechub-server.jar --server.port=18080 &
 
-# 2) 一个本地 bare origin（真源仓），注册即摄取
+# 3) 一个本地 bare origin（真源仓），注册即摄取
 git init -q --bare -b main /tmp/spechub-origin
 # 往 seed 工作仓塞一份 spec（如 kernel 的 PetStore 样例）并 push，POST /api/repos 注册
 
-# 3) 前端代理指向本地 backend
+# 4) 前端代理指向本地 backend
 cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
 ```
+
+> 管理库连接默认值即 `jdbc:postgresql://localhost:5432/spechub` + `spechub/spechub`，与上面 compose 的 db 完全一致；本段 `SPECHUB_DB_*` 显式写出，便于切换到 MySQL 或远程库时直接替换。
 
 **质量门禁（R12）**：`./gradlew check`（ktlintCheck + Jackson 2 源码校验 + 全量测试）；CI 见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。单独跑格式检查/修复：`./gradlew ktlintCheck` / `./gradlew ktlintFormat`。
 
@@ -88,4 +99,4 @@ cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
 
 > **API 文档（R11）**：dev 启动后访问 `http://localhost:8080/doc.html`（Knife4j Next UI）或 `/v3/api-docs`（OpenAPI JSON）；prod 关闭文档端点并保持鉴权保护（401）。文档层 Jackson 2 仅作为 springdoc / Knife4j 的运行时传递依赖，业务代码只使用 Jackson 3（约束见 `CLAUDE.md`）。
 
-> 实测踩坑：① 本地目录档的 origin 必须是 **bare 仓**（非 bare 会被 `denyCurrentBranch` 拒 push）；② Vite 端口被占自动顺延，看终端提示；③ 最小 Web 起步只需 JDK 25 + git + Node，数据全局皆走 `/tmp` 目录即可。
+> 实测踩坑：① 本地目录档的 origin 必须是 **bare 仓**（非 bare 会被 `denyCurrentBranch` 拒 push）；② Vite 端口被占自动顺延，看终端提示；③ 最小 Web 起步需 JDK 25 + git + Node + **一个管理库**（SQLite 索引内嵌、无需安装），业务数据目录可全走 `/tmp`；④ postgres 18+ 镜像必须挂载 `/var/lib/postgresql`（compose 已按此配置，旧路径 `/data` 会被 entrypoint 拒绝启动）。
