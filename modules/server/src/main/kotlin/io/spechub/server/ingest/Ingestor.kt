@@ -80,9 +80,6 @@ class Ingestor(
                 }
             }
 
-            projection.replaceApisForRepo(repo.id, apis.values.toList())
-            projection.replaceSchemasForRepo(repo.id, schemas.values.toList())
-
             // K（Doc 域）：摄取 docs/ 下 Markdown 到独立 doc 投影（两域隔离 §5.7）
             val docs = mutableListOf<io.spechub.spec.index.DocRecord>()
             for (file in findDocFiles(repoDir, branch)) {
@@ -94,7 +91,8 @@ class Ingestor(
                 val parsed = parseDoc(file, content.output)
                 if (parsed != null) docs += parsed
             }
-            projection.replaceDocsForRepo(repo.id, docs)
+            // 投影复合写：apis/schemas/docs 单事务，避免中间态被读到
+            projection.replaceProjectionForRepo(repo.id, apis.values.toList(), schemas.values.toList(), docs)
 
             val result = IngestResult(repo.id, apis.size, schemas.size, versionCount, docs.size, messages)
             hooks.replayReleases(repo.id, projection)

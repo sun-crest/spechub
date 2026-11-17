@@ -273,9 +273,10 @@ modules/mock/
 - [x] 双库（MySQL）集成测试矩阵接入。✅ 2026-11-17：`TestManagementDb` 按 `-Dspechub.test.db=mysql` 切换（共享容器 + 每类独立 database）；MySQL 8.4.11 与 PostgreSQL 18.6 全量用例均通过。
 
 ### Phase 3 · 事务与原子性
-- 管理域 Service 加 `@Transactional`；多表写本地事务。
-- 投影层保留 `IndexDb.transaction`；补复合原语。
-- 审批/写回链路定义次序、幂等与状态机。
+- [x] 管理域 Service 加 `@Transactional`；多表写本地事务。✅ 2026-11-17：各域 Service 已覆盖（见 [事务边界审计](SpecHub-事务边界审计.md)）。
+- [x] 投影层保留 `IndexDb.transaction`；补复合原语。✅ 2026-11-17：新增 `replaceProjectionForRepo`（apis/schemas/docs 单事务），摄取不再有混合投影中间态。
+- [x] 审批/写回链路定义次序、幂等与状态机。✅ 2026-11-17：审批改条件更新 + 409 兜底；`writeSpec` 内容未变时幂等返回 HEAD。
+- [ ] 遗留：并发 upsert 重复键捕获、changelog 与业务写合并事务（见审计 §4，不阻塞验收）。
 
 ### Phase 4 · 双库与运维
 - CI 双库 Testcontainers 矩阵（PG 18.x + MySQL 8.4.x；当前仓库无 CI 流水线，需先建 CI 骨架）。

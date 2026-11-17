@@ -12,7 +12,9 @@ import java.nio.file.Path
 import java.util.UUID
 import kotlin.io.path.createTempDirectory
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /** 评审域迁入管理库后的集成验证（创建 / 组合查询 / 审批状态流转）。 */
 @SpringBootTest
@@ -47,14 +49,16 @@ class ReviewServiceTest : TestDbIsolation() {
         assertEquals(2, reviewService.list(repo.id).size)
         assertEquals(2, reviewService.list(status = ReviewStatus.PENDING).size)
 
-        reviewService.resolve(checkNotNull(r1.id) { "评审应有 id" }, ReviewStatus.APPROVED, "reviewer")
+        assertTrue(reviewService.resolve(checkNotNull(r1.id) { "评审应有 id" }, ReviewStatus.APPROVED, "reviewer"), "首次审批成功")
         val approved = assertNotNull(reviewService.get(checkNotNull(r1.id)))
         assertEquals(ReviewStatus.APPROVED, approved.status)
         assertEquals("reviewer", approved.reviewer)
         assertNotNull(approved.resolvedAt, "审批时间戳")
         assertEquals(1, reviewService.list(status = ReviewStatus.APPROVED).size)
+        // 状态机：已处理的评审不可再次迁移（并发/重复审批兜底）
+        assertFalse(reviewService.resolve(checkNotNull(r1.id), ReviewStatus.REJECTED, "another"), "已处理评审应拒绝再次迁移")
 
-        reviewService.resolve(checkNotNull(r2.id), ReviewStatus.REJECTED, "reviewer", "缺 required 字段")
+        assertTrue(reviewService.resolve(checkNotNull(r2.id), ReviewStatus.REJECTED, "reviewer", "缺 required 字段"))
         assertEquals("缺 required 字段", reviewService.get(checkNotNull(r2.id))?.rejectReason, "打回理由")
         assertEquals(0, reviewService.list(repo.id, ReviewStatus.PENDING).size, "两条均处理后无待审")
     }

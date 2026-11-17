@@ -41,12 +41,19 @@ class ReviewService(
         return entities.map { it.toRecord() }
     }
 
+    /**
+     * 审批状态机：条件更新（仅 pending 可迁移），返回是否成功。
+     * 并发审批时后到者返回 false，由调用方映射 409，避免重复落真源。
+     */
     @Transactional
-    fun resolve(id: Long, status: String, reviewer: String, rejectReason: String? = null) {
-        val review = reviews.findById(id).orElse(null) ?: return
-        reviews.save(
-            review.copy(status = status, reviewer = reviewer, rejectReason = rejectReason, resolvedAt = Instant.now()),
-        )
+    fun resolve(id: Long, status: String, reviewer: String, rejectReason: String? = null): Boolean {
+        val now = Instant.now()
+        val updated = if (rejectReason == null) {
+            reviews.resolveIfPending(id, status, reviewer, now)
+        } else {
+            reviews.rejectIfPending(id, status, reviewer, rejectReason, now)
+        }
+        return updated > 0
     }
 
     private fun ReviewEntity.toRecord(): ReviewRecord = ReviewRecord(

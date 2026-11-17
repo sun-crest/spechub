@@ -104,7 +104,9 @@ class ReviewController(
         val repo = repoService.getRepo(r.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${r.repoId} 不存在")
         val written = writer.writeSpec(repo, r.path, r.newContent)
         val ing = ingestor.ingest(repo, urlTokens.get(r.repoId))
-        reviewService.resolve(r.id!!, ReviewStatus.APPROVED, actor.username)
+        if (!reviewService.resolve(r.id!!, ReviewStatus.APPROVED, actor.username)) {
+            throw ApiException(ApiErrorCode.CONFLICT, "评审已被处理，请刷新")
+        }
         changelogService.add(r.repoId, null, actor.username, "review.approve",
             "批准评审 #${r.id}：${r.path} → commit ${written.commit.take(8)}（${ing.apiCount} 个接口）")
         return toView(reviewService.get(id)!!)
@@ -117,7 +119,9 @@ class ReviewController(
         auth.requireRepoRole(request, r.repoId, Role.EDITOR, "打回评审")
         val actor = auth.currentUser(request) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "打回需要登录")
         requireOtherReviewer(actor.username, r.requester, actor.isPlatformAdmin)
-        reviewService.resolve(r.id!!, ReviewStatus.REJECTED, actor.username, body?.reason)
+        if (!reviewService.resolve(r.id!!, ReviewStatus.REJECTED, actor.username, body?.reason)) {
+            throw ApiException(ApiErrorCode.CONFLICT, "评审已被处理，请刷新")
+        }
         changelogService.add(r.repoId, null, actor.username, "review.reject",
             "打回评审 #${r.id}：${r.path}${body?.reason?.let { "（$it）" } ?: ""}")
     }

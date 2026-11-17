@@ -175,6 +175,51 @@ class ProjectionStore(private val db: IndexDb) {
         }
     }
 
+    /**
+     * 一次摄取的全量投影替换（apis / schemas / docs 单事务）。
+     * 复合原语：避免「api 已更新、schema/docs 未更新」的中间态被读到；重试仍幂等。
+     * version 由 [upsertVersion] 幂等维护，不在此事务内（可先于本方法完成）。
+     */
+    fun replaceProjectionForRepo(repoId: Long, apis: List<ApiRecord>, schemas: List<SchemaRecord>, docs: List<DocRecord>) =
+        db.transaction { conn ->
+            conn.exec("DELETE FROM api WHERE repo_id=? AND stage=?", repoId, Stage.DRAFT)
+            for (a in apis) {
+                conn.insert(
+                    "INSERT INTO api (repo_id, version_id, method, path, operation_id, tag, summary, spec_json, stage) " +
+                        "VALUES (?,?,?,?,?,?,?,?,?)",
+                    repoId, a.versionId, a.method, a.path, a.operationId, a.tag, a.summary, a.specJson,
+                    a.stage.ifBlank { Stage.DRAFT },
+                )
+            }
+
+            conn.exec("DELETE FROM schema WHERE repo_id=? AND stage=?", repoId, Stage.DRAFT)
+            for (s in schemas) {
+                conn.insert(
+                    "INSERT INTO schema (repo_id, version_id, name, spec_json, stage) VALUES (?,?,?,?,?)",
+                    repoId, s.versionId, s.name, s.specJson, s.stage.ifBlank { Stage.DRAFT },
+                )
+            }
+
+            val oldDocIds = conn.select("SELECT id FROM doc WHERE repo_id=?", repoId) { r -> r.long("id") }
+            conn.exec("DELETE FROM doc WHERE repo_id=?", repoId)
+            if (db.fts5Available) {
+                for (id in oldDocIds) conn.exec("DELETE FROM doc_fts WHERE rowid=?", id)
+            }
+            for (d in docs) {
+                val id = conn.insert(
+                    "INSERT INTO doc (repo_id, version_id, path, title, markdown) VALUES (?,?,?,?,?)",
+                    repoId, d.versionId, d.path, d.title, d.markdown,
+                )
+                if (db.fts5Available) {
+                    try {
+                        conn.exec("INSERT INTO doc_fts (rowid, title, body) VALUES (?,?,?)", id, d.title, d.markdown)
+                    } catch (e: Exception) {
+                        // FTS 写入失败不影响主数据
+                    }
+                }
+            }
+        }
+
     // ── schema（组件投影）───────────────────────────────────────────────
 
     fun replaceSchemasForRepo(repoId: Long, schemas: List<SchemaRecord>) = db.transaction { conn ->

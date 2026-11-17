@@ -42,6 +42,15 @@ class SpecWriter(
         Files.createDirectories(work.resolve(path).parent)
         Files.writeString(work.resolve(path), content)
 
+        // 幂等：内容与 HEAD 一致时不重复 commit/push/changelog（审批重试等场景）。
+        // 注意 git status 未跟踪目录会折叠成 `?? specs/import/`，需按目录前缀匹配。
+        val changed = git.status(work).any { file ->
+            file.path == path || (file.path.endsWith("/") && path.startsWith(file.path))
+        }
+        if (!changed) {
+            return WriteResult(git.commitHash(work), repo.branch)
+        }
+
         git.stage(work, listOf(path)).require("stage $path")
         val commit = git.commit(work, "chore(spechub): update $path", bot).require("commit $path")
         // 本次提交的增量摘要（对比上一提交 HEAD^；首次提交无 HEAD^ 容错为空）
