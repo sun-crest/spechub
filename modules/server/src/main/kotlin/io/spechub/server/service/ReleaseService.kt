@@ -2,6 +2,7 @@ package io.spechub.server.service
 
 import io.spechub.server.repository.ReleaseEntity
 import io.spechub.server.repository.ReleaseRepository
+import io.spechub.server.repository.RepoRepository
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.ReleaseSpec
 import org.springframework.stereotype.Service
@@ -19,6 +20,7 @@ import java.time.Instant
 @Service
 class ReleaseService(
     private val releases: ReleaseRepository,
+    private val repos: RepoRepository,
 ) {
     @Transactional
     fun promote(
@@ -27,11 +29,12 @@ class ReleaseService(
         specHash: String,
     ): ReleaseEntity {
         val existing = releases.findByRepoIdAndPath(repoId, path)
+        val orgId = orgIdFor(repoId)
         val saved =
             if (existing != null) {
-                releases.save(existing.copy(specHash = specHash, releasedAt = Instant.now()))
+                releases.save(existing.copy(orgId = orgId, specHash = specHash, releasedAt = Instant.now()))
             } else {
-                releases.save(ReleaseEntity(repoId = repoId, path = path, specHash = specHash, releasedAt = Instant.now()))
+                releases.save(ReleaseEntity(repoId = repoId, orgId = orgId, path = path, specHash = specHash, releasedAt = Instant.now()))
             }
         return saved
     }
@@ -54,4 +57,6 @@ class ReleaseService(
         val specs = releases.findAllByRepoId(repoId).map { ReleaseSpec(it.path, it.specHash) }
         projection.promotePaths(repoId, specs)
     }
+
+    private fun orgIdFor(repoId: Long): Long = checkNotNull(repos.findById(repoId).orElse(null)?.orgId) { "repo $repoId 未归属组织" }
 }

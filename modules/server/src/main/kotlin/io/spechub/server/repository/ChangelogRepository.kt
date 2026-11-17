@@ -7,6 +7,12 @@ interface ChangelogRepository : CrudRepository<ChangelogEntity, Long> {
     @Query("SELECT * FROM changelog ORDER BY id DESC LIMIT :limit")
     fun findLatest(limit: Int): List<ChangelogEntity>
 
+    @Query("SELECT * FROM changelog WHERE org_id = :orgId ORDER BY id DESC LIMIT :limit")
+    fun findLatestByOrg(
+        orgId: Long,
+        limit: Int,
+    ): List<ChangelogEntity>
+
     @Query("SELECT * FROM changelog WHERE repo_id = :repoId ORDER BY id DESC LIMIT :limit")
     fun findByRepoId(
         repoId: Long,

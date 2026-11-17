@@ -1,9 +1,9 @@
 package io.spechub.server.ingest
 
 import io.spechub.server.config.SpecHubProperties
+import io.spechub.server.service.ProjectService
 import io.spechub.server.service.RepoService
 import io.spechub.server.web.AuthService
-import io.spechub.server.web.RepoController
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
@@ -13,17 +13,19 @@ import org.springframework.stereotype.Component
 @Component
 class ApplicationInit(
     private val repoService: RepoService,
+    private val projectService: ProjectService,
     private val props: SpecHubProperties,
     private val auth: AuthService,
 ) : ApplicationRunner {
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun run(args: ApplicationArguments) {
-        repoService.ensureProject(RepoController.DEFAULT_PROJECT)
+        repoService.ensureProject(ProjectService.DEFAULT_PROJECT)
 
         // admin 种子（I4）：配置 spechub.admin-token 时 bootstrap 平台 admin（长驻 app_user，token 只存 hash）
         val admin = auth.bootstrapAdmin()
         if (admin != null) {
+            admin.id?.let { projectService.ensureDefaultProjectOwner(it) }
             val source = if (props.adminToken != null) "SPECHUB_ADMIN_TOKEN" else "--seed-admin"
             log.info("平台 admin「{}」已就绪（RBAC 角色 owner@所有项目；启用鉴权）。来源：{}", admin.username, source)
         } else {

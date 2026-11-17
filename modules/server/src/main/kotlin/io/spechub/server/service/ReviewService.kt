@@ -1,5 +1,6 @@
 package io.spechub.server.service
 
+import io.spechub.server.repository.RepoRepository
 import io.spechub.server.repository.ReviewEntity
 import io.spechub.server.repository.ReviewRepository
 import io.spechub.spec.index.ReviewRecord
@@ -17,6 +18,7 @@ import java.time.Instant
 @Service
 class ReviewService(
     private val reviews: ReviewRepository,
+    private val repos: RepoRepository,
 ) {
     fun create(
         repoId: Long,
@@ -30,6 +32,7 @@ class ReviewService(
             reviews.save(
                 ReviewEntity(
                     repoId = repoId,
+                    orgId = orgIdFor(repoId),
                     path = path,
                     newContent = newContent,
                     diff = diff,
@@ -78,6 +81,8 @@ class ReviewService(
             }
         return updated > 0
     }
+
+    private fun orgIdFor(repoId: Long): Long = checkNotNull(repos.findById(repoId).orElse(null)?.orgId) { "repo $repoId 未归属组织" }
 
     private fun ReviewEntity.toRecord(): ReviewRecord =
         ReviewRecord(

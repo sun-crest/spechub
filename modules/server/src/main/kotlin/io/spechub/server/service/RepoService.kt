@@ -1,7 +1,5 @@
 package io.spechub.server.service
 
-import io.spechub.server.repository.ProjectEntity
-import io.spechub.server.repository.ProjectRepository
 import io.spechub.server.repository.RepoEntity
 import io.spechub.server.repository.RepoRepository
 import io.spechub.spec.index.ProjectRecord
@@ -9,56 +7,84 @@ import io.spechub.spec.index.RepoRecord
 import io.spechub.spec.index.SyncStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.security.MessageDigest
 import java.time.Instant
 
 /**
- * 项目/仓库域 Service（Phase 2 第二个纵切）：仓库注册与同步状态从投影库迁入管理库。
+ * 项目/仓库域 Service（阶段 A：项目逻辑迁到 [ProjectService]，仓库注册必须归属项目）。
  *
- * - 投影库不再有 project/repo 表；投影表的 repo_id 只是逻辑列，值取本服务返回的 repo.id。
- * - `register` 幂等（project + url 唯一），`updateSyncStatus` 是摄取回写管理库的唯一入口。
+ * - 注册仓库时同时创建首条 active binding（managed），保证「每个 repo 恰好一条 active」。
+ * - 旧的 `register(projectName, ...)` / `ensureProject(name)` 保留给现有调用方与测试，
+ *   A5/A7 的 Controller 再切到 projectId / binding API。
  */
 @Service
 class RepoService(
-    private val projects: ProjectRepository,
     private val repos: RepoRepository,
+    private val projectService: ProjectService,
+    private val bindings: RepoBindingService,
 ) {
-    fun projectIdByName(name: String): Long? = projects.findByName(name)?.id
+    fun projectIdByName(name: String): Long? = projectService.projectIdByName(name)
 
-    fun listProjects(): List<ProjectRecord> = projects.findAll().sortedBy { it.id }.map { ProjectRecord(checkNotNull(it.id) { "project 必有 id" }, it.name) }
+    fun listProjects(): List<ProjectRecord> = projectService.listProjects()
 
-    /** 默认项目等幂等确保（不存在则创建） */
+    /** 默认项目等幂等确保（委托 ProjectService）。 */
     @Transactional
-    fun ensureProject(name: String): Long {
-        projects.findByName(name)?.let { return checkNotNull(it.id) { "project 必有 id" } }
-        val saved = projects.save(ProjectEntity(name = name, createdAt = Instant.now()))
-        return checkNotNull(saved.id) { "project 创建后应回填 id" }
-    }
+    fun ensureProject(name: String): Long = projectService.ensureProject(name)
 
-    /** 注册仓库：同（project, url）幂等返回既存行 */
+    /** 旧调用方兼容：按项目名注册（默认组织）。 */
     @Transactional
     fun register(
         projectName: String,
         url: String,
         branch: String = "main",
+    ): RepoRecord = register(projectService.ensureProject(projectName), url, branch)
+
+    /** 新写路径：必须显式归属项目；同（project, url）幂等返回既存行。 */
+    @Transactional
+    fun register(
+        projectId: Long,
+        url: String,
+        branch: String = "main",
     ): RepoRecord {
-        val projectId = ensureProject(projectName)
-        repos.findByProjectIdAndUrl(projectId, url)?.let { return it.toRecord() }
+        val project = projectService.get(projectId) ?: throw IllegalArgumentException("project $projectId 不存在")
+        val orgId = project.orgId ?: throw IllegalStateException("项目 $projectId 未归属组织")
+        repos.findByProjectIdAndUrl(projectId, url)?.let { existing ->
+            bindings.ensureActiveManaged(existing)
+            return existing.toRecord()
+        }
+        val externalRepoId = md5(url)
         val saved =
             repos.save(
                 RepoEntity(
                     projectId = projectId,
+                    orgId = orgId,
                     url = url,
                     branch = branch,
                     syncStatus = SyncStatus.NEW,
+                    externalRepoId = externalRepoId,
                     createdAt = Instant.now(),
                 ),
             )
+        bindings.createActiveManaged(saved, externalRepoId)
         return saved.toRecord()
     }
 
     fun listRepos(): List<RepoRecord> = repos.findAllByOrderByIdAsc().map { it.toRecord() }
 
+    fun listReposByProjectIds(projectIds: Collection<Long>): List<RepoRecord> =
+        if (projectIds.isEmpty()) {
+            emptyList()
+        } else {
+            repos.findAllByProjectIdIn(projectIds).map { it.toRecord() }
+        }
+
+    fun listReposByOrgId(orgId: Long): List<RepoRecord> = repos.findAllByOrgIdOrderByIdAsc(orgId).map { it.toRecord() }
+
     fun getRepo(id: Long): RepoRecord? = repos.findById(id).orElse(null)?.toRecord()
+
+    fun getRepoEntity(id: Long): RepoEntity? = repos.findById(id).orElse(null)
+
+    fun orgIdOf(repoId: Long): Long? = getRepoEntity(repoId)?.orgId
 
     /** 摄取期同步状态回写（管理库唯一写入口） */
     fun updateSyncStatus(
@@ -80,4 +106,10 @@ class RepoService(
             syncStatus = syncStatus,
             lastError = lastError,
         )
+
+    private fun md5(text: String): String =
+        MessageDigest
+            .getInstance("MD5")
+            .digest(text.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
 }

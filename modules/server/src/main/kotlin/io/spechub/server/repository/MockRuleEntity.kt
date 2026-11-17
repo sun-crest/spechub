@@ -10,6 +10,7 @@ import java.time.Instant
 data class MockRuleEntity(
     @Id val id: Long? = null,
     @Column("repo_id") val repoId: Long,
+    @Column("org_id") val orgId: Long? = null,
     @Column("api_id") val apiId: Long? = null,
     @Column("field_pattern") val fieldPattern: String,
     @Column("rule_type") val ruleType: String,

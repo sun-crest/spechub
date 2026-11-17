@@ -2,6 +2,7 @@ package io.spechub.server.service
 
 import io.spechub.server.repository.CommentEntity
 import io.spechub.server.repository.CommentRepository
+import io.spechub.server.repository.RepoRepository
 import io.spechub.spec.index.CommentRecord
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -16,6 +17,7 @@ import java.time.Instant
 @Service
 class CommentService(
     private val comments: CommentRepository,
+    private val repos: RepoRepository,
 ) {
     fun add(
         repoId: Long,
@@ -30,6 +32,7 @@ class CommentService(
             comments.save(
                 CommentEntity(
                     repoId = repoId,
+                    orgId = orgIdFor(repoId),
                     apiId = apiId,
                     docId = docId,
                     method = method,
@@ -64,6 +67,8 @@ class CommentService(
     fun delete(id: Long) {
         comments.deleteById(id)
     }
+
+    private fun orgIdFor(repoId: Long): Long = checkNotNull(repos.findById(repoId).orElse(null)?.orgId) { "repo $repoId 未归属组织" }
 
     private fun CommentEntity.toRecord(): CommentRecord =
         CommentRecord(

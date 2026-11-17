@@ -2,6 +2,7 @@ package io.spechub.server.service
 
 import io.spechub.server.repository.NotificationEntity
 import io.spechub.server.repository.NotificationRepository
+import io.spechub.server.repository.RepoRepository
 import io.spechub.server.repository.SubscriptionEntity
 import io.spechub.server.repository.SubscriptionRepository
 import io.spechub.spec.index.NotificationRecord
@@ -21,6 +22,7 @@ import java.time.Instant
 class SubscriptionService(
     private val subscriptions: SubscriptionRepository,
     private val notifications: NotificationRepository,
+    private val repos: RepoRepository,
 ) {
     @Transactional
     fun subscribe(
@@ -39,6 +41,7 @@ class SubscriptionService(
                 subscriptions.save(
                     SubscriptionEntity(
                         repoId = repoId,
+                        orgId = orgIdFor(repoId),
                         apiId = apiId,
                         method = method,
                         path = path,
@@ -80,7 +83,15 @@ class SubscriptionService(
     ): NotificationRecord {
         val saved =
             notifications.save(
-                NotificationEntity(team = team, repoId = repoId, method = method, path = path, summary = summary, createdAt = Instant.now()),
+                NotificationEntity(
+                    team = team,
+                    repoId = repoId,
+                    orgId = orgIdFor(repoId),
+                    method = method,
+                    path = path,
+                    summary = summary,
+                    createdAt = Instant.now(),
+                ),
             )
         return saved.toRecord()
     }
@@ -94,6 +105,8 @@ class SubscriptionService(
         } else {
             notifications.findLatest(limit).map { it.toRecord() }
         }
+
+    private fun orgIdFor(repoId: Long): Long = checkNotNull(repos.findById(repoId).orElse(null)?.orgId) { "repo $repoId 未归属组织" }
 
     private fun SubscriptionEntity.toRecord(): SubscriptionRecord =
         SubscriptionRecord(

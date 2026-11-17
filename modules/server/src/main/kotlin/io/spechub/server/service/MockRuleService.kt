@@ -2,6 +2,7 @@ package io.spechub.server.service
 
 import io.spechub.server.repository.MockRuleEntity
 import io.spechub.server.repository.MockRuleRepository
+import io.spechub.server.repository.RepoRepository
 import io.spechub.spec.index.MockRuleRecord
 import io.spechub.spec.mock.MockRuleSource
 import org.springframework.stereotype.Service
@@ -17,6 +18,7 @@ import java.time.Instant
 @Service
 class MockRuleService(
     private val rules: MockRuleRepository,
+    private val repos: RepoRepository,
 ) : MockRuleSource {
     override fun rulesFor(repoId: Long): List<MockRuleRecord> = rules.findByRepoId(repoId).map { it.toRecord() }
 
@@ -36,6 +38,7 @@ class MockRuleService(
                 rules.save(
                     MockRuleEntity(
                         repoId = rule.repoId,
+                        orgId = orgIdFor(rule.repoId),
                         apiId = rule.apiId,
                         fieldPattern = rule.fieldPattern,
                         ruleType = rule.ruleType,
@@ -53,6 +56,8 @@ class MockRuleService(
     fun delete(id: Long) {
         rules.deleteById(id)
     }
+
+    private fun orgIdFor(repoId: Long): Long = checkNotNull(repos.findById(repoId).orElse(null)?.orgId) { "repo $repoId 未归属组织" }
 
     private fun MockRuleEntity.toRecord(): MockRuleRecord =
         MockRuleRecord(

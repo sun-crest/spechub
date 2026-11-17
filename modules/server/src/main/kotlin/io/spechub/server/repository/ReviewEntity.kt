@@ -10,6 +10,7 @@ import java.time.Instant
 data class ReviewEntity(
     @Id val id: Long? = null,
     @Column("repo_id") val repoId: Long,
+    @Column("org_id") val orgId: Long? = null,
     val path: String,
     @Column("new_content") val newContent: String,
     val diff: String = "",

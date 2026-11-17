@@ -10,6 +10,7 @@ import java.time.Instant
 data class ReleaseEntity(
     @Id val id: Long? = null,
     @Column("repo_id") val repoId: Long,
+    @Column("org_id") val orgId: Long? = null,
     val path: String,
     @Column("spec_hash") val specHash: String,
     @Column("released_at") val releasedAt: Instant,

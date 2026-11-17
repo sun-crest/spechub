@@ -10,6 +10,7 @@ import java.time.Instant
 data class CommentEntity(
     @Id val id: Long? = null,
     @Column("repo_id") val repoId: Long,
+    @Column("org_id") val orgId: Long? = null,
     @Column("api_id") val apiId: Long? = null,
     @Column("doc_id") val docId: Long? = null,
     val method: String = "",

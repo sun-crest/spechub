@@ -2,6 +2,7 @@ package io.spechub.server.service
 
 import io.spechub.server.repository.MembershipEntity
 import io.spechub.server.repository.MembershipRepository
+import io.spechub.server.repository.OrgMembershipRepository
 import io.spechub.server.repository.UserEntity
 import io.spechub.server.repository.UserRepository
 import io.spechub.spec.index.UserRecord
@@ -10,23 +11,25 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 
 /**
- * 用户/成员域 Service（Phase 2 首个迁入管理库的纵切）。
+ * 用户/成员域 Service（阶段 A：用户全局身份 + 组织成员关系 + 项目成员关系）。
  *
- * - 管理库事务：多表写（用户 + 成员）用 Spring @Transactional，单库本地事务。
- * - changelog 仍在投影库（SQLite），跨库不做分布式事务：调用方按固定次序编排（选型文档 §4）。
- * - 对外仍返回 kernel `UserRecord`，web 层类型不变。
+ * - 管理库事务：多表写（用户 + org_membership + membership）用 Spring @Transactional。
+ * - `bootstrapAdmin` 同时确保默认组织的 org_admin 关系。
+ * - changelog 跨库不做分布式事务：调用方按固定次序编排（选型文档 §4）。
  */
 @Service
 class UserService(
     private val users: UserRepository,
     private val memberships: MembershipRepository,
+    private val orgMemberships: OrgMembershipRepository,
+    private val orgs: OrgService,
 ) {
     companion object {
         /** bootstrap 平台 admin 用户名（由 spechub.admin-token 支撑） */
         const val ADMIN_USERNAME = "admin"
     }
 
-    /** 启动时 bootstrap 平台 admin（幂等：存在则刷新 token hash 与平台 admin 标记） */
+    /** 启动时 bootstrap 平台 admin（幂等：存在则刷新 token hash 与平台 admin 标记）。 */
     @Transactional
     fun bootstrapAdmin(tokenHash: String): UserRecord {
         val existing = users.findByUsername(ADMIN_USERNAME)
@@ -44,6 +47,8 @@ class UserService(
                     ),
                 )
             }
+        val userId = checkNotNull(saved.id) { "用户创建/更新后应有 id" }
+        orgs.ensureMembership(userId, orgs.defaultOrgId(), OrgService.ROLE_ADMIN)
         return saved.toRecord()
     }
 
@@ -55,7 +60,7 @@ class UserService(
 
     fun listUsers(): List<UserRecord> = users.findAllOrdered().map { it.toRecord() }
 
-    /** 创建用户并加入项目（单事务；projectId 为空时只建用户） */
+    /** 创建用户并加入默认组织；projectId 非空时同时加入项目。 */
     @Transactional
     fun createUserWithMembership(
         username: String,
@@ -74,16 +79,18 @@ class UserService(
                     createdAt = Instant.now(),
                 ),
             )
+        val userId = checkNotNull(saved.id) { "用户创建后应回填 id" }
+        orgs.ensureMembership(userId, orgs.defaultOrgId(), OrgService.ROLE_MEMBER)
         if (projectId != null) {
-            val userId = checkNotNull(saved.id) { "用户创建后应回填 id" }
             memberships.save(MembershipEntity(userId = userId, projectId = projectId, role = role))
         }
         return saved.toRecord()
     }
 
-    /** 删除用户（先删成员关系，满足 FK RESTRICT；集合式删除，避免循环内逐条往返） */
+    /** 删除用户（先删组织/项目成员关系，满足 FK RESTRICT；集合式删除）。 */
     @Transactional
     fun deleteUser(id: Long) {
+        orgMemberships.deleteAllByUserId(id)
         memberships.deleteAllByUserId(id)
         users.deleteById(id)
     }
@@ -96,7 +103,7 @@ class UserService(
         users.save(user.copy(tokenHash = newHash))
     }
 
-    /** 设置/更新项目角色（唯一约束 + 先查后写，不依赖原生 upsert） */
+    /** 设置/更新项目角色（唯一约束 + 先查后写，不依赖原生 upsert）。 */
     @Transactional
     fun setMembership(
         userId: Long,
@@ -119,6 +126,10 @@ class UserService(
     fun membershipsOf(userId: Long): Map<Long, String> = memberships.findAllByUserId(userId).associate { it.projectId to it.role }
 
     fun membersOfProject(projectId: Long): Map<Long, String> = memberships.findAllByProjectId(projectId).associate { it.userId to it.role }
+
+    fun orgRole(userId: Long): String? = orgs.orgRole(userId, orgs.defaultOrgId())
+
+    fun isOrgAdmin(userId: Long): Boolean = orgs.isOrgAdmin(userId, orgs.defaultOrgId())
 
     private fun UserEntity.toRecord(): UserRecord =
         UserRecord(

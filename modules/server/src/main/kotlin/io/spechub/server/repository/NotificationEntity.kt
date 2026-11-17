@@ -11,6 +11,7 @@ data class NotificationEntity(
     @Id val id: Long? = null,
     val team: String,
     @Column("repo_id") val repoId: Long,
+    @Column("org_id") val orgId: Long? = null,
     val method: String,
     val path: String,
     val summary: String,

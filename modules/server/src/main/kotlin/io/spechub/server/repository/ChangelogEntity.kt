@@ -10,6 +10,7 @@ import java.time.Instant
 data class ChangelogEntity(
     @Id val id: Long? = null,
     @Column("repo_id") val repoId: Long? = null,
+    @Column("org_id") val orgId: Long? = null,
     @Column("api_id") val apiId: Long? = null,
     val actor: String,
     val action: String,

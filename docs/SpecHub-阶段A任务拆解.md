@@ -109,27 +109,37 @@
 
 **Repository / Entity**
 
-- [ ] `OrgEntity` / `OrgRepository`（`findBySlug`、`findAll`）。
-- [ ] `OrgMembershipEntity` / `OrgMembershipRepository`（按 user、按 org 查询；集合式删除）。
-- [ ] `GitConnectionEntity` / `GitConnectionRepository`（按 org 查询）。
-- [ ] `RepoBindingEntity` / `RepoBindingRepository`（`findByRepoId`、`findActiveByRepoId`、批量查询）。
-- [ ] 扩展 `ProjectEntity`（当前只有 `id/name/createdAt`）与 `RepoEntity`（补 `connectionId/externalRepoId/orgId`）。
+- [x] `OrgEntity` / `OrgRepository`（`findBySlug`、`findAll`）。
+- [x] `OrgMembershipEntity` / `OrgMembershipRepository`（按 user、按 org 查询；集合式删除）。
+- [x] `GitConnectionEntity` / `GitConnectionRepository`（按 org 查询）。
+- [x] `RepoBindingEntity` / `RepoBindingRepository`（`findAllByRepoId`、`findByRepoIdAndStatus`、`countByRepoIdAndStatus`）。
+- [x] 扩展 `ProjectEntity`（补 `orgId/slug/description/visibility/ownerId/archived`）与 `RepoEntity`（补 `orgId/connectionId/externalRepoId`）。
 
 **Service**
 
-- [ ] `OrgService`：bootstrap 默认 org、查询当前 org、列出 org 成员。
-- [ ] `ProjectService`：CRUD、归档、可见性、owner 转移、slug 唯一校验、删除前归档校验。
-- [ ] `RepoBindingService`：`createCandidate` / `verify` / `activate` / `retire` / `deleteRetired` / `resolveActive`。
-  - `activate`：事务内 flip，旧 `active` → `retired`、候选 → `active`；并发冲突返回 409。
-  - `verify`：内容比对，返回 `empty / identical / diverged`（diverged 附 diff 摘要）。
-- [ ] `RepoService`：`register(projectId, ...)` 必须带项目；`listByProjectIds`；移除写路径里的 `DEFAULT_PROJECT`。
-- [ ] `UserService`：org membership 查询/写入；现有 `setMembership/membershipRole/membersOfProject` 保留。
-- [ ] 写路径回填 `org_id`：comment / subscription / review / mock_rule / changelog / release。
+- [x] `OrgService`：默认 org 幂等兜底、org membership 查询/写入/删除、`orgRole/isOrgAdmin`。
+- [x] `ProjectService`：CRUD、归档、可见性、owner 转移、slug 唯一校验、删除前归档/无仓库校验、`ensureDefaultProjectOwner`。
+- [x] `RepoBindingService`：`createCandidate` / `verify` / `activate` / `retire` / `deleteRetired` / `active` / `createActiveManaged` / `ensureActiveManaged`。
+  - `activate`：事务内 flip，旧 `active` → `retired`、候选 → `active`；单主唯一约束兜底并发。
+  - `verify`：元数据相同直接 `identical`；否则 clone 两侧做文件级快照比对，返回 `identical / diverged / no_active / error`（API 在 A7 暴露）。
+- [x] `RepoService`：新增 `register(projectId, ...)`、`listReposByProjectIds`、`listReposByOrgId`、`orgIdOf`；注册时同时创建首条 active binding；旧 `register(projectName)` 保留兼容。
+- [x] `UserService`：`bootstrapAdmin` 与新用户写 `org_membership`；删除用户先清组织关系；`orgRole/isOrgAdmin`；现有项目成员方法保留。
+- [x] 写路径回填 `org_id`：comment / subscription / notification / review / mock_rule / changelog / release。
+- [x] `GitConnectionService` 骨架：列表/创建/禁用；阶段 A 不接收密钥，KMS 加密留 D1。
 
 **纪律**
 
-- [ ] `@Transactional` 只包管理库多表写；git/网络/子进程不进入事务（见 [事务边界审计](SpecHub-事务边界审计.md)）。
-- [ ] 集合式删除，不在循环内逐条数据库往返。
+- [x] `@Transactional` 只包管理库多表写；`RepoBindingService.verify` 的 git clone/比对不在事务内。
+- [x] 集合式删除（`deleteAllByUserId`），不在循环内逐条数据库往返。
+
+**测试**
+
+- [x] `ProjectServiceTest`：创建/slug 唯一/可见性默认/归档后删除/有仓库拒绝删除。
+- [x] `RepoBindingServiceTest`：注册自动 active、verify 元数据短路、activate 翻主、retire/delete 状态机。
+- [x] `UserOrgMembershipTest`：bootstrap admin → org_admin、新用户 → org_member、删除用户清组织关系。
+- [x] 上述测试 + 全量 `:server:test` 在 PostgreSQL 与 MySQL 双库通过。
+
+**状态**：✅ 2026-11-17 完成。
 
 ### A3 · 租户上下文与权限判定（M）
 

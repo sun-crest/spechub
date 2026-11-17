@@ -9,4 +9,10 @@ interface RepoRepository : CrudRepository<RepoEntity, Long> {
     ): RepoEntity?
 
     fun findAllByOrderByIdAsc(): List<RepoEntity>
+
+    fun findAllByProjectIdIn(projectId: Collection<Long>): List<RepoEntity>
+
+    fun findAllByOrgIdOrderByIdAsc(orgId: Long): List<RepoEntity>
+
+    fun countByProjectId(projectId: Long): Long
 }

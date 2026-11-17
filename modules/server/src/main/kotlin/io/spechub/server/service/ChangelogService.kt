@@ -2,6 +2,7 @@ package io.spechub.server.service
 
 import io.spechub.server.repository.ChangelogEntity
 import io.spechub.server.repository.ChangelogRepository
+import io.spechub.server.repository.RepoRepository
 import io.spechub.spec.index.ChangelogRecord
 import org.springframework.stereotype.Service
 import java.time.Instant
@@ -14,6 +15,8 @@ import java.time.Instant
 @Service
 class ChangelogService(
     private val changelogs: ChangelogRepository,
+    private val repos: RepoRepository,
+    private val orgs: OrgService,
 ) {
     fun add(
         repoId: Long?,
@@ -21,10 +24,20 @@ class ChangelogService(
         actor: String,
         action: String,
         detail: String,
+        orgId: Long? = null,
     ): ChangelogRecord {
+        val resolvedOrgId = orgId ?: repoId?.let { repos.findById(it).orElse(null)?.orgId } ?: orgs.defaultOrgId()
         val saved =
             changelogs.save(
-                ChangelogEntity(repoId = repoId, apiId = apiId, actor = actor, action = action, detail = detail, createdAt = Instant.now()),
+                ChangelogEntity(
+                    repoId = repoId,
+                    orgId = resolvedOrgId,
+                    apiId = apiId,
+                    actor = actor,
+                    action = action,
+                    detail = detail,
+                    createdAt = Instant.now(),
+                ),
             )
         return saved.toRecord()
     }
@@ -43,6 +56,12 @@ class ChangelogService(
             }
         return entities.map { it.toRecord() }
     }
+
+    /** 组织级变更流（阶段 A 用于 A4 读隔离；repoId 为空的组织动作也在这里）。 */
+    fun listByOrg(
+        orgId: Long,
+        limit: Int = 50,
+    ): List<ChangelogRecord> = changelogs.findLatestByOrg(orgId, limit).map { it.toRecord() }
 
     private fun ChangelogEntity.toRecord(): ChangelogRecord =
         ChangelogRecord(
