@@ -35,6 +35,10 @@ class OrgService(
 
     fun findBySlug(slug: String): OrgEntity? = orgs.findBySlug(slug)
 
+    fun get(id: Long): OrgEntity? = orgs.findById(id).orElse(null)
+
+    fun membershipsOf(userId: Long): List<OrgMembershipEntity> = memberships.findAllByUserId(userId)
+
     fun membership(
         userId: Long,
         orgId: Long,

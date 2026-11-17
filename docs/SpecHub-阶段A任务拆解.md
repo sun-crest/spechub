@@ -143,16 +143,24 @@
 
 ### A3 · 租户上下文与权限判定（M）
 
-- [ ] `AuthService` 增加 `currentOrg`（阶段 A 为默认 org）。
-- [ ] `effectiveRole` 纳入 `org_admin`、项目 `membership`、项目 `visibility`。
-- [ ] 新增 `canReadProject(user, project, stage)`：
+- [x] `AuthService` 增加 `currentOrg` / `currentOrgId` / `orgForUser`（阶段 A 为默认 org，filter 命中用户时预填）。
+- [x] `effectiveRole` 纳入 `org_admin`、项目 `membership`：平台 admin / org_admin 恒 owner，普通用户按项目角色。
+- [x] 新增 `orgRole/isOrgAdmin/canManageProject`。
+- [x] 新增 `canReadProject(user, project, stage)`：
   - 项目成员：draft + release；
   - 同组织非成员：仅 `internal` / `public` 的 release；
   - 匿名：仅 `public` 的 release（平台 API 仍按鉴权策略）。
-- [ ] 新增 `requireProjectVisible`（不可见 404）与 `requireProjectRole`（可见但不足 403）。
-- [ ] `TokenAuthFilter`：鉴权成功挂 user + org context；dev 免登录行为不变。
-- [ ] `GET /api/auth/me`：返回 `orgs`、`currentOrg`、`orgAdmin`、当前项目角色；前端据此计算写入口。
-- [ ] 现有 `platform_admin` 映射为 `org_admin`，旧 admin-token 登录保持兼容。
+- [x] 新增 `requireProjectVisible` / `requireRepoVisible`（不可见统一 404）与 `requireProjectRole`（可见但不足 403）。
+- [x] `TokenAuthFilter`：鉴权成功挂 user + org context；dev 免登录行为不变。
+- [x] `GET /api/auth/me`：返回 `orgs`、`currentOrgId/currentOrgSlug`、`orgAdmin`、当前项目角色；`canManage` 纳入 org_admin。
+- [x] 现有 `platform_admin` 映射为 `org_admin`（平台 admin 对组织视为 org_admin），旧 admin-token 登录保持兼容。
+
+**测试**
+
+- [x] `AuthVisibilityTest`：org admin / 项目成员 / 组织非成员 / 匿名 × private/internal/public × draft/release。
+- [x] `AuthApiTest` 回归；PostgreSQL 与 MySQL 双库通过；`:server:ktlintCheck` 通过。
+
+**状态**：✅ 2026-11-17 完成。
 
 ### A4 · 读端点隔离（L，安全核心）
 

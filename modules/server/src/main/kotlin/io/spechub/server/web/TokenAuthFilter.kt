@@ -35,6 +35,7 @@ class TokenAuthFilter(
             // 命中用户 → 挂到请求（即使未启用鉴权也挂：admin-token 兼容路径）
             req.setAttribute(AuthService.REQ_USER, user)
             req.setAttribute(AuthService.REQ_USERNAME, user.username)
+            req.setAttribute(AuthService.REQ_ORG, auth.orgForUser(user))
             chain.doFilter(req, res)
             return
         }

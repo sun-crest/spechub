@@ -2,6 +2,7 @@ package io.spechub.server.web
 
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.service.ChangelogService
+import io.spechub.server.service.OrgService
 import io.spechub.server.service.RepoService
 import io.spechub.server.service.UserService
 import io.spechub.server.web.common.ApiErrorBody
@@ -41,6 +42,7 @@ class AuthController(
     private val changelogService: ChangelogService,
     private val repoService: RepoService,
     private val users: UserService,
+    private val orgs: OrgService,
     private val auth: AuthService,
 ) {
     data class LoginRequest(
@@ -54,15 +56,28 @@ class AuthController(
         val username: String? = null,
     )
 
+    data class OrgView(
+        val id: Long,
+        val name: String,
+        val slug: String,
+        val role: String,
+    )
+
     data class MeResponse(
         val authenticated: Boolean,
         val authEnabled: Boolean,
         val username: String? = null,
         val displayName: String? = null,
         val platformAdmin: Boolean = false,
+        /** 组织管理员（含平台 admin 兼容） */
+        val orgAdmin: Boolean = false,
+        /** 当前用户的组织列表（阶段 A 只有一个默认组织） */
+        val orgs: List<OrgView> = emptyList(),
+        val currentOrgId: Long? = null,
+        val currentOrgSlug: String? = null,
         /** 对 default project 的角色（前端编辑可见性据此） */
         val role: String? = null,
-        /** 全局角色视图：平台 admin 或项目 owner 视为可管理 */
+        /** 全局角色视图：平台 admin / org admin / 项目 admin+ 视为可管理 */
         val canManage: Boolean = false,
     )
 
@@ -120,6 +135,22 @@ class AuthController(
             // 未启用鉴权：报告环境 + 未认证（前端据此免登录只读）
             return MeResponse(authenticated = user != null, authEnabled = auth.authEnabled)
         }
+        val currentOrg = auth.currentOrg(req)
+        val orgId = checkNotNull(currentOrg.id) { "org 必有 id" }
+        val orgAdmin = auth.isOrgAdmin(user, orgId)
+        val orgViews =
+            user.id?.let { uid ->
+                orgs.membershipsOf(uid).mapNotNull { membership ->
+                    orgs.get(membership.orgId)?.let { org ->
+                        OrgView(
+                            id = checkNotNull(org.id) { "org 必有 id" },
+                            name = org.name,
+                            slug = org.slug,
+                            role = membership.orgRole,
+                        )
+                    }
+                }
+            } ?: emptyList()
         val defaultProjectId = repoService.projectIdByName(RepoController.DEFAULT_PROJECT)
         val role = auth.effectiveRole(user, defaultProjectId)
         return MeResponse(
@@ -128,8 +159,12 @@ class AuthController(
             username = user.username,
             displayName = user.displayName,
             platformAdmin = user.isPlatformAdmin,
+            orgAdmin = orgAdmin,
+            orgs = orgViews,
+            currentOrgId = orgId,
+            currentOrgSlug = currentOrg.slug,
             role = role,
-            canManage = user.isPlatformAdmin || Role.rank(role) >= Role.rank(Role.ADMIN),
+            canManage = orgAdmin || Role.rank(role) >= Role.rank(Role.ADMIN),
         )
     }
 
