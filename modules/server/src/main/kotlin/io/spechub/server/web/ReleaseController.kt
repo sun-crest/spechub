@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import io.spechub.server.service.RepoService
 
 /*
  * I6 —— 双层版本：draft（仓内最新）→ release（对外发布快照）。
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController
 class ReleaseController(
     private val projection: ProjectionStore,
     private val platform: PlatformStore,
+    private val repoService: RepoService,
     private val auth: AuthService,
 ) {
 
@@ -58,7 +60,7 @@ class ReleaseController(
 
     @GetMapping("/repos/{id}/versions")
     fun versions(@PathVariable id: Long, @RequestParam path: String? = null): List<io.spechub.spec.index.VersionRecord> {
-        platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         return if (path != null) projection.listVersionsOfPath(id, path) else projection.listVersions(id)
     }
 

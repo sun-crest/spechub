@@ -26,6 +26,8 @@ class Ingestor(
     private val git: GitStore,
     private val projection: ProjectionStore,
     private val platform: PlatformStore,
+    /** 同步状态回写管理库（repo 已迁管理库；以函数注入避免 kernel-级测试依赖 Spring Data） */
+    private val updateSyncStatus: (repoId: Long, status: String, error: String?) -> Unit,
     private val props: SpecHubProperties,
 ) {
 
@@ -42,7 +44,7 @@ class Ingestor(
         val repoDir = gitSourceFor(repo.url)
         // 目录名用干净 URL（含 token 的 override 只喂给 git 命令参数，不落盘）
         val effectiveUrl = urlOverride ?: repo.url
-        platform.updateSyncStatus(repo.id, SyncStatus.SYNCING)
+        updateSyncStatus(repo.id, SyncStatus.SYNCING, null)
         val messages = mutableListOf<String>()
         return try {
             git.ensureMirror(effectiveUrl, repoDir)
@@ -98,10 +100,10 @@ class Ingestor(
             projection.replaceDocsForRepo(repo.id, docs)
 
             val result = IngestResult(repo.id, apis.size, schemas.size, versionCount, docs.size, messages)
-            platform.updateSyncStatus(repo.id, SyncStatus.OK)
+            updateSyncStatus(repo.id, SyncStatus.OK, null)
             result
         } catch (e: Exception) {
-            platform.updateSyncStatus(repo.id, SyncStatus.ERROR, e.message?.take(500))
+            updateSyncStatus(repo.id, SyncStatus.ERROR, e.message?.take(500))
             throw e
         }
     }

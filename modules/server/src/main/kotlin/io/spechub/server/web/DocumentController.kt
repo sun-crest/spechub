@@ -3,7 +3,7 @@ package io.spechub.server.web
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.RepoService
 import io.spechub.spec.index.Stage
 import io.spechub.spec.parser.export.MarkdownExporter
 import io.spechub.server.config.SpecHubProperties
@@ -28,7 +28,7 @@ import java.nio.file.Path
 @RequestMapping("/api/repos/{id}/document")
 class DocumentController(
     private val exportService: ExportService,
-    private val platform: PlatformStore,
+    private val repoService: RepoService,
     private val props: SpecHubProperties,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -45,7 +45,7 @@ class DocumentController(
         if (stage !in setOf(Stage.DRAFT, Stage.RELEASE)) {
             throw ApiException(ApiErrorCode.VALIDATION, "stage ∈ draft | release", listOf(ApiErrorBody.FieldError("stage", "stage ∈ draft | release")))
         }
-        platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
 
         val doc = exportService.reconstructOpenApi(id, stage)
         val md = MarkdownExporter.export(doc)

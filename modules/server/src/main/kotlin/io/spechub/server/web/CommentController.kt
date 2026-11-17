@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import io.spechub.server.service.RepoService
 
 /*
  * I5 —— 轻评论（挂在接口 / 仓库上）。
@@ -32,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController
 class CommentController(
     private val projection: ProjectionStore,
     private val platform: PlatformStore,
+    private val repoService: RepoService,
     private val auth: AuthService,
 ) {
 
@@ -68,7 +70,7 @@ class CommentController(
     fun delete(@PathVariable id: Long, request: HttpServletRequest) {
         val actor = auth.requireAuthenticated(request, "删除评论")
         val comment = platform.getComment(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评论 $id 不存在")
-        val projectId = platform.getRepo(comment.repoId)?.projectId
+        val projectId = repoService.getRepo(comment.repoId)?.projectId
         val role = auth.effectiveRole(actor, projectId)
         val isAuthor = actor.username == comment.author
         val isManager = Role.rank(role) >= Role.rank(Role.ADMIN)

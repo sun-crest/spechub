@@ -1,7 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.RepoRecord
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.RepoService
 import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.ingest.Ingestor
 import io.spechub.server.web.common.ApiErrorCode
@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController
 class RepoController(
     private val ingestor: Ingestor,
     private val projection: ProjectionStore,
-    private val platform: PlatformStore,
+    private val repoService: RepoService,
     private val urlTokens: UrlTokenStore,
     private val auth: AuthService,
 ) {
@@ -47,8 +47,8 @@ class RepoController(
 
     @PostMapping("/repos")
     fun register(@RequestBody @Valid req: RegisterRepoRequest, request: jakarta.servlet.http.HttpServletRequest): RegisterResponse {
-        auth.requireProjectRole(request, platform.projectIdByName(DEFAULT_PROJECT), io.spechub.spec.index.Role.EDITOR, "注册仓库")
-        val repo = platform.insertRepo(DEFAULT_PROJECT, req.url.trim(), req.branch?.ifEmpty { null } ?: "main")
+        auth.requireProjectRole(request, repoService.projectIdByName(DEFAULT_PROJECT), io.spechub.spec.index.Role.EDITOR, "注册仓库")
+        val repo = repoService.register(DEFAULT_PROJECT, req.url.trim(), req.branch?.ifEmpty { null } ?: "main")
         if (req.token != null && req.token.isNotBlank()) {
             urlTokens.put(repo.id, injectToken(req.url.trim(), req.token.trim()))
         }
@@ -57,11 +57,11 @@ class RepoController(
     }
 
     @GetMapping("/repos")
-    fun list(): List<RepoRecord> = platform.listRepos()
+    fun list(): List<RepoRecord> = repoService.listRepos()
 
     @GetMapping("/repos/{id}")
     fun get(@PathVariable id: Long): RepoRecord =
-        platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
 
     @GetMapping("/repos/{id}/apis")
     fun apis(

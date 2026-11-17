@@ -128,7 +128,6 @@ class SubscriptionApiTest : TestDbIsolation() {
         db.execute("DELETE FROM version")
         db.execute("DELETE FROM schema")
         db.execute("DELETE FROM api")
-        db.execute("DELETE FROM repo")
     }
 
     /** 手动辅助：注册 origin 并返回 repoId */

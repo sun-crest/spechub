@@ -253,8 +253,8 @@ modules/mock/
 ### Phase 1 · 逻辑拆分与边界修复
 - [x] 拆 `PlatformStore` / `ProjectionStore`（可先同库）。✅ 2026-11-17：两域 Store 落地，共享同一 `IndexDb`、SQL 与事务边界零变化；22 个调用点按域注入；测试拆为 `PlatformStoreTest` / `ProjectionStoreTest`。
 - [x] `comment.doc_id`、`mock_rule.api_id` 去跨边界 FK，改稳定寻址。✅ 2026-11-17：DDL 去 FK（两列降为展示快照）；旧库 `migrate` 原地重建（rename → create → copy → drop，数据保留）；文档评论改 `repo_id + path` 稳定寻址；`IndexDbMigrationTest` 覆盖。
-- [ ] `membership.project_id`、`comment.repo_id`、`subscription.repo_id`、`notification.repo_id`、`review.repo_id`、`changelog.repo_id` 随 `project` / `repo` 归管理库而成为管理库内部外键（物理拆分阶段处理）。
-- [ ] 投影库删除 `project` / `repo` 表；`api` / `schema` / `doc` / `version` 的 `repo_id` 改为逻辑列（无 FK）。
+- [x] `membership.project_id`、`comment.repo_id`、`subscription.repo_id`、`notification.repo_id`、`review.repo_id`、`changelog.repo_id` 随 `project` / `repo` 归管理库而成为管理库内部外键。✅ 2026-11-17：`project`/`repo` 已迁管理库；投影库对应表已删，`repo_id` 全部降为逻辑列（旧库原地重建保数据）。
+- [x] 投影库删除 `project` / `repo` 表；`api` / `schema` / `doc` / `version` 的 `repo_id` 改为逻辑列（无 FK）。✅ 2026-11-17（随 Phase 2 project/repo 迁移完成）。
 - [ ] 发布状态迁管理库（`release` 表：`repo_id + path + spec_hash + released_at`），投影 `version.stage` 改为重建时重放的派生值。
 - [x] 补「清空投影 → 从 git 重扫 → 管理数据仍在」的重建测试。✅ 2026-11-17：`IngestorE2ETest` 覆盖 7 类管理数据，已启用转绿。
 
@@ -264,7 +264,8 @@ modules/mock/
 - [x] **存量数据不迁移**：现有 SQLite 库中的管理数据直接丢弃；新管理库由 Flyway 建表 + 启动种子（default project / admin）重建。✅ 已落实（管理库空库启动）。
 - [x] 管理表 DDL/迁移迁到 server（Flyway per vendor）。✅ 2026-11-17：10 张管理表 PG/MySQL 两版迁移脚本。
 - [x] 管理 Repository 用 Spring Data JDBC；复杂 SQL 用 JdbcTemplate。✅ 首个纵切：用户/成员域（`UserService` + `UserRepository` / `MembershipRepository`，多表写 `@Transactional`；`AuthService` / `AuthController` 已接入）。
-- [ ] 其余管理域迁移：project / repo、comment、subscription、notification、review、mock_rule、changelog（含 `MockRuleSource` 端口）。
+- [x] project / repo 迁管理库（`RepoService`）；投影库删除 project/repo 表，`repo_id` 降为逻辑列；旧库迁移原地重建管理表保数据。✅ 2026-11-17：`Ingestor` 同步状态回写改为函数注入；RepoController/Ingestor/Polling/Reindex/ApplicationInit/AuthService 与 12 个 Controller 全部切换；`RepoServiceTest` 覆盖。
+- [ ] 其余管理域迁移：comment、subscription、notification、review、mock_rule、changelog（含 `MockRuleSource` 端口）。
 - [ ] 双库（MySQL）集成测试矩阵接入。
 
 ### Phase 3 · 事务与原子性

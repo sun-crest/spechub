@@ -3,7 +3,7 @@ package io.spechub.server.web
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.RepoService
 import io.spechub.spec.index.Stage
 import io.spechub.spec.model.io.SpecFormat
 import io.spechub.spec.model.io.SpecModelIO
@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/repos/{id}/export")
 class ExportController(
     private val exportService: ExportService,
-    private val platform: PlatformStore,
+    private val repoService: RepoService,
 ) {
 
     @GetMapping("/{format}")
@@ -43,7 +43,7 @@ class ExportController(
         if (stage !in setOf(Stage.DRAFT, Stage.RELEASE)) {
             throw ApiException(ApiErrorCode.VALIDATION, "stage ∈ draft | release", listOf(ApiErrorBody.FieldError("stage", "stage ∈ draft | release")))
         }
-        platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
 
         val doc = exportService.reconstructOpenApi(id, stage)
         val (body, mediaType, ext) = when (format) {

@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import io.spechub.server.service.RepoService
 
 /*
  * I2/I3 —— Mock 并入 backend（MVC + Java 25 虚拟线程，§7 选型；不引 WebFlux）。
@@ -35,6 +36,7 @@ class MockController(
     private val engine: MockEngine,
     private val projection: ProjectionStore,
     private val platform: PlatformStore,
+    private val repoService: RepoService,
     private val auth: AuthService,
 ) {
 
@@ -67,7 +69,7 @@ class MockController(
 
     @GetMapping("/api/repos/{id}/mock/rules")
     fun rules(@PathVariable id: Long): List<MockRuleRecord> {
-        platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         return platform.listMockRules(id)
     }
 
@@ -80,7 +82,7 @@ class MockController(
                 listOf(ApiErrorBody.FieldError("ruleType", "ruleType ∈ value/pattern/script")),
             )
         }
-        platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         val rule = platform.upsertMockRule(
             MockRuleRecord(repoId = id, apiId = req.apiId, fieldPattern = req.fieldPattern.trim(), ruleType = req.ruleType, ruleValue = req.ruleValue),
         )

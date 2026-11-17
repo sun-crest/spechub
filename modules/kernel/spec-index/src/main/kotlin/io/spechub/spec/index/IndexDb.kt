@@ -36,10 +36,36 @@ class IndexDb(private val path: Path) {
             if (!hasColumn(conn, "comment", "method")) {
                 conn.exec(listOf("DROP TABLE IF EXISTS comment", "DROP TABLE IF EXISTS changelog"))
             }
-            // I5 边界修复：管理表曾通过 FK 指向投影表且 ON DELETE CASCADE，投影重建会连带删管理数据。
+            // Phase 1/2 边界修复：管理表去掉全部跨边界外键（doc/api 是可重建投影；repo 已迁管理库）。
             // 管理表不能 DROP（丢数据）→ 原地重建：rename → create → copy → drop。
-            rebuildWithoutForeignKey(conn, "comment", "doc", IndexSchema.COMMENT_DDL)
-            rebuildWithoutForeignKey(conn, "mock_rule", "api", IndexSchema.MOCK_RULE_DDL)
+            rebuildWithoutForeignKeys(conn, "comment", setOf("doc", "repo"), IndexSchema.COMMENT_DDL)
+            rebuildWithoutForeignKeys(conn, "mock_rule", setOf("api", "repo"), IndexSchema.MOCK_RULE_DDL)
+            rebuildWithoutForeignKeys(conn, "changelog", setOf("repo"), IndexSchema.CHANGELOG_DDL)
+            rebuildWithoutForeignKeys(conn, "subscription", setOf("repo"), IndexSchema.SUBSCRIPTION_DDL)
+            rebuildWithoutForeignKeys(conn, "notification", setOf("repo"), IndexSchema.NOTIFICATION_DDL)
+            rebuildWithoutForeignKeys(conn, "review", setOf("repo"), IndexSchema.REVIEW_DDL)
+
+            // Phase 2：project/repo/app_user/membership 已迁管理库 → 投影库删除这些表。
+            // 旧投影表（api/schema/doc/version）仍带 repo FK → DROP 重建（投影可重建）。
+            if (tableExists(conn, "repo")) {
+                conn.exec(
+                    listOf(
+                        "DROP TABLE IF EXISTS doc",
+                        "DROP TABLE IF EXISTS api",
+                        "DROP TABLE IF EXISTS schema",
+                        "DROP TABLE IF EXISTS version",
+                    ),
+                )
+            }
+            // 过渡管理表先于 project/repo 删除，避免外键依赖
+            conn.exec(
+                listOf(
+                    "DROP TABLE IF EXISTS membership",
+                    "DROP TABLE IF EXISTS app_user",
+                    "DROP TABLE IF EXISTS repo",
+                    "DROP TABLE IF EXISTS project",
+                ),
+            )
             conn.exec(IndexSchema.DDL_STATEMENTS)
 
             // 全文检索 FTS5（K2）：环境（sqlite-jdbc FTS5 编译开关）支持则建 doc_fts trigram 虚拟表
@@ -94,11 +120,12 @@ class IndexDb(private val path: Path) {
     }
 
     /**
-     * 去掉管理表指向投影表的外键：原地重建并保留全部行（rename → create → copy → drop）。
+     * 去掉管理表指向投影表/已迁表的全部外键：原地重建并保留所有行（rename → create → copy → drop）。
      * SQLite 不支持 ALTER TABLE DROP CONSTRAINT；管理表也不能像投影表那样 DROP 重建。
      */
-    private fun rebuildWithoutForeignKey(conn: java.sql.Connection, table: String, target: String, ddl: String) {
-        if (!hasForeignKeyTo(conn, table, target)) return
+    private fun rebuildWithoutForeignKeys(conn: java.sql.Connection, table: String, targets: Set<String>, ddl: String) {
+        if (!tableExists(conn, table)) return
+        if (targets.none { hasForeignKeyTo(conn, table, it) }) return
         val temp = "${table}_old"
         val cols = mutableListOf<String>()
         val st = conn.prepareStatement("PRAGMA table_info(${table})")
@@ -200,7 +227,7 @@ object IndexSchema {
     val MOCK_RULE_DDL: String = """
         CREATE TABLE IF NOT EXISTS mock_rule (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            repo_id INTEGER NOT NULL,
             api_id INTEGER,
             field_pattern TEXT NOT NULL,
             rule_type TEXT NOT NULL,
@@ -217,7 +244,7 @@ object IndexSchema {
     val COMMENT_DDL: String = """
         CREATE TABLE IF NOT EXISTS comment (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            repo_id INTEGER NOT NULL,
             api_id INTEGER,
             doc_id INTEGER,
             method TEXT NOT NULL DEFAULT '',
@@ -228,36 +255,73 @@ object IndexSchema {
         )
     """.trimIndent()
 
-    val DDL_STATEMENTS: List<String> = listOf(
-        // 项目空间（P0 单一默认 project，P1 RBAC 扩展）
-        """
-        CREATE TABLE IF NOT EXISTS project (
+    /** 变更记录（api_id 为快照；repo_id 逻辑引用管理库） */
+    val CHANGELOG_DDL: String = """
+        CREATE TABLE IF NOT EXISTS changelog (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            UNIQUE(name)
+            repo_id INTEGER,
+            api_id INTEGER,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         )
-        """.trimIndent(),
+    """.trimIndent()
 
-        // 后端代码仓（spec 来源）
-        """
-        CREATE TABLE IF NOT EXISTS repo (
+    /** 订阅（repo + method + path 稳定寻址；api_id 快照） */
+    val SUBSCRIPTION_DDL: String = """
+        CREATE TABLE IF NOT EXISTS subscription (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
-            url TEXT NOT NULL,
-            branch TEXT NOT NULL DEFAULT 'main',
-            sync_status TEXT NOT NULL DEFAULT 'new',
-            last_error TEXT,
+            repo_id INTEGER NOT NULL,
+            api_id INTEGER,
+            method TEXT NOT NULL,
+            path TEXT NOT NULL,
+            team TEXT NOT NULL,
+            notify_url TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            UNIQUE(project_id, url)
+            UNIQUE(repo_id, method, path, team)
         )
-        """.trimIndent(),
+    """.trimIndent()
+
+    /** 变更通知（repo_id 逻辑引用管理库） */
+    val NOTIFICATION_DDL: String = """
+        CREATE TABLE IF NOT EXISTS notification (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            team TEXT NOT NULL,
+            repo_id INTEGER NOT NULL,
+            method TEXT NOT NULL,
+            path TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )
+    """.trimIndent()
+
+    /** 评审审批流（repo_id 逻辑引用管理库） */
+    val REVIEW_DDL: String = """
+        CREATE TABLE IF NOT EXISTS review (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_id INTEGER NOT NULL,
+            path TEXT NOT NULL,
+            new_content TEXT NOT NULL,
+            diff TEXT NOT NULL DEFAULT '',
+            old_hash TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            requester TEXT NOT NULL,
+            reviewer TEXT,
+            reject_reason TEXT,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            resolved_at TEXT
+        )
+    """.trimIndent()
+
+    val DDL_STATEMENTS: List<String> = listOf(
+        // 投影层不再有 project/repo：二者已迁管理库（Phase 2），投影表 repo_id 为逻辑列
 
         // 文档发布快照（P2 I6 draft/release 双层版本底座；specHash 幂等）
         """
         CREATE TABLE IF NOT EXISTS version (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            repo_id INTEGER NOT NULL,
             path TEXT NOT NULL,
             spec_hash TEXT NOT NULL,
             stage TEXT NOT NULL DEFAULT 'draft',
@@ -271,7 +335,7 @@ object IndexSchema {
         """
         CREATE TABLE IF NOT EXISTS api (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            repo_id INTEGER NOT NULL,
             version_id INTEGER REFERENCES version(id) ON DELETE CASCADE,
             method TEXT NOT NULL,
             path TEXT NOT NULL,
@@ -288,7 +352,7 @@ object IndexSchema {
         """
         CREATE TABLE IF NOT EXISTS schema (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            repo_id INTEGER NOT NULL,
             version_id INTEGER REFERENCES version(id) ON DELETE CASCADE,
             name TEXT NOT NULL,
             spec_json TEXT NOT NULL,
@@ -301,7 +365,7 @@ object IndexSchema {
         """
         CREATE TABLE IF NOT EXISTS doc (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+            repo_id INTEGER NOT NULL,
             version_id INTEGER REFERENCES version(id) ON DELETE CASCADE,
             path TEXT NOT NULL,
             title TEXT NOT NULL,
@@ -311,106 +375,19 @@ object IndexSchema {
         """.trimIndent(),
 
         MOCK_RULE_DDL,
-
-        // 变更记录（I5 铺底，§6.3 ChangeLog：actor/diff/reason/review）
-        // api_id 非 FK：避免摄取重建 api 投影（DELETE+INSERT）时评论类留痕被级联删；repo/method/path 稳定寻址。
-        """
-        CREATE TABLE IF NOT EXISTS changelog (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER REFERENCES repo(id) ON DELETE CASCADE,
-            api_id INTEGER,
-            actor TEXT NOT NULL,
-            action TEXT NOT NULL,
-            detail TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        )
-        """.trimIndent(),
-
-        // 平台用户（I4 RBAC：认证对象；token 只存 hash，平台管理员由 admin-token bootstrap）
-        // Phase 2 起迁入管理库（server/repository）；此表仅过渡保留，Phase 3 清理
-        """
-        CREATE TABLE IF NOT EXISTS app_user (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            display_name TEXT NOT NULL DEFAULT '',
-            token_hash TEXT NOT NULL,
-            is_platform_admin INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        )
-        """.trimIndent(),
-
-        // 项目成员（I4：user → project 的角色，owner/admin/editor/viewer）
-        // Phase 2 起迁入管理库；此表仅过渡保留，Phase 3 清理
-        """
-        CREATE TABLE IF NOT EXISTS membership (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
-            project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
-            role TEXT NOT NULL,
-            UNIQUE(user_id, project_id)
-        )
-        """.trimIndent(),
-
+        CHANGELOG_DDL,
+        SUBSCRIPTION_DDL,
+        NOTIFICATION_DDL,
+        REVIEW_DDL,
         COMMENT_DDL,
 
-        // 订阅（I7）：消费团队声明依赖某接口 → 结构变更时通知（§6.3 Subscription）。
-        // 稳定寻址同 comment：repo + method + path（api 是可重建投影）；api_id 非 FK。
-        """
-        CREATE TABLE IF NOT EXISTS subscription (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-            api_id INTEGER,
-            method TEXT NOT NULL,
-            path TEXT NOT NULL,
-            team TEXT NOT NULL,
-            notify_url TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            UNIQUE(repo_id, method, path, team)
-        )
-        """.trimIndent(),
-
-        // 变更通知（I7）：摄取检测订阅接口结构变化时落条，消费团队可查（通知历史留痕）
-        """
-        CREATE TABLE IF NOT EXISTS notification (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            team TEXT NOT NULL,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-            method TEXT NOT NULL,
-            path TEXT NOT NULL,
-            summary TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        )
-        """.trimIndent(),
-
-        // 评审审批流（I8「写操作皆审」§6.4 决策 3）：spec 写回先入 pending，人批准才落真源。
-        // new_content 存待批准全文；approve 时由 SpecWriter 写入真源（git commit+push + 摄取）。
-        """
-        CREATE TABLE IF NOT EXISTS review (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            repo_id INTEGER NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-            path TEXT NOT NULL,
-            new_content TEXT NOT NULL,
-            diff TEXT NOT NULL DEFAULT '',
-            old_hash TEXT,
-            status TEXT NOT NULL DEFAULT 'pending',
-            requester TEXT NOT NULL,
-            reviewer TEXT,
-            reject_reason TEXT,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            resolved_at TEXT
-        )
-        """.trimIndent(),
-
         // 查询索引
-        "CREATE INDEX IF NOT EXISTS idx_repo_url ON repo(url)",
         "CREATE INDEX IF NOT EXISTS idx_version_spec_hash ON version(spec_hash)",
         "CREATE INDEX IF NOT EXISTS idx_api_method_path ON api(method, path)",
         "CREATE INDEX IF NOT EXISTS idx_api_tag ON api(tag)",
         "CREATE INDEX IF NOT EXISTS idx_api_stage ON api(stage)",
         "CREATE INDEX IF NOT EXISTS idx_mock_rule_repo ON mock_rule(repo_id)",
         "CREATE INDEX IF NOT EXISTS idx_changelog_repo ON changelog(repo_id, created_at)",
-        "CREATE INDEX IF NOT EXISTS idx_app_user_username ON app_user(username)",
-        "CREATE INDEX IF NOT EXISTS idx_membership_user ON membership(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_comment_api ON comment(api_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_comment_repo ON comment(repo_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_subscription_endpoint ON subscription(repo_id, method, path)",

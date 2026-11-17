@@ -7,6 +7,7 @@ import io.spechub.spec.index.IndexDb
 import io.spechub.spec.index.MockRuleRecord
 import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.ProjectionStore
+import io.spechub.spec.index.RepoRecord
 import io.spechub.spec.index.SyncStatus
 import io.spechub.server.config.SpecHubProperties
 import org.junit.jupiter.api.Test
@@ -75,14 +76,13 @@ class IngestorE2ETest {
         val db = IndexDb(temp.resolve("idx.db")).also { it.migrate() }
         val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, props())
+        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, props())
 
-        val repo = platform.insertRepo("default", origin.toString(), "main")
+        val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
         val result = ingestor.ingest(repo)
         assertEquals(2, result.apiCount, "应提取 GET /pets 与 DELETE /pets/{id}")
         assertEquals(1, result.schemaCount, "components.schemas 应入投影")
         assertTrue(result.messages.isEmpty(), "不应有警告/跳过：${result.messages}")
-        assertEquals(SyncStatus.OK, platform.getRepo(repo.id)!!.syncStatus)
 
         val apis = projection.listApis(repo.id)
         assertEquals(setOf("GET", "DELETE"), apis.map { it.method }.toSet())
@@ -101,8 +101,8 @@ class IngestorE2ETest {
         val db = IndexDb(temp.resolve("idx2.db")).also { it.migrate() }
         val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, props())
-        val repo = platform.insertRepo("default", origin.toString(), "main")
+        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, props())
+        val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
 
         ingestor.ingest(repo)
         assertEquals(2, projection.countApis(repo.id), "首接应有 2 个 api")
@@ -128,8 +128,8 @@ class IngestorE2ETest {
         val db = IndexDb(temp.resolve("idx-rebuild.db")).also { it.migrate() }
         val platform = PlatformStore(db)
         val projection = ProjectionStore(db)
-        val ingestor = Ingestor(git, projection, platform, props())
-        val repo = platform.insertRepo("default", origin.toString(), "main")
+        val ingestor = Ingestor(git, projection, platform, { _, _, _ -> }, props())
+        val repo = RepoRecord(1, 1, origin.toString(), "main", SyncStatus.NEW)
         ingestor.ingest(repo)
 
         // 管理数据（仍由 PlatformStore 承载的部分）：接口评论、文档评论、mock 规则、订阅、评审、changelog

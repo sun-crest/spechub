@@ -47,7 +47,32 @@ class IndexDbMigrationTest {
         DriverManager.getConnection("jdbc:sqlite:$path").use { conn ->
             conn.createStatement().use { st ->
                 st.execute("PRAGMA foreign_keys=ON")
-                // 先用当前 DDL 建齐全部表，再把两张管理表替换成带跨边界外键的旧版
+                // 旧版 project/repo（Phase 2 前投影库自带）
+                st.execute(
+                    """
+                    CREATE TABLE project (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT '',
+                        UNIQUE(name)
+                    )
+                    """.trimIndent(),
+                )
+                st.execute(
+                    """
+                    CREATE TABLE repo (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+                        url TEXT NOT NULL,
+                        branch TEXT NOT NULL DEFAULT 'main',
+                        sync_status TEXT NOT NULL DEFAULT 'new',
+                        last_error TEXT,
+                        created_at TEXT NOT NULL DEFAULT '',
+                        UNIQUE(project_id, url)
+                    )
+                    """.trimIndent(),
+                )
+                // 当前 DDL 建齐其余表，再把两张管理表替换成带跨边界外键的旧版
                 IndexSchema.DDL_STATEMENTS.forEach(st::execute)
                 st.execute("DROP TABLE comment")
                 st.execute("DROP TABLE mock_rule")
@@ -78,9 +103,12 @@ class IndexDbMigrationTest {
                     rs.next()
                     assertEquals("x", rs.getString(1), "mock 规则行应保留")
                 }
-                // 外键已移除：comment 不再引用 doc、mock_rule 不再引用 api
-                assertEquals(emptyList(), foreignKeyTargets(st, "comment").filter { it == "doc" }, "comment.doc_id 不应再有 FK")
-                assertEquals(emptyList(), foreignKeyTargets(st, "mock_rule").filter { it == "api" }, "mock_rule.api_id 不应再有 FK")
+                // 外键已移除：comment / mock_rule 不再引用 doc / api / repo
+                assertEquals(emptyList(), foreignKeyTargets(st, "comment").filter { it in setOf("doc", "api", "repo") }, "comment 不应再有跨边界 FK")
+                assertEquals(emptyList(), foreignKeyTargets(st, "mock_rule").filter { it in setOf("doc", "api", "repo") }, "mock_rule 不应再有跨边界 FK")
+                // project / repo 已迁管理库：投影库不再有这两张表
+                assertEquals(false, tableExists(st, "project"), "project 已迁管理库")
+                assertEquals(false, tableExists(st, "repo"), "repo 已迁管理库")
                 // 删除投影行不再级联删管理数据
                 st.execute("DELETE FROM doc")
                 st.execute("DELETE FROM api")
@@ -97,4 +125,7 @@ class IndexDbMigrationTest {
         }
         return targets
     }
+
+    private fun tableExists(st: java.sql.Statement, table: String): Boolean =
+        st.executeQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='$table'").use { it.next() }
 }

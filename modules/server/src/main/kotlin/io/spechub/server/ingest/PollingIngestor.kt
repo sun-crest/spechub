@@ -1,6 +1,6 @@
 package io.spechub.server.ingest
 
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.RepoService
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.web.UrlTokenStore
 import org.slf4j.LoggerFactory
@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component
 @Component
 class PollingIngestor(
     private val ingestor: Ingestor,
-    private val platform: PlatformStore,
+    private val repoService: RepoService,
     private val urlTokens: UrlTokenStore,
     private val props: SpecHubProperties,
 ) {
@@ -19,7 +19,7 @@ class PollingIngestor(
 
     @Scheduled(fixedDelayString = "\${spechub.polling-interval-ms:60000}")
     fun poll() {
-        val repos = platform.listRepos()
+        val repos = repoService.listRepos()
         if (repos.isEmpty()) return
         log.info("轮询摄取：{} 个仓", repos.size)
         for (repo in repos) {

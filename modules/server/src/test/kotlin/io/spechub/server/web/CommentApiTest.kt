@@ -52,7 +52,6 @@ class CommentApiTest : TestDbIsolation() {
         db.execute("DELETE FROM version")
         db.execute("DELETE FROM schema")
         db.execute("DELETE FROM api")
-        db.execute("DELETE FROM repo")
     }
 
     companion object {
@@ -127,12 +126,8 @@ class CommentApiTest : TestDbIsolation() {
     }
 
     private fun ensureRepoAndApi(): Pair<Long, Long> {
-        val repos = json.readTree(get("/api/repos").body())
-        val repoId = if (repos.size() == 0) {
-            json.readTree(req("POST", "/api/repos", """{"url":"file://$origin"}""").body()).at("/repo/id").asLong()
-        } else {
-            repos.get(0)?.at("/id")?.asLong() ?: throw AssertionError("无 repo")
-        }
+        // 管理库 repo 跨用例保留（投影每用例清空）：注册幂等且总会触发一次摄取，保证投影就绪
+        val repoId = json.readTree(req("POST", "/api/repos", """{"url":"file://$origin"}""").body()).at("/repo/id").asLong()
         val apisBody = get("/api/apis").body()
         val apis = json.readTree(apisBody)
         val api = apis.findFirst("path", "/pets") ?: throw AssertionError("无 /pets api; apis=$apisBody")

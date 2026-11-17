@@ -1,7 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.Role
-import io.spechub.spec.index.PlatformStore
+import io.spechub.server.service.RepoService
 import io.spechub.spec.index.UserRecord
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.service.UserService
@@ -25,7 +25,7 @@ import java.security.SecureRandom
  */
 @Service
 class AuthService(
-    private val platform: PlatformStore,
+    private val repoService: RepoService,
     private val users: UserService,
     private val props: SpecHubProperties,
 ) {
@@ -76,7 +76,7 @@ class AuthService(
      */
     fun roleForRepo(req: HttpServletRequest, repoId: Long): String? {
         val user = currentUser(req) ?: return null
-        return effectiveRole(user, platform.getRepo(repoId)?.projectId)
+        return effectiveRole(user, repoService.getRepo(repoId)?.projectId)
     }
 
     /** 平台 admin 恒 owner；普通用户按 membership。无 projectId 视为无权限。 */

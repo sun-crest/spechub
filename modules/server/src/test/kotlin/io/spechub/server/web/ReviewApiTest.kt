@@ -132,7 +132,6 @@ class ReviewApiTest : TestDbIsolation() {
         db.execute("DELETE FROM version")
         db.execute("DELETE FROM schema")
         db.execute("DELETE FROM api")
-        db.execute("DELETE FROM repo")
     }
 
     @Test

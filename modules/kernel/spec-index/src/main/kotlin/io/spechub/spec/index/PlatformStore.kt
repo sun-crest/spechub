@@ -1,63 +1,16 @@
 package io.spechub.spec.index
 
-import java.sql.Connection
-
 /*
- * PlatformStore —— 管理数据 DAO（Phase 1 逻辑拆分：与 ProjectionStore 同库，Phase 2 物理迁入管理库）。
+ * PlatformStore —— 尚未迁入管理库的管理域 DAO（Phase 2 过渡：仍与投影同库 SQLite）。
  *
- * 归属：project / repo / changelog / mock_rule / user / membership / subscription / notification / review。
+ * 归属：changelog / mock_rule / comment / subscription / notification / review。
+ * 已迁出：project / repo（server `RepoService`）、user / membership（server `UserService`）。
  * 纪律：
  * - 管理数据**不得**外键指向投影表；引用内容一律用稳定键（repo_id + path / method + path）。
- * - 本类方法在 Phase 2 会由 server 侧 Spring Data JDBC + @Transactional 取代；
- *   当前仍是 kernel raw JDBC，每个方法一个独立事务。
+ * - 本类方法后续由 server 侧 Spring Data JDBC + @Transactional 逐域取代。
  * - 与 ProjectionStore 不共享事务：跨域多步写由调用方按固定次序 + 幂等编排（选型文档 §4）。
  */
 class PlatformStore(private val db: IndexDb) {
-
-    // ── project ──────────────────────────────────────────────────────────
-
-    fun upsertProject(name: String): Long = db.transaction { conn ->
-        insertProject(conn, name)
-    }
-
-    fun projectIdByName(name: String): Long? = db.transaction { conn ->
-        (conn.queryObj("SELECT id FROM project WHERE name=?", name) as? Number)?.toLong()
-    }
-
-    fun listProjects(): List<ProjectRecord> = db.transaction { conn ->
-        conn.select("SELECT * FROM project ORDER BY id") { r ->
-            ProjectRecord((r["id"] as Number).toLong(), r["name"] as String)
-        }
-    }
-
-    // ── repo ─────────────────────────────────────────────────────────────
-
-    fun insertRepo(projectName: String, url: String, branch: String = "main"): RepoRecord =
-        db.transaction { conn ->
-            val pid = projectIdByName(conn, projectName)
-                ?: insertProject(conn, projectName)
-            // 同 URL 幂等返回既存
-            getRepoByUrl(conn, pid, url)?.let { return@transaction it }
-            val id = conn.insert(
-                "INSERT INTO repo (project_id, url, branch, sync_status) VALUES (?,?,?,?)",
-                pid, url, branch, SyncStatus.NEW,
-            )
-            RepoRecord(id, pid, url, branch, SyncStatus.NEW)
-        }
-
-    fun listRepos(): List<RepoRecord> = db.transaction { conn ->
-        conn.select(
-            "SELECT repo.*, project.name AS project_name FROM repo JOIN project ON project.id=repo.project_id",
-        ) { r -> RepoRecord(r.long("id"), r.long("project_id"), r["url"] as String, r["branch"] as String, r["sync_status"] as String, r["last_error"] as? String) }
-    }
-
-    fun getRepo(id: Long): RepoRecord? = db.transaction { conn ->
-        getRepoById(conn, id)
-    }
-
-    fun updateSyncStatus(repoId: Long, status: String, error: String? = null) = db.transaction { conn ->
-        conn.exec("UPDATE repo SET sync_status=?, last_error=? WHERE id=?", status, error, repoId)
-    }
 
     // ── changelog（变更记录：spec 写回 / 发布 / mock 规则变更都留痕）──────────
 
@@ -298,22 +251,4 @@ class PlatformStore(private val db: IndexDb) {
         createdAt = r["created_at"] as? String,
         resolvedAt = r["resolved_at"] as? String,
     )
-
-    private fun insertProject(conn: Connection, name: String): Long {
-        projectIdByName(conn, name)?.let { return it }
-        return conn.insert("INSERT OR IGNORE INTO project (name) VALUES (?)", name)
-    }
-
-    private fun projectIdByName(conn: Connection, name: String): Long? =
-        (conn.queryObj("SELECT id FROM project WHERE name=?", name) as? Number)?.toLong()
-
-    private fun getRepoByUrl(conn: Connection, projectId: Long, url: String): RepoRecord? =
-        conn.select("SELECT * FROM repo WHERE project_id=? AND url=?", projectId, url) { r ->
-            RepoRecord(r.long("id"), r.long("project_id"), r["url"] as String, r["branch"] as String, r["sync_status"] as String, r["last_error"] as? String)
-        }.firstOrNull()
-
-    private fun getRepoById(conn: Connection, id: Long): RepoRecord? =
-        conn.select("SELECT * FROM repo WHERE id=?", id) { r ->
-            RepoRecord(r.long("id"), r.long("project_id"), r["url"] as String, r["branch"] as String, r["sync_status"] as String, r["last_error"] as? String)
-        }.firstOrNull()
 }

@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import io.spechub.server.service.RepoService
 
 /*
  * I8 —— 评审审批流（§6.4 决策 3「写操作皆审」落地）：
@@ -34,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/reviews")
 class ReviewController(
     private val platform: PlatformStore,
+    private val repoService: RepoService,
     private val auth: AuthService,
     private val writer: SpecWriter,
     private val ingestor: io.spechub.server.ingest.Ingestor,
@@ -80,7 +82,7 @@ class ReviewController(
     @GetMapping("/{id}")
     fun detail(@PathVariable id: Long): ReviewDetail {
         val r = platform.getReview(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评审 $id 不存在")
-        val current = platform.getRepo(r.repoId)?.let { repo ->
+        val current = repoService.getRepo(r.repoId)?.let { repo ->
             try { writer.readSpec(repo, r.path) } catch (e: Exception) { null }
         }
         return ReviewDetail(
@@ -97,7 +99,7 @@ class ReviewController(
         val actor = auth.currentUser(request) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "审批需要登录")
         requireOtherReviewer(actor.username, r.requester, actor.isPlatformAdmin)
 
-        val repo = platform.getRepo(r.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${r.repoId} 不存在")
+        val repo = repoService.getRepo(r.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${r.repoId} 不存在")
         val written = writer.writeSpec(repo, r.path, r.newContent)
         val ing = ingestor.ingest(repo, urlTokens.get(r.repoId))
         platform.resolveReview(r.id!!, ReviewStatus.APPROVED, actor.username)

@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import io.spechub.server.service.RepoService
 
 /*
  * I4 —— RBAC 身份与成员管理（替换 H6 的 admin-token 占位，二者兼容）。
@@ -38,6 +39,7 @@ import org.springframework.web.bind.annotation.RestController
 class AuthController(
     private val props: SpecHubProperties,
     private val platform: PlatformStore,
+    private val repoService: RepoService,
     private val users: UserService,
     private val auth: AuthService,
 ) {
@@ -100,7 +102,7 @@ class AuthController(
             // 未启用鉴权：报告环境 + 未认证（前端据此免登录只读）
             return MeResponse(authenticated = user != null, authEnabled = auth.authEnabled)
         }
-        val defaultProjectId = platform.projectIdByName(RepoController.DEFAULT_PROJECT)
+        val defaultProjectId = repoService.projectIdByName(RepoController.DEFAULT_PROJECT)
         val role = auth.effectiveRole(user, defaultProjectId)
         return MeResponse(
             authenticated = true, authEnabled = true,
@@ -114,8 +116,8 @@ class AuthController(
 
     @GetMapping("/users")
     fun users(req: HttpServletRequest): List<UserView> {
-        auth.requireProjectRole(req, platform.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "查看成员")
-        val projectId = platform.projectIdByName(RepoController.DEFAULT_PROJECT)
+        auth.requireProjectRole(req, repoService.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "查看成员")
+        val projectId = repoService.projectIdByName(RepoController.DEFAULT_PROJECT)
         return users.listUsers().map { user ->
             UserView(
                 id = user.id as Long, username = user.username, displayName = user.displayName,
@@ -128,7 +130,7 @@ class AuthController(
 
     @PostMapping("/users")
     fun createUser(req: HttpServletRequest, @RequestBody @Valid body: CreateUserRequest): CreateUserResponse {
-        auth.requireProjectRole(req, platform.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "创建用户")
+        auth.requireProjectRole(req, repoService.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "创建用户")
         val username = body.username.trim()
         if (!Role.ALL.contains(body.role)) {
             throw ApiException(
@@ -141,7 +143,7 @@ class AuthController(
             throw ApiException(ApiErrorCode.CONFLICT, "用户 $username 已存在")
         }
         val token = AuthService.generateToken()
-        val projectId = platform.projectIdByName(RepoController.DEFAULT_PROJECT)
+        val projectId = repoService.projectIdByName(RepoController.DEFAULT_PROJECT)
         // 用户 + 成员在管理库同一事务内创建；changelog 仍在投影库，跨库不做分布式事务
         val user = users.createUserWithMembership(username, body.displayName, AuthService.sha256(token), projectId, body.role)
         platform.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.create", detail = "创建用户 $username（$body.role）")
@@ -150,13 +152,13 @@ class AuthController(
 
     @PostMapping("/users/{id}/role")
     fun setRole(req: HttpServletRequest, @PathVariable id: Long, @RequestBody @Valid body: UpdateRoleRequest): UserView {
-        auth.requireProjectRole(req, platform.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "改角色")
+        auth.requireProjectRole(req, repoService.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "改角色")
         if (!Role.ALL.contains(body.role)) {
             throw ApiException(ApiErrorCode.VALIDATION, "role ∈ ${Role.ALL}", listOf(ApiErrorBody.FieldError("role", "role ∈ ${Role.ALL}")))
         }
         val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "平台 admin 角色不可改")
-        val projectId = platform.projectIdByName(RepoController.DEFAULT_PROJECT)
+        val projectId = repoService.projectIdByName(RepoController.DEFAULT_PROJECT)
         if (projectId != null) users.setMembership(id, projectId, body.role)
         platform.addChangelog(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.role", detail = "用户 ${user.username} → $body.role")
         return toView(user, projectId)
@@ -164,19 +166,19 @@ class AuthController(
 
     @PostMapping("/users/{id}/token")
     fun resetToken(req: HttpServletRequest, @PathVariable id: Long): CreateUserResponse {
-        auth.requireProjectRole(req, platform.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "重置令牌")
+        auth.requireProjectRole(req, repoService.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "重置令牌")
         val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         val token = AuthService.generateToken()
         // 无公开 updateToken 字段 → 删除重建不可取（保留 id/role）。这里用内部更新：
         users.updateToken(id, AuthService.sha256(token))
-        return CreateUserResponse(toView(user, platform.projectIdByName(RepoController.DEFAULT_PROJECT)), token)
+        return CreateUserResponse(toView(user, repoService.projectIdByName(RepoController.DEFAULT_PROJECT)), token)
     }
 
     @DeleteMapping("/users/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun deleteUser(req: HttpServletRequest, @PathVariable id: Long) {
         val actor = auth.currentUser(req)
-        auth.requireProjectRole(req, platform.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "删除用户")
+        auth.requireProjectRole(req, repoService.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "删除用户")
         val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除平台 admin")
         if (actor != null && actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")

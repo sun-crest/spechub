@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
+import io.spechub.server.service.RepoService
 
 /** 只读查询扩展 + 写回端点的装配（F 组 MCP 工具集的 HTTP 后端） */
 @RestController
@@ -25,6 +26,7 @@ import jakarta.validation.constraints.NotBlank
 class ApiQueryController(
     private val projection: ProjectionStore,
     private val platform: PlatformStore,
+    private val repoService: RepoService,
     private val writer: SpecWriter,
     private val ingestor: Ingestor,
     private val urlTokens: UrlTokenStore,
@@ -34,7 +36,7 @@ class ApiQueryController(
     // ── 只读 · F 组 list_projects / get_api ───────────────────────────────
 
     @GetMapping("/projects")
-    fun projects(): List<ProjectRecord> = platform.listProjects()
+    fun projects(): List<ProjectRecord> = repoService.listProjects()
 
     @GetMapping("/apis")
     fun search(
@@ -65,13 +67,13 @@ class ApiQueryController(
 
     @GetMapping("/repos/{id}/specs")
     fun listSpecs(@PathVariable id: Long): List<String> {
-        val repo = platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        val repo = repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         return writer.listSpecs(repo)
     }
 
     @GetMapping("/repos/{id}/spec")
     fun readSpec(@PathVariable id: Long, @RequestParam path: String): String {
-        val repo = platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        val repo = repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         return writer.readSpec(repo, path)
             ?: throw ApiException(ApiErrorCode.NOT_FOUND, "spec $path 不存在")
     }
@@ -85,7 +87,7 @@ class ApiQueryController(
                 listOf(ApiErrorBody.FieldError("path", "path 须为 .yaml/.yml/.json")),
             )
         }
-        val repo = platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        val repo = repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         val path = req.path.trim()
 
         // 未启用鉴权：本地/最小部署直写（保存即提交，现状；评审流只在团队启用鉴权后生效）

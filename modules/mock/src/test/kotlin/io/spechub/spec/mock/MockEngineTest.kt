@@ -28,13 +28,13 @@ class MockEngineTest {
         db.migrate()
         val projection = ProjectionStore(db)
         val platform = PlatformStore(db)
-        val repo = platform.insertRepo("default", "/fixtures/mockstore")
+        val repoId = 1L
         val yaml = checkNotNull(javaClass.classLoader.getResource("mockstore/openapi.yaml")).readText()
         val doc = (SpecParser.parse(yaml) as ParseResult.Success).doc
-        val ver = projection.upsertVersion(repo.id, "specs/mockstore/openapi.yaml", SpecHash.of(doc))
-        projection.replaceApisForRepo(repo.id, extractApis(repo.id, ver.id, doc))
-        projection.replaceSchemasForRepo(repo.id, extractSchemas(repo.id, ver.id, doc))
-        return Triple(MockEngine(projection, platform), platform, repo.id)
+        val ver = projection.upsertVersion(repoId, "specs/mockstore/openapi.yaml", SpecHash.of(doc))
+        projection.replaceApisForRepo(repoId, extractApis(repoId, ver.id, doc))
+        projection.replaceSchemasForRepo(repoId, extractSchemas(repoId, ver.id, doc))
+        return Triple(MockEngine(projection, platform), platform, repoId)
     }
 
     private fun extractApis(repoId: Long, versionId: Long, doc: OpenApiDoc): List<ApiRecord> =

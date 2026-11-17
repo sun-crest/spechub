@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import io.spechub.server.service.RepoService
 
 /*
  * I7 —— 变更订阅：消费团队声明依赖某接口（repo + method + path 稳定寻址）→ 结构变更时收到通知。
@@ -33,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController
 class SubscriptionController(
     private val projection: ProjectionStore,
     private val platform: PlatformStore,
+    private val repoService: RepoService,
     private val auth: AuthService,
 ) {
 
@@ -47,7 +49,7 @@ class SubscriptionController(
     @PostMapping
     fun subscribe(@RequestBody @Valid body: SubscribeRequest, request: HttpServletRequest): SubscriptionRecord {
         auth.requireAuthenticated(request, "订阅")
-        platform.getRepo(body.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${body.repoId} 不存在")
+        repoService.getRepo(body.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${body.repoId} 不存在")
         // api_id 尽力关联（method+path 命中当前投影则填，便于详情展示；非 FK）
         val apiId = projection.listApis(body.repoId, method = body.method.uppercase(), keyword = body.path.removePrefix("/"))
             .firstOrNull { it.path == body.path }?.id
