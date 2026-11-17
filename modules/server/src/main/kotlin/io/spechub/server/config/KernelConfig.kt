@@ -2,7 +2,8 @@ package io.spechub.server.config
 
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.index.IndexDb
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
+import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.ingest.Ingestor
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
@@ -38,13 +39,19 @@ class KernelConfig(private val props: SpecHubProperties) {
         return db
     }
 
+    /** 管理域 DAO（Phase 2 迁入独立管理库；当前与投影同库） */
     @Bean
-    fun specIndexStore(): SpecIndexStore = SpecIndexStore(indexDb())
+    fun platformStore(): PlatformStore = PlatformStore(indexDb())
+
+    /** 投影域 DAO（SQLite，可重建） */
+    @Bean
+    fun projectionStore(): ProjectionStore = ProjectionStore(indexDb())
 
     @Bean
-    fun ingestor(): Ingestor = Ingestor(gitStore(), specIndexStore(), props)
+    fun ingestor(): Ingestor = Ingestor(gitStore(), projectionStore(), platformStore(), props)
 
-    /** Mock 规则引擎（I3：零 Spring 内核模块，此处接线注入索引） */
+    /** Mock 规则引擎（零 Spring 内核模块，此处接线注入投影与管理域） */
     @Bean
-    fun mockEngine(): io.spechub.spec.mock.MockEngine = io.spechub.spec.mock.MockEngine(specIndexStore())
+    fun mockEngine(): io.spechub.spec.mock.MockEngine =
+        io.spechub.spec.mock.MockEngine(projectionStore(), platformStore())
 }

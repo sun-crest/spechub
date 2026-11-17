@@ -6,7 +6,8 @@ import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.ApiRecord
 import io.spechub.spec.index.ProjectRecord
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
+import io.spechub.spec.index.ProjectionStore
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -22,7 +23,8 @@ import jakarta.validation.constraints.NotBlank
 @RestController
 @RequestMapping("/api")
 class ApiQueryController(
-    private val index: SpecIndexStore,
+    private val projection: ProjectionStore,
+    private val platform: PlatformStore,
     private val writer: SpecWriter,
     private val ingestor: Ingestor,
     private val urlTokens: UrlTokenStore,
@@ -32,18 +34,18 @@ class ApiQueryController(
     // ── 只读 · F 组 list_projects / get_api ───────────────────────────────
 
     @GetMapping("/projects")
-    fun projects(): List<ProjectRecord> = index.listProjects()
+    fun projects(): List<ProjectRecord> = platform.listProjects()
 
     @GetMapping("/apis")
     fun search(
         @RequestParam q: String? = null,
         @RequestParam method: String? = null,
         @RequestParam stage: String? = null,
-    ): List<ApiRecord> = index.listAllApis(q, method?.uppercase(), stage ?: "draft")
+    ): List<ApiRecord> = projection.listAllApis(q, method?.uppercase(), stage ?: "draft")
 
     @GetMapping("/apis/{id}")
     fun getApi(@PathVariable id: Long): ApiRecord =
-        index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
+        projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
 
     // ── 写回 · F 组 create_api / update_api（R1-C）─────────────────────────
 
@@ -63,13 +65,13 @@ class ApiQueryController(
 
     @GetMapping("/repos/{id}/specs")
     fun listSpecs(@PathVariable id: Long): List<String> {
-        val repo = index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        val repo = platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         return writer.listSpecs(repo)
     }
 
     @GetMapping("/repos/{id}/spec")
     fun readSpec(@PathVariable id: Long, @RequestParam path: String): String {
-        val repo = index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        val repo = platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         return writer.readSpec(repo, path)
             ?: throw ApiException(ApiErrorCode.NOT_FOUND, "spec $path 不存在")
     }
@@ -83,7 +85,7 @@ class ApiQueryController(
                 listOf(ApiErrorBody.FieldError("path", "path 须为 .yaml/.yml/.json")),
             )
         }
-        val repo = index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        val repo = platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         val path = req.path.trim()
 
         // 未启用鉴权：本地/最小部署直写（保存即提交，现状；评审流只在团队启用鉴权后生效）
@@ -95,11 +97,11 @@ class ApiQueryController(
 
         // 启鉴权 →「写操作皆审」（§6.4 决策 3）：先入评审队列，approve 后才落真源
         val actor = auth.currentUser(request)?.username ?: "anonymous"
-        val review = index.createReview(
+        val review = platform.createReview(
             repoId = id, path = path, newContent = req.content,
-            diff = "", oldHash = index.latestSpecHash(id, path), requester = actor,
+            diff = "", oldHash = projection.latestSpecHash(id, path), requester = actor,
         )
-        index.addChangelog(repoId = id, apiId = null, actor = actor, action = "review.create",
+        platform.addChangelog(repoId = id, apiId = null, actor = actor, action = "review.create",
             detail = "提交评审 #${review.id}：$path（$actor 提交，等待审批）")
         return WriteSpecResponse(
             repo.id, path, commit = "", branch = repo.branch, apiCount = 0,

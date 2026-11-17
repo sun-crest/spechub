@@ -251,11 +251,11 @@ modules/mock/
 - 确定支持矩阵（PG/MySQL 版本）与备份/RPO。
 
 ### Phase 1 · 逻辑拆分与边界修复
-- 拆 `PlatformStore` / `ProjectionStore`（可先同库）。
-- 外键修复全清单：`comment.doc_id`、`mock_rule.api_id` 改稳定寻址；`membership.project_id`、`comment.repo_id`、`subscription.repo_id`、`notification.repo_id`、`review.repo_id`、`changelog.repo_id` 随 `project` / `repo` 归管理库而成为管理库内部外键。
-- 投影库删除 `project` / `repo` 表；`api` / `schema` / `doc` / `version` 的 `repo_id` 改为逻辑列（无 FK）。
-- 发布状态迁管理库（`release` 表：`repo_id + path + spec_hash + released_at`），投影 `version.stage` 改为重建时重放的派生值。
-- 补「清空投影 → 从 git 重扫 → 管理数据仍在」的重建测试。
+- [x] 拆 `PlatformStore` / `ProjectionStore`（可先同库）。✅ 2026-11-17：两域 Store 落地，共享同一 `IndexDb`、SQL 与事务边界零变化；22 个调用点按域注入；测试拆为 `PlatformStoreTest` / `ProjectionStoreTest`。
+- [ ] 外键修复全清单：`comment.doc_id`、`mock_rule.api_id` 改稳定寻址；`membership.project_id`、`comment.repo_id`、`subscription.repo_id`、`notification.repo_id`、`review.repo_id`、`changelog.repo_id` 随 `project` / `repo` 归管理库而成为管理库内部外键。
+- [ ] 投影库删除 `project` / `repo` 表；`api` / `schema` / `doc` / `version` 的 `repo_id` 改为逻辑列（无 FK）。
+- [ ] 发布状态迁管理库（`release` 表：`repo_id + path + spec_hash + released_at`），投影 `version.stage` 改为重建时重放的派生值。
+- [ ] 补「清空投影 → 从 git 重扫 → 管理数据仍在」的重建测试。
 
 ### Phase 2 · 物理拆分两个数据源
 - 管理库独立 DataSource；投影继续 SQLite。

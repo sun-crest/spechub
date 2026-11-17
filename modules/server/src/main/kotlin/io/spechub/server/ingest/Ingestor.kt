@@ -4,7 +4,8 @@ import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.index.ApiRecord
 import io.spechub.spec.index.RepoRecord
 import io.spechub.spec.index.SchemaRecord
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
+import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.SyncStatus
 import io.spechub.spec.model.io.SpecHash
 import io.spechub.spec.parser.ParseResult
@@ -23,7 +24,8 @@ import java.nio.file.Path
 
 class Ingestor(
     private val git: GitStore,
-    private val index: SpecIndexStore,
+    private val projection: ProjectionStore,
+    private val platform: PlatformStore,
     private val props: SpecHubProperties,
 ) {
 
@@ -40,7 +42,7 @@ class Ingestor(
         val repoDir = gitSourceFor(repo.url)
         // 目录名用干净 URL（含 token 的 override 只喂给 git 命令参数，不落盘）
         val effectiveUrl = urlOverride ?: repo.url
-        index.updateSyncStatus(repo.id, SyncStatus.SYNCING)
+        platform.updateSyncStatus(repo.id, SyncStatus.SYNCING)
         val messages = mutableListOf<String>()
         return try {
             git.ensureMirror(effectiveUrl, repoDir)
@@ -60,8 +62,8 @@ class Ingestor(
                     is ParseResult.Success -> {
                         val hash = SpecHash.of(parsed.doc)
                         // I7：与上次摄入的 spec_hash 比对判定「结构变化」（幂等续跑同内容不算）
-                        val prevHash = index.latestSpecHash(repo.id, file)
-                        val version = index.upsertVersion(repo.id, file, hash)
+                        val prevHash = projection.latestSpecHash(repo.id, file)
+                        val version = projection.upsertVersion(repo.id, file, hash)
                         versionCount++
                         val fileApis = IndexMapper.extractApis(repo.id, version.id, parsed.doc)
                         // 多 spec 文件可能定义同 method+path（J 导入等）：先到保留（本次摄取内去重，匹配 UNIQUE 约束）
@@ -79,8 +81,8 @@ class Ingestor(
                 }
             }
 
-            index.replaceApisForRepo(repo.id, apis.values.toList())
-            index.replaceSchemasForRepo(repo.id, schemas.values.toList())
+            projection.replaceApisForRepo(repo.id, apis.values.toList())
+            projection.replaceSchemasForRepo(repo.id, schemas.values.toList())
 
             // K（Doc 域）：摄取 docs/ 下 Markdown 到独立 doc 投影（两域隔离 §5.7）
             val docs = mutableListOf<io.spechub.spec.index.DocRecord>()
@@ -93,13 +95,13 @@ class Ingestor(
                 val parsed = parseDoc(file, content.output)
                 if (parsed != null) docs += parsed
             }
-            index.replaceDocsForRepo(repo.id, docs)
+            projection.replaceDocsForRepo(repo.id, docs)
 
             val result = IngestResult(repo.id, apis.size, schemas.size, versionCount, docs.size, messages)
-            index.updateSyncStatus(repo.id, SyncStatus.OK)
+            platform.updateSyncStatus(repo.id, SyncStatus.OK)
             result
         } catch (e: Exception) {
-            index.updateSyncStatus(repo.id, SyncStatus.ERROR, e.message?.take(500))
+            platform.updateSyncStatus(repo.id, SyncStatus.ERROR, e.message?.take(500))
             throw e
         }
     }
@@ -159,8 +161,8 @@ class Ingestor(
 
     /** I7：某接口结构变化 → 对其每个订阅方落一条通知（消费团队可查/后续挂 webhook） */
     private fun notifySubscribers(repoId: Long, method: String, path: String, hash: String) {
-        for (s in index.listSubscriptionsForEndpoint(repoId, method, path)) {
-            index.addNotification(s.team, repoId, method, path, "结构变更：$method $path → specHash ${hash.take(10)}…")
+        for (s in platform.listSubscriptionsForEndpoint(repoId, method, path)) {
+            platform.addNotification(s.team, repoId, method, path, "结构变更：$method $path → specHash ${hash.take(10)}…")
         }
     }
 

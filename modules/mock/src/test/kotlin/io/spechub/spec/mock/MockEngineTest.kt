@@ -4,7 +4,8 @@ import io.spechub.spec.index.ApiRecord
 import io.spechub.spec.index.IndexDb
 import io.spechub.spec.index.MockRuleRecord
 import io.spechub.spec.index.SchemaRecord
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
+import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.Stage
 import io.spechub.spec.model.OpenApiDoc
 import io.spechub.spec.model.io.SpecHash
@@ -21,18 +22,19 @@ import tools.jackson.databind.JsonNode
 
 class MockEngineTest {
 
-    private fun setup(): Triple<MockEngine, SpecIndexStore, Long> {
+    private fun setup(): Triple<MockEngine, PlatformStore, Long> {
         val dir = createTempDirectory("spechub-mock-test")
         val db = IndexDb(dir.resolve("index.db"))
         db.migrate()
-        val index = SpecIndexStore(db)
-        val repo = index.insertRepo("default", "/fixtures/mockstore")
+        val projection = ProjectionStore(db)
+        val platform = PlatformStore(db)
+        val repo = platform.insertRepo("default", "/fixtures/mockstore")
         val yaml = checkNotNull(javaClass.classLoader.getResource("mockstore/openapi.yaml")).readText()
         val doc = (SpecParser.parse(yaml) as ParseResult.Success).doc
-        val ver = index.upsertVersion(repo.id, "specs/mockstore/openapi.yaml", SpecHash.of(doc))
-        index.replaceApisForRepo(repo.id, extractApis(repo.id, ver.id, doc))
-        index.replaceSchemasForRepo(repo.id, extractSchemas(repo.id, ver.id, doc))
-        return Triple(MockEngine(index), index, repo.id)
+        val ver = projection.upsertVersion(repo.id, "specs/mockstore/openapi.yaml", SpecHash.of(doc))
+        projection.replaceApisForRepo(repo.id, extractApis(repo.id, ver.id, doc))
+        projection.replaceSchemasForRepo(repo.id, extractSchemas(repo.id, ver.id, doc))
+        return Triple(MockEngine(projection, platform), platform, repo.id)
     }
 
     private fun extractApis(repoId: Long, versionId: Long, doc: OpenApiDoc): List<ApiRecord> =
@@ -91,10 +93,10 @@ class MockEngineTest {
 
     @Test
     fun `规则三档：value 覆盖字段、pattern 格式样例、script 求值`() {
-        val (engine, index, repoId) = setup()
-        index.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "上海"))
-        index.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = ".*email$", ruleType = RuleType.PATTERN, ruleValue = "email"))
-        index.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.code", ruleType = RuleType.SCRIPT, ruleValue = "RANDOM_INT(100,200)"))
+        val (engine, platform, repoId) = setup()
+        platform.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "上海"))
+        platform.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = ".*email$", ruleType = RuleType.PATTERN, ruleValue = "email"))
+        platform.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.code", ruleType = RuleType.SCRIPT, ruleValue = "RANDOM_INT(100,200)"))
 
         val result = engine.generate(repoId, "GET", "/users/x")!!
         val body = SpecModelIO.parseToTree(result.response.body)
@@ -106,10 +108,10 @@ class MockEngineTest {
 
     @Test
     fun `api 级规则优先于项目级`() {
-        val (engine, index, repoId) = setup()
-        index.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "上海"))
+        val (engine, platform, repoId) = setup()
+        platform.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = null, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "上海"))
         val getUser = engine.generate(repoId, "GET", "/users/x")!!
-        index.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = getUser.apiId, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "北京"))
+        platform.upsertMockRule(MockRuleRecord(repoId = repoId, apiId = getUser.apiId, fieldPattern = "address.city", ruleType = RuleType.VALUE, ruleValue = "北京"))
         val body = SpecModelIO.parseToTree(engine.generate(repoId, "GET", "/users/x")!!.response.body)
         assertEquals("北京", body.path("address")?.path("city")?.asText(), "api 级规则优先")
     }

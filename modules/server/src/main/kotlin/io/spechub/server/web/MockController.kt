@@ -4,7 +4,8 @@ import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.MockRuleRecord
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
+import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.mock.MockEngine
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
@@ -32,7 +33,8 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 class MockController(
     private val engine: MockEngine,
-    private val index: SpecIndexStore,
+    private val projection: ProjectionStore,
+    private val platform: PlatformStore,
     private val auth: AuthService,
 ) {
 
@@ -65,8 +67,8 @@ class MockController(
 
     @GetMapping("/api/repos/{id}/mock/rules")
     fun rules(@PathVariable id: Long): List<MockRuleRecord> {
-        index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
-        return index.listMockRules(id)
+        platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        return platform.listMockRules(id)
     }
 
     @PostMapping("/api/repos/{id}/mock/rules")
@@ -78,11 +80,11 @@ class MockController(
                 listOf(ApiErrorBody.FieldError("ruleType", "ruleType ∈ value/pattern/script")),
             )
         }
-        index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
-        val rule = index.upsertMockRule(
+        platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        val rule = platform.upsertMockRule(
             MockRuleRecord(repoId = id, apiId = req.apiId, fieldPattern = req.fieldPattern.trim(), ruleType = req.ruleType, ruleValue = req.ruleValue),
         )
-        index.addChangelog(repoId = id, apiId = req.apiId, actor = "spechub-bot", action = "mock.rule",
+        platform.addChangelog(repoId = id, apiId = req.apiId, actor = "spechub-bot", action = "mock.rule",
             detail = "Mock 规则 [${req.ruleType}] ${req.fieldPattern} = ${req.ruleValue.take(60)}")
         return rule
     }
@@ -90,9 +92,9 @@ class MockController(
     @DeleteMapping("/api/mock/rules/{ruleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun deleteRule(@PathVariable ruleId: Long, request: jakarta.servlet.http.HttpServletRequest) {
-        val rule = index.getMockRule(ruleId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "规则 $ruleId 不存在")
+        val rule = platform.getMockRule(ruleId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "规则 $ruleId 不存在")
         auth.requireRepoRole(request, rule.repoId, io.spechub.spec.index.Role.EDITOR, "删除 mock 规则")
-        index.deleteMockRule(ruleId)
+        platform.deleteMockRule(ruleId)
     }
 
     // ── 详情页 mock 预览（不改真源，直接生成一版样例给前端看）────────────────────
@@ -109,7 +111,7 @@ class MockController(
 
     @GetMapping("/api/apis/{id}/mock/preview")
     fun preview(@PathVariable id: Long): MockPreview {
-        val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
+        val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
         val result = engine.generate(api.repoId, api.method, api.path)
             ?: throw ApiException(ApiErrorCode.INTERNAL, "mock 生成失败（spec 无响应 schema？）")
         return MockPreview(

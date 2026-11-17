@@ -3,7 +3,7 @@ package io.spechub.server.web
 import io.spechub.spec.index.ReviewRecord
 import io.spechub.spec.index.ReviewStatus
 import io.spechub.spec.index.Role
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
@@ -33,7 +33,7 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 @RequestMapping("/api/reviews")
 class ReviewController(
-    private val index: SpecIndexStore,
+    private val platform: PlatformStore,
     private val auth: AuthService,
     private val writer: SpecWriter,
     private val ingestor: io.spechub.server.ingest.Ingestor,
@@ -74,13 +74,13 @@ class ReviewController(
         if (status != null && !ReviewStatus.ALL.contains(status)) {
             throw ApiException(ApiErrorCode.VALIDATION, "status ∈ ${ReviewStatus.ALL}", listOf(ApiErrorBody.FieldError("status", "status ∈ ${ReviewStatus.ALL}")))
         }
-        return index.listReviews(repoId, status).map(::toView)
+        return platform.listReviews(repoId, status).map(::toView)
     }
 
     @GetMapping("/{id}")
     fun detail(@PathVariable id: Long): ReviewDetail {
-        val r = index.getReview(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评审 $id 不存在")
-        val current = index.getRepo(r.repoId)?.let { repo ->
+        val r = platform.getReview(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评审 $id 不存在")
+        val current = platform.getRepo(r.repoId)?.let { repo ->
             try { writer.readSpec(repo, r.path) } catch (e: Exception) { null }
         }
         return ReviewDetail(
@@ -97,13 +97,13 @@ class ReviewController(
         val actor = auth.currentUser(request) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "审批需要登录")
         requireOtherReviewer(actor.username, r.requester, actor.isPlatformAdmin)
 
-        val repo = index.getRepo(r.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${r.repoId} 不存在")
+        val repo = platform.getRepo(r.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${r.repoId} 不存在")
         val written = writer.writeSpec(repo, r.path, r.newContent)
         val ing = ingestor.ingest(repo, urlTokens.get(r.repoId))
-        index.resolveReview(r.id!!, ReviewStatus.APPROVED, actor.username)
-        index.addChangelog(r.repoId, null, actor.username, "review.approve",
+        platform.resolveReview(r.id!!, ReviewStatus.APPROVED, actor.username)
+        platform.addChangelog(r.repoId, null, actor.username, "review.approve",
             "批准评审 #${r.id}：${r.path} → commit ${written.commit.take(8)}（${ing.apiCount} 个接口）")
-        return toView(index.getReview(id)!!)
+        return toView(platform.getReview(id)!!)
     }
 
     @PostMapping("/{id}/reject")
@@ -113,15 +113,15 @@ class ReviewController(
         auth.requireRepoRole(request, r.repoId, Role.EDITOR, "打回评审")
         val actor = auth.currentUser(request) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "打回需要登录")
         requireOtherReviewer(actor.username, r.requester, actor.isPlatformAdmin)
-        index.resolveReview(r.id!!, ReviewStatus.REJECTED, actor.username, body?.reason)
-        index.addChangelog(r.repoId, null, actor.username, "review.reject",
+        platform.resolveReview(r.id!!, ReviewStatus.REJECTED, actor.username, body?.reason)
+        platform.addChangelog(r.repoId, null, actor.username, "review.reject",
             "打回评审 #${r.id}：${r.path}${body?.reason?.let { "（$it）" } ?: ""}")
     }
 
     // ── 内部 ───────────────────────────────────────────────────────────────
 
     private fun requirePending(id: Long): ReviewRecord {
-        val r = index.getReview(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评审 $id 不存在")
+        val r = platform.getReview(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评审 $id 不存在")
         if (r.status != ReviewStatus.PENDING) {
             throw ApiException(ApiErrorCode.CONFLICT, "评审 $id 已处理（${r.status}）")
         }

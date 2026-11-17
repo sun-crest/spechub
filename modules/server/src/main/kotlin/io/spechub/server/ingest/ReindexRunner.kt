@@ -1,6 +1,6 @@
 package io.spechub.server.ingest
 
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
 import io.spechub.server.web.UrlTokenStore
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component
 @Component
 class ReindexRunner(
     private val ingestor: Ingestor,
-    private val index: SpecIndexStore,
+    private val platform: PlatformStore,
     private val urlTokens: UrlTokenStore,
 ) : ApplicationRunner {
 
@@ -19,7 +19,7 @@ class ReindexRunner(
 
     override fun run(args: ApplicationArguments) {
         if (args.sourceArgs.none { it == "--reindex" }) return
-        val repos = index.listRepos()
+        val repos = platform.listRepos()
         if (repos.isEmpty()) {
             log.info("reindex：无注册仓，跳过")
             return

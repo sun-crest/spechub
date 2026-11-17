@@ -2,7 +2,8 @@ package io.spechub.spec.mock
 
 import io.spechub.spec.index.ApiRecord
 import io.spechub.spec.index.MockRuleRecord
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
+import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.Stage
 import io.spechub.spec.model.MediaType
 import io.spechub.spec.model.Operation
@@ -28,8 +29,12 @@ import java.util.UUID
  * 消费视图：release 优先、draft 回退（I6 双层版本——Mock 与对外发布契约一致）。
  *
  * 模块边界（§7.4）：只依赖 kernel（spec-model / spec-index），零 Spring；由 server 装配。
+ * Phase 2 起 mock 规则改由 `MockRuleSource` 端口注入，届时去掉对 PlatformStore 的直接依赖。
  */
-class MockEngine(internal val index: SpecIndexStore) {
+class MockEngine(
+    internal val projection: ProjectionStore,
+    internal val platform: PlatformStore,
+) {
 
     /** 单个 mock 响应 */
     data class MockResponse(
@@ -60,14 +65,14 @@ class MockEngine(internal val index: SpecIndexStore) {
      * @param requestPath 实际请求路径（不含 query；controller 负责剥离）
      */
     fun generate(repoId: Long, method: String, requestPath: String): MockResult? {
-        val rules = index.listMockRules(repoId)
+        val rules = platform.listMockRules(repoId)
         // release 优先（消费者默认 release 快照），无 release 回退 draft——Mock 与发布契约一致
-        val releaseApis = index.listApis(repoId = repoId, stage = Stage.RELEASE)
+        val releaseApis = projection.listApis(repoId = repoId, stage = Stage.RELEASE)
         val stage = if (releaseApis.isNotEmpty()) Stage.RELEASE else Stage.DRAFT
-        val candidates = releaseApis.ifEmpty { index.listApis(repoId = repoId, stage = Stage.DRAFT) }
+        val candidates = releaseApis.ifEmpty { projection.listApis(repoId = repoId, stage = Stage.DRAFT) }
 
         val api = match(candidates, method, requestPath) ?: return null
-        val schemas = index.listSchemas(repoId, stage)
+        val schemas = projection.listSchemas(repoId, stage)
             .mapNotNull { s ->
                 val schema = try {
                     SpecModelIO.toModel(SpecModelIO.parseToTree(s.specJson), Schema::class.java)

@@ -1,7 +1,8 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.NotificationRecord
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
+import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.index.SubscriptionRecord
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
@@ -30,7 +31,8 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 @RequestMapping("/api/subscriptions")
 class SubscriptionController(
-    private val index: SpecIndexStore,
+    private val projection: ProjectionStore,
+    private val platform: PlatformStore,
     private val auth: AuthService,
 ) {
 
@@ -45,31 +47,31 @@ class SubscriptionController(
     @PostMapping
     fun subscribe(@RequestBody @Valid body: SubscribeRequest, request: HttpServletRequest): SubscriptionRecord {
         auth.requireAuthenticated(request, "订阅")
-        index.getRepo(body.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${body.repoId} 不存在")
+        platform.getRepo(body.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${body.repoId} 不存在")
         // api_id 尽力关联（method+path 命中当前投影则填，便于详情展示；非 FK）
-        val apiId = index.listApis(body.repoId, method = body.method.uppercase(), keyword = body.path.removePrefix("/"))
+        val apiId = projection.listApis(body.repoId, method = body.method.uppercase(), keyword = body.path.removePrefix("/"))
             .firstOrNull { it.path == body.path }?.id
-        val sub = index.upsertSubscription(
+        val sub = platform.upsertSubscription(
             body.repoId, apiId, body.method.uppercase(), body.path, body.team.trim(), body.notifyUrl.trim(),
         )
-        index.addChangelog(body.repoId, apiId, auth.currentActor(request), "subscription",
+        platform.addChangelog(body.repoId, apiId, auth.currentActor(request), "subscription",
             "${body.team} 订阅 ${body.method.uppercase()} ${body.path}")
         return sub
     }
 
     @GetMapping
-    fun list(@RequestParam repoId: Long? = null): List<SubscriptionRecord> = index.listSubscriptions(repoId)
+    fun list(@RequestParam repoId: Long? = null): List<SubscriptionRecord> = platform.listSubscriptions(repoId)
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun unsubscribe(@PathVariable id: Long, request: HttpServletRequest) {
         auth.requireAuthenticated(request, "取消订阅")
-        val sub = index.getSubscription(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "订阅 $id 不存在")
-        index.deleteSubscription(id)
-        index.addChangelog(sub.repoId, sub.apiId, auth.currentActor(request), "subscription.delete", "取消订阅：${sub.team} ${sub.method} ${sub.path}")
+        val sub = platform.getSubscription(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "订阅 $id 不存在")
+        platform.deleteSubscription(id)
+        platform.addChangelog(sub.repoId, sub.apiId, auth.currentActor(request), "subscription.delete", "取消订阅：${sub.team} ${sub.method} ${sub.path}")
     }
 
     @GetMapping("/notifications")
     fun notifications(@RequestParam team: String? = null, @RequestParam limit: Int = 50): List<NotificationRecord> =
-        index.listNotifications(team, limit)
+        platform.listNotifications(team, limit)
 }

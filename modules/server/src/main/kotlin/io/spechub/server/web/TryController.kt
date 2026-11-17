@@ -1,6 +1,6 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.ProjectionStore
 import io.spechub.spec.model.Operation
 import io.spechub.spec.model.io.SpecModelIO
 import io.spechub.server.web.common.ApiErrorBody
@@ -31,7 +31,7 @@ import java.time.Duration
  */
 @RestController
 @RequestMapping("/api")
-class TryController(private val index: SpecIndexStore) {
+class TryController(private val projection: ProjectionStore) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -53,7 +53,7 @@ class TryController(private val index: SpecIndexStore) {
 
     @PostMapping("/apis/{id}/try")
     fun tryIt(@PathVariable id: Long, @RequestBody @Valid req: TryRequest): TryResponse {
-        val api = index.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
+        val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
 
         val base = req.baseUrl.trim()
         if (!base.startsWith("http://") && !base.startsWith("https://")) {

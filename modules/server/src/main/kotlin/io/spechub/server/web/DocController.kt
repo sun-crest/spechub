@@ -1,7 +1,8 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.CommentRecord
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
+import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import jakarta.servlet.http.HttpServletRequest
@@ -25,7 +26,8 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 @RequestMapping("/api/docs")
 class DocController(
-    private val index: SpecIndexStore,
+    private val projection: ProjectionStore,
+    private val platform: PlatformStore,
     private val auth: AuthService,
 ) {
 
@@ -41,24 +43,24 @@ class DocController(
 
     @GetMapping
     fun list(@RequestParam repoId: Long? = null, @RequestParam q: String? = null): List<io.spechub.spec.index.DocRecord> =
-        if (!q.isNullOrBlank()) index.searchDocs(q, repoId) else index.listDocs(repoId)
+        if (!q.isNullOrBlank()) projection.searchDocs(q, repoId) else projection.listDocs(repoId)
 
     @GetMapping("/{id}")
     fun detail(@PathVariable id: Long): io.spechub.spec.index.DocRecord =
-        index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
+        projection.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
 
     @GetMapping("/{id}/comments")
     fun comments(@PathVariable id: Long): List<DocCommentView> {
-        index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
-        return index.listCommentsForDoc(id).map(::toView)
+        projection.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
+        return platform.listCommentsForDoc(id).map(::toView)
     }
 
     @PostMapping("/{id}/comments")
     fun addComment(@PathVariable id: Long, @RequestBody @Valid body: DocCommentBody, request: HttpServletRequest): DocCommentView {
         val user = auth.requireAuthenticated(request, "发表文档评论")
-        val doc = index.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
-        val comment = index.addComment(doc.repoId, apiId = null, docId = doc.id, method = "", path = "", author = user.username, body = body.body.trim())
-        index.addChangelog(doc.repoId, null, user.username, "doc.comment", "评论文档 ${doc.title}：${body.body.trim().take(40)}")
+        val doc = projection.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
+        val comment = platform.addComment(doc.repoId, apiId = null, docId = doc.id, method = "", path = "", author = user.username, body = body.body.trim())
+        platform.addChangelog(doc.repoId, null, user.username, "doc.comment", "评论文档 ${doc.title}：${body.body.trim().take(40)}")
         return toView(comment)
     }
 

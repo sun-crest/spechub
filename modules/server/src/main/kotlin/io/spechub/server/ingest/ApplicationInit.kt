@@ -1,6 +1,6 @@
 package io.spechub.server.ingest
 
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.web.AuthService
 import io.spechub.server.web.RepoController
@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component
 /** E8 —— 首次启动初始化：目录（KernelConfig）+ DB 迁移 + 默认项目 + admin 种子（I4 RBAC bootstrap） */
 @Component
 class ApplicationInit(
-    private val index: SpecIndexStore,
+    private val platform: PlatformStore,
     private val props: SpecHubProperties,
     private val auth: AuthService,
 ) : ApplicationRunner {
@@ -20,7 +20,7 @@ class ApplicationInit(
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun run(args: ApplicationArguments) {
-        index.upsertProject(RepoController.DEFAULT_PROJECT)
+        platform.upsertProject(RepoController.DEFAULT_PROJECT)
 
         // admin 种子（I4）：配置 spechub.admin-token 时 bootstrap 平台 admin（长驻 app_user，token 只存 hash）
         val admin = auth.bootstrapAdmin()

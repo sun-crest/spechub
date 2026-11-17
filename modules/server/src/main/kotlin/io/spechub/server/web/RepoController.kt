@@ -1,7 +1,8 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.RepoRecord
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
+import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.ingest.Ingestor
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
@@ -24,7 +25,8 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api")
 class RepoController(
     private val ingestor: Ingestor,
-    private val index: SpecIndexStore,
+    private val projection: ProjectionStore,
+    private val platform: PlatformStore,
     private val urlTokens: UrlTokenStore,
     private val auth: AuthService,
 ) {
@@ -45,8 +47,8 @@ class RepoController(
 
     @PostMapping("/repos")
     fun register(@RequestBody @Valid req: RegisterRepoRequest, request: jakarta.servlet.http.HttpServletRequest): RegisterResponse {
-        auth.requireProjectRole(request, index.projectIdByName(DEFAULT_PROJECT), io.spechub.spec.index.Role.EDITOR, "注册仓库")
-        val repo = index.insertRepo(DEFAULT_PROJECT, req.url.trim(), req.branch?.ifEmpty { null } ?: "main")
+        auth.requireProjectRole(request, platform.projectIdByName(DEFAULT_PROJECT), io.spechub.spec.index.Role.EDITOR, "注册仓库")
+        val repo = platform.insertRepo(DEFAULT_PROJECT, req.url.trim(), req.branch?.ifEmpty { null } ?: "main")
         if (req.token != null && req.token.isNotBlank()) {
             urlTokens.put(repo.id, injectToken(req.url.trim(), req.token.trim()))
         }
@@ -55,11 +57,11 @@ class RepoController(
     }
 
     @GetMapping("/repos")
-    fun list(): List<RepoRecord> = index.listRepos()
+    fun list(): List<RepoRecord> = platform.listRepos()
 
     @GetMapping("/repos/{id}")
     fun get(@PathVariable id: Long): RepoRecord =
-        index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
 
     @GetMapping("/repos/{id}/apis")
     fun apis(
@@ -68,7 +70,7 @@ class RepoController(
         @RequestParam tag: String? = null,
         @RequestParam q: String? = null,
         @RequestParam stage: String? = null,
-    ) = index.listApis(id, method?.uppercase(), tag, q, stage ?: "draft")
+    ) = projection.listApis(id, method?.uppercase(), tag, q, stage ?: "draft")
 
     companion object {
         const val DEFAULT_PROJECT = "default"

@@ -1,7 +1,8 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.ChangelogAction
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
+import io.spechub.spec.index.ProjectionStore
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import jakarta.validation.Valid
@@ -24,7 +25,8 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 @RequestMapping("/api")
 class ReleaseController(
-    private val index: SpecIndexStore,
+    private val projection: ProjectionStore,
+    private val platform: PlatformStore,
     private val auth: AuthService,
 ) {
 
@@ -42,9 +44,9 @@ class ReleaseController(
     @PostMapping("/repos/{id}/promote")
     fun promote(@PathVariable id: Long, @RequestBody @Valid req: PromoteRequest, request: jakarta.servlet.http.HttpServletRequest): PromoteResponse {
         auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "发布 release")
-        val promoted = index.promotePath(id, req.path.trim())
+        val promoted = projection.promotePath(id, req.path.trim())
             ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 的 ${req.path} 无版本可发布（先摄取）")
-        index.addChangelog(
+        platform.addChangelog(
             repoId = id, apiId = null, actor = "spechub-bot", action = ChangelogAction.PROMOTE,
             detail = "发布 ${promoted.path} → release（版本 #${promoted.id}，specHash ${promoted.specHash.take(12)}…）",
         )
@@ -56,16 +58,16 @@ class ReleaseController(
 
     @GetMapping("/repos/{id}/versions")
     fun versions(@PathVariable id: Long, @RequestParam path: String? = null): List<io.spechub.spec.index.VersionRecord> {
-        index.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
-        return if (path != null) index.listVersionsOfPath(id, path) else index.listVersions(id)
+        platform.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
+        return if (path != null) projection.listVersionsOfPath(id, path) else projection.listVersions(id)
     }
 
     @GetMapping("/repos/{id}/changelog")
-    fun changelog(@PathVariable id: Long, @RequestParam limit: Int = 50) = index.listChangelogs(repoId = id, apiId = null, limit = limit)
+    fun changelog(@PathVariable id: Long, @RequestParam limit: Int = 50) = platform.listChangelogs(repoId = id, apiId = null, limit = limit)
 
     @GetMapping("/changelog")
-    fun globalChangelog(@RequestParam limit: Int = 50) = index.listChangelogs(repoId = null, apiId = null, limit = limit)
+    fun globalChangelog(@RequestParam limit: Int = 50) = platform.listChangelogs(repoId = null, apiId = null, limit = limit)
 
     @GetMapping("/apis/{id}/changelog")
-    fun apiChangelog(@PathVariable id: Long) = index.listChangelogs(repoId = null, apiId = id, limit = 50)
+    fun apiChangelog(@PathVariable id: Long) = platform.listChangelogs(repoId = null, apiId = id, limit = 50)
 }

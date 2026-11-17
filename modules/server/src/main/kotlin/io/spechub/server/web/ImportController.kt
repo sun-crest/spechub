@@ -1,7 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.Role
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.model.OpenApiDoc
 import io.spechub.spec.model.io.SpecFormat
 import io.spechub.spec.model.io.SpecModelIO
@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 @RequestMapping("/api/import")
 class ImportController(
-    private val index: SpecIndexStore,
+    private val platform: PlatformStore,
     private val auth: AuthService,
     private val writer: SpecWriter,
     private val ingestor: Ingestor,
@@ -83,7 +83,7 @@ class ImportController(
         var written: WrittenInfo? = null
         body.repoId?.let { repoId ->
             auth.requireRepoRole(request, repoId, Role.EDITOR, "导入写回")
-            val repo = index.getRepo(repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $repoId 不存在")
+            val repo = platform.getRepo(repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $repoId 不存在")
             val path = body.path?.takeIf { it.endsWith(".yaml") || it.endsWith(".yml") }
                 ?: "specs/import/$type-${System.currentTimeMillis()}.yaml"
             val wr = writer.writeSpec(repo, path, specYaml)

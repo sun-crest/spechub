@@ -1,7 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.spec.index.Role
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
 import io.spechub.spec.index.UserRecord
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.web.common.ApiErrorCode
@@ -24,7 +24,7 @@ import java.security.SecureRandom
  */
 @Service
 class AuthService(
-    private val index: SpecIndexStore,
+    private val platform: PlatformStore,
     private val props: SpecHubProperties,
 ) {
 
@@ -33,7 +33,7 @@ class AuthService(
         const val REQ_USER = "spechub.auth.user"
         const val REQ_USERNAME = "spechub.auth.username"
 
-        /** 平台 admin 用户名（与 SpecIndexStore.USER_ADMIN_NAME 一致） */
+        /** 平台 admin 用户名（与 PlatformStore.USER_ADMIN_NAME 一致） */
         const val ADMIN_USERNAME = "admin"
 
         fun sha256(text: String): String =
@@ -52,13 +52,13 @@ class AuthService(
     /** 启动时 bootstrap 平台 admin（幂等；token_hash 由 admin-token 派生） */
     fun bootstrapAdmin(): UserRecord? {
         val token = props.adminToken ?: return null
-        return index.ensurePlatformAdmin(sha256(token))
+        return platform.ensurePlatformAdmin(sha256(token))
     }
 
     /** Bearer → 当前用户（未启用鉴权返回 null 表示「无用户但已放行」） */
     fun userForToken(token: String?): UserRecord? {
         if (token == null || token.isBlank()) return null
-        return index.findUserByTokenHash(sha256(token))
+        return platform.findUserByTokenHash(sha256(token))
     }
 
     /** request 上由 TokenAuthFilter 填充的当前用户 */
@@ -74,14 +74,14 @@ class AuthService(
      */
     fun roleForRepo(req: HttpServletRequest, repoId: Long): String? {
         val user = currentUser(req) ?: return null
-        return effectiveRole(user, index.getRepo(repoId)?.projectId)
+        return effectiveRole(user, platform.getRepo(repoId)?.projectId)
     }
 
     /** 平台 admin 恒 owner；普通用户按 membership。无 projectId 视为无权限。 */
     fun effectiveRole(user: UserRecord, projectId: Long?): String? {
         if (user.isPlatformAdmin) return Role.OWNER
         val uid = user.id ?: return null
-        return projectId?.let { index.membershipRole(uid, it) }
+        return projectId?.let { platform.membershipRole(uid, it) }
     }
 
     /** require：写端点入口校验，未达标抛 401/403（带操作名）；未启用鉴权放行 */

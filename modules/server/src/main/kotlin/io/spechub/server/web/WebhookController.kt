@@ -1,6 +1,6 @@
 package io.spechub.server.web
 
-import io.spechub.spec.index.SpecIndexStore
+import io.spechub.spec.index.PlatformStore
 import io.spechub.server.ingest.Ingestor
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
@@ -14,13 +14,13 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api")
 class WebhookController(
     private val ingestor: Ingestor,
-    private val index: SpecIndexStore,
+    private val platform: PlatformStore,
     private val urlTokens: UrlTokenStore,
 ) {
 
     @PostMapping("/webhooks/{repoId}")
     fun trigger(@PathVariable repoId: Long): Ingestor.IngestResult {
-        val repo = index.getRepo(repoId)
+        val repo = platform.getRepo(repoId)
             ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $repoId 不存在")
         return ingestor.ingest(repo, urlTokens.get(repoId))
     }
