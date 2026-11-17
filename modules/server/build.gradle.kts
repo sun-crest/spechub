@@ -20,6 +20,13 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator") // /actuator/health → compose healthcheck
 
+    // ── R11 文档层（Jackson 2 边界见 root CLAUDE.md）──
+    // Knife4j Next 5.x（Boot 4 / springdoc 3.x）：runtimeOnly 引入，其传递的 Jackson 2 仅供 swagger-core
+    // 内部序列化 OpenAPI 对象；root build.gradle.kts 已把 Jackson 2 实现包排除出 compileClasspath。
+    runtimeOnly(libs.knife4j.boot4)
+    // 端点注解（@Operation/@Tag/@Schema）与全局 @OpenAPIDefinition：compileOnly，运行期由 starter 提供。
+    compileOnly(libs.swagger.annotations.jakarta)
+
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter) // 版本由 BOM（6.0.3）管
     testImplementation("org.springframework.boot:spring-boot-starter-test")
@@ -27,6 +34,19 @@ dependencies {
     testImplementation("org.springframework:spring-test")
     testImplementation("com.jayway.jsonpath:json-path")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+// R11：Knife4j Next 5.8.2 的 POM 自带 Jackson 3.1.8 传递依赖；项目以 Boot 4.1.2 BOM 的
+// 3.1.7 为单一真源，这里强制回落，避免 core / databind / module 跨补丁混搭。
+// Jackson 2 不在此列：swagger-core 2.2.55 要求 ≥2.22.1，Boot BOM 的 2.21.7 反而更低，
+// 保留文档层的 2.22.4（只在 runtimeClasspath，业务编译期已被 root 构建排除）。
+configurations.configureEach {
+    resolutionStrategy.force(
+        "tools.jackson.core:jackson-core:${libs.versions.jackson.get()}",
+        "tools.jackson.core:jackson-databind:${libs.versions.jackson.get()}",
+        "tools.jackson.dataformat:jackson-dataformat-yaml:${libs.versions.jackson.get()}",
+        "tools.jackson.module:jackson-module-kotlin:${libs.versions.jackson.get()}",
+    )
 }
 
 tasks.test {

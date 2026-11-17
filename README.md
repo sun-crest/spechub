@@ -84,4 +84,6 @@ cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
 
 > **Profile**：默认 `dev`（未配 admin-token 时鉴权关闭，本地/最小部署零摩擦）；生产设 `SPRING_PROFILES_ACTIVE=prod` 并必须提供 `SPECHUB_ADMIN_TOKEN`，缺失/空串会在配置绑定阶段校验失败、启动即停（不会运行期降级为鉴权关闭）。compose 档通过 `.env` 的 `SPRING_PROFILES_ACTIVE` / `SPECHUB_ADMIN_TOKEN` 注入。
 
+> **API 文档（R11）**：dev 启动后访问 `http://localhost:8080/doc.html`（Knife4j Next UI）或 `/v3/api-docs`（OpenAPI JSON）；prod 关闭文档端点并保持鉴权保护（401）。文档层 Jackson 2 仅作为 springdoc / Knife4j 的运行时传递依赖，业务代码只使用 Jackson 3（约束见 `CLAUDE.md`）。
+
 > 实测踩坑：① 本地目录档的 origin 必须是 **bare 仓**（非 bare 会被 `denyCurrentBranch` 拒 push）；② Vite 端口被占自动顺延，看终端提示；③ 最小 Web 起步只需 JDK 25 + git + Node，数据全局皆走 `/tmp` 目录即可。

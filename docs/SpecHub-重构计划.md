@@ -2,7 +2,7 @@
 
 > **关联**：规范真源见 [SpecHub-后端编码规范.md](SpecHub-后端编码规范.md)（本计划严格按其执行）；开发任务与里程碑见 [SpecHub-开发计划.md](SpecHub-开发计划.md)。
 > **适用**：`modules/server`（web 聚合层）+ `modules/kernel/spec-index`（技术债触点）。**不覆盖**规范 §12 刻意保留的架构决策（自研鉴权、kernel 零框架、单配置类、Controller 小 DTO）。
-> **日期**：2026-11-16　**状态**：R1–R10 已完成（2026-11-16 实测通过：全量 107 用例绿）；R11–R12 待执行。
+> **日期**：2026-11-16　**状态**：R1–R11 已完成（R11 于 2026-11-17 实测通过：全量 110 用例绿）；R12 待执行。
 > **原则**：当前为开发阶段，**不考虑重构复杂度**，严格按规范 `[强]`/`[推]` 执行；全部任务**不改变任何公开契约**（路径、方法、成功响应字段、状态码语义）。
 
 ---
@@ -147,9 +147,10 @@ R2 声明式校验 ────┤→ R3 鉴权收敛
 
 | | |
 |---|---|
-| **改动** | 引入 `springdoc-openapi-starter-webmvc`；新/重构端点逐步补 `@Operation/@Tag`；`/v3/api-docs` + swagger-ui 可用；迁移期保留文件头注释清单为唯一文档，直到全端点带注解 |
-| **测试** | 冒烟断言 `/v3/api-docs` 200 |
-| **验收** | API 文档机器可读；注释清单信息无丢失 |
+| **改动** | ① 引入 `springdoc-openapi-starter-webmvc-ui` 3.x（Boot 4 基线；UI 可选 [Knife4j Next](https://central.sonatype.com/artifact/com.baizhukui/knife4j-openapi3-boot4-spring-boot-starter) 5.8+ 的 boot4 starter，一律 `runtimeOnly`）；② 新/重构端点逐步补 `@Operation/@Tag`（`swagger-annotations-jakarta` 走 `compileOnly`）；③ `/v3/api-docs` 与 UI 入口可用；④ 遵守 root `CLAUDE.md`「Jackson 2 使用边界」与规范 §1.1：Jackson 2 仅文档层运行时传递，业务编译期不可见；⑤ 迁移期保留文件头注释清单为唯一文档，直到全端点带注解 |
+| **测试** | 冒烟断言 `/v3/api-docs` 200；若用 Knife4j Next 加 `/doc.html` 与静态资源 200；`./gradlew verifyNoJackson2Usage` 绿；`dependencyInsight` 核对 `compileClasspath` 无 Jackson 2 实现包（`jackson-annotations` 例外） |
+| **验收** | API 文档机器可读；注释清单信息无丢失；Jackson 2 零业务使用（编译期隔离 + 源码校验双绿） |
+| **状态** | ✅ 2026-11-17 完成：引入 Knife4j Next 5.8.2（`com.baizhukui:knife4j-openapi3-boot4-spring-boot-starter`，Boot 4 / springdoc 3.0.3）为 `runtimeOnly`，`swagger-annotations-jakarta` 2.2.55 为 `compileOnly`；新增 `OpenApiConfig` 全局 info；`TokenAuthFilter` 增加 `spechub.openapi-public` 文档白名单（dev 放行 `/v3/api-docs`、`/doc.html`、`/webjars`，prod 关闭并禁用 springdoc/knife4j）；Jackson 2 仅文档层 runtime（2.22.4，swagger-core 要求 ≥2.22.1），Jackson 3 强制回落 Boot BOM 的 3.1.7；新增 `OpenApiDocsTest`（api-docs / UI / 静态资源 200，业务端点仍 401）与 `OpenApiProdDisabledTest`（prod 文档端点 401）；全量 110 用例绿 |
 
 #### R12 · 工具链：ktlint/detekt + CI　`[推]`（规范 §11）
 

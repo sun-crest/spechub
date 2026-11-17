@@ -1,6 +1,17 @@
 # 默认开发 profile：不要求 admin-token（未配置 = 鉴权关闭，全放行）。
+# R11：文档端点公开（/v3/api-docs、/doc.html、/webjars/**），Knife4j 增强启用。
 spechub:
   require-admin-token: false
+  openapi-public: true
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+knife4j:
+  enable: true
 
 logging:
   level:

@@ -3,6 +3,19 @@
 spechub:
   require-admin-token: true
   admin-token: ${SPECHUB_ADMIN_TOKEN:}
+  # R11：生产不公开文档端点（TokenAuthFilter 不放行 → 401），并关闭 springdoc/Knife4j。
+  openapi-public: false
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+knife4j:
+  enable: false
+  # 双保险：即使误开 enable，也返回 403 而非暴露文档。
+  production: true
 
 logging:
   level:

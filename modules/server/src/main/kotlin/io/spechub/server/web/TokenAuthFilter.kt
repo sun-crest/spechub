@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import jakarta.servlet.FilterChain
@@ -15,12 +16,14 @@ import tools.jackson.databind.ObjectMapper
  * - 未配置 → 全放行（P0 最小部署默认，本地开发 / compose 无门槛）。
  * - 鉴权成功把当前用户挂到 request attribute（AuthService.currentUser 读取）。
  * - 放行：/actuator（healthcheck 无 token）、/api/auth（登录/状态端点自身）、
- *   /mock 前缀（I3 真实 mock 服务：只读投影生成、联调方无平台凭据）。
+ *   /mock 前缀（I3 真实 mock 服务：只读投影生成、联调方无平台凭据）；
+ *   R11 文档端点在 `spechub.openapi-public=true`（dev）下放行，prod 关闭。
  */
 @Component
 class TokenAuthFilter(
     private val auth: AuthService,
     private val json: ObjectMapper,
+    private val props: SpecHubProperties,
 ) : OncePerRequestFilter() {
 
     override fun doFilterInternal(
@@ -45,12 +48,21 @@ class TokenAuthFilter(
         if (!auth.authEnabled ||
             req.requestURI.startsWith("/actuator/") ||
             req.requestURI.startsWith("/api/auth/") ||
-            req.requestURI.startsWith("/mock/")) {
+            req.requestURI.startsWith("/mock/") ||
+            (props.openapiPublic && isOpenApiPath(req.requestURI))) {
             chain.doFilter(req, res)
         } else {
             reject(req, res, ApiErrorCode.AUTH_UNAUTHORIZED, "unauthorized")
         }
     }
+
+    /** R11 文档端点：springdoc api-docs、Knife4j UI 入口与 webjars 静态资源。 */
+    private fun isOpenApiPath(uri: String): Boolean =
+        uri == "/doc.html" ||
+            uri == "/v3/api-docs" ||
+            uri.startsWith("/v3/api-docs/") ||
+            uri.startsWith("/webjars/") ||
+            uri.startsWith("/swagger-ui/")
 
     private fun reject(req: HttpServletRequest, res: HttpServletResponse, code: ApiErrorCode, msg: String) {
         res.status = code.status

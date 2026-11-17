@@ -22,6 +22,18 @@ management:
       probes:
         enabled: true
 
+# R11 —— API 文档（Knife4j Next 5.x / springdoc 3.x）。enable 与公开性由 dev/prod profile 分别控制。
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+
+knife4j:
+  # 安全默认：不注册宽松 CORS；不启用 Insight 外联；关闭启动 banner（enable 在 profile 中设置）。
+  cors: false
+  banner: false
+  insight:
+    enable: false
+
 spechub:
   # 三个数据目录默认值由 SpecHubProperties.defaultDir 提供（user.dir/.spechub/<name>）
   external-url: ${SPECHUB_EXTERNAL_URL:http://localhost:8080}

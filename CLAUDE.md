@@ -19,5 +19,22 @@ JVM 侧 Kotlin 编译统一开启 `-Xjsr305=strict -Xspecify-annotations=strict 
 4. **禁写多余的 `!!`**：strict 会把「编译器已确认非空」的值上的 `!!` 报 `Unnecessary non-null assertion`
    warning——表达「应有但缺失须带信息失败」用 `checkNotNull(x) { "原因" }`。
 
+## Jackson 2 使用边界（R11 前置约束 · 2026-11-17）
+
+项目 JSON 运行时是 **Jackson 3（`tools.jackson`）**，Jackson 2 只允许存在于文档层：
+
+1. **业务代码（`modules/**/src/{main,test}`）禁止 import / 使用 `com.fasterxml.jackson.databind`、
+   `com.fasterxml.jackson.core`、`com.fasterxml.jackson.dataformat`、`com.fasterxml.jackson.datatype`、
+   `com.fasterxml.jackson.module`**。唯一例外是 `com.fasterxml.jackson.annotation`——Jackson 3 官方
+   仍复用 2.x 注解模块（JSTEP-1），`kernel/spec-model` 的 `@JsonProperty`/`@JsonInclude` 属合法使用。
+2. **springdoc / knife4j next 只以 `runtimeOnly` 引入**；它们传递的 Jackson 2 仅供 swagger-core
+   内部序列化 OpenAPI 对象。端点注解（`@Operation`/`@Tag`/`@Schema`）用 `compileOnly` 的
+   `swagger-annotations-jakarta`，不要把 Jackson 2 写进业务模块的 `implementation`/`api`。
+3. **机器强制**：root `build.gradle.kts` 已从各模块 `compileClasspath`/`testCompileClasspath` 排除
+   Jackson 2 的实现包（annotations 保留），误用会编译失败；另可跑
+   `./gradlew verifyNoJackson2Usage`（已挂 `check`）做源码级扫描。
+4. **不要引入 `spring-boot-jackson2`，也不要手工注册 `MappingJackson2HttpMessageConverter`**：
+   Boot 4 的 MVC 默认入口必须保持 Jackson 3，否则两套 converter 会竞争响应序列化。
+
 > 机制注释与依赖树核对（为何无需按注解库逐个加参数：JSR-305 / JSpecify / type-use / JetBrains 内置
 > 四通道的族与库对应）见 root `build.gradle.kts` 的 compilerOptions 块。

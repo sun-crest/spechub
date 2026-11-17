@@ -7,6 +7,11 @@
 kotlin = "2.3.21"
 # 当前 GA（Maven Central 2026-11-14 实测，锁定小版本）
 springBoot = "4.1.2"
+# ── R11 文档层（Jackson 2 边界见 root CLAUDE.md）──
+# Knife4j Next：com.baizhukui 的 Boot 4 专用坐标（旧 com.github.xiaoymin 4.5.0 只支持 Boot 3/springdoc 2，勿用）
+knife4jNext = "5.8.2"
+# swagger-annotations-jakarta 与 Knife4j Next 5.8.2 的 swagger-core 2.2.55 对齐；仅 compileOnly 注解
+swagger = "2.2.55"
 # tools.jackson BOM 版本：Boot 4.1.2 的 spring-boot-dependencies 同源 import 3.1.7，
 # kernel（零 Spring）自声明 platform 以独立解析；两处一致则全局单版本。
 jackson = "3.1.7"
@@ -21,6 +26,10 @@ jackson-kotlin   = { module = "tools.jackson.module:jackson-module-kotlin" }    
 
 # ── SQLite 索引 ──
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqliteJdbc" }
+
+# ── R11 文档层（运行时 starter + 编译期注解；Jackson 2 只允许由 starter 运行时传递）──
+knife4j-boot4 = { module = "com.baizhukui:knife4j-openapi3-boot4-spring-boot-starter", version.ref = "knife4jNext" }
+swagger-annotations-jakarta = { module = "io.swagger.core.v3:swagger-annotations-jakarta", version.ref = "swagger" }
 
 # ── 测试（JUnit 6.0.3 不在此自声明：由 spring-boot-dependencies BOM 提供）──
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
