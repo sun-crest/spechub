@@ -18,7 +18,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** 阶段 A：repo_binding 单主约束、verify 元数据短路、activate/retire/delete 状态机。 */
-@SpringBootTest
+@SpringBootTest(properties = ["spechub.repo-binding-rollback-days=0"])
 class RepoBindingServiceTest : TestDbIsolation() {
     @Autowired
     lateinit var projects: ProjectService

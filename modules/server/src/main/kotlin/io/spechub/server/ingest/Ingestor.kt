@@ -26,7 +26,17 @@ class Ingestor(
     private val projection: ProjectionStore,
     private val hooks: IngestHooks,
     private val props: SpecHubProperties,
+    /**
+     * 真源解析端口：返回当前 `active` binding 的 URL/分支（retired 绝不可读）。
+     * 默认按 [RepoRecord] 自身取值，内核单测/手动装配无需管理库。
+     */
+    private val sourceResolver: (RepoRecord) -> RepoSource? = { RepoSource(it.url, it.branch) },
 ) {
+    data class RepoSource(
+        val url: String,
+        val branch: String,
+    )
+
     data class IngestResult(
         val repoId: Long,
         val apiCount: Int,
@@ -40,14 +50,17 @@ class Ingestor(
         repo: RepoRecord,
         urlOverride: String? = null,
     ): IngestResult {
+        // 只认 active binding：无 active 时拒绝摄取，绝不回退到 retired/旧 URL
+        val source = sourceResolver(repo) ?: throw IllegalStateException("repo ${repo.id} 没有 active binding，拒绝摄取")
+        // 目录名用逻辑仓库 URL 保持镜像稳定（flip 后复用同一 mirror，按新真源 filter 更新）
         val repoDir = gitSourceFor(repo.url)
         // 目录名用干净 URL（含 token 的 override 只喂给 git 命令参数，不落盘）
-        val effectiveUrl = urlOverride ?: repo.url
+        val effectiveUrl = urlOverride ?: source.url
         hooks.updateSyncStatus(repo.id, SyncStatus.SYNCING, null)
         val messages = mutableListOf<String>()
         return try {
             git.ensureMirror(effectiveUrl, repoDir)
-            val branch = repo.branch.ifEmpty { props.defaultBranch }
+            val branch = source.branch.ifEmpty { props.defaultBranch }
 
             val apis = LinkedHashMap<String, ApiRecord>()
             val schemas = LinkedHashMap<String, SchemaRecord>()

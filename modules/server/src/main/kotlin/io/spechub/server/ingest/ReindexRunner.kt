@@ -26,6 +26,10 @@ class ReindexRunner(
         log.info("reindex 开始：{} 个仓全量重扫", repos.size)
         var errors = 0
         for (repo in repos) {
+            if (repoService.sourceOf(repo.id) == null) {
+                log.warn("  repo#{} {} 跳过：没有 active binding", repo.id, repo.url)
+                continue
+            }
             try {
                 val result = ingestor.ingest(repo, urlTokens.get(repo.id))
                 log.info(

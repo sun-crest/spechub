@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.service.ProjectService
 import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Order
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestMethodOrder
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
@@ -44,6 +46,11 @@ import kotlin.test.assertTrue
 class WebApiTest : TestDbIsolation() {
     @LocalServerPort
     var port: Int = 0
+
+    @Autowired
+    lateinit var projects: ProjectService
+
+    private fun defaultProjectId(): Long = projects.projectIdByName("default") ?: error("default project 未初始化")
 
     companion object {
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
@@ -193,7 +200,7 @@ class WebApiTest : TestDbIsolation() {
     @Test
     @Order(1)
     fun `注册仓并即摄取 - 返回 apiCount`() {
-        val resp = post("/api/repos", """{"url":"$origin","branch":"main"}""")
+        val resp = post("/api/repos", """{"projectId":${defaultProjectId()},"url":"$origin","branch":"main"}""")
         assertEquals(200, resp.statusCode(), resp.body())
         val body = json.readTree(resp.body())
         assertEquals(origin, body.at("/repo/url").asString())
@@ -227,7 +234,7 @@ class WebApiTest : TestDbIsolation() {
     @Test
     @Order(4)
     fun `token 注入但不落库`() {
-        val resp = post("/api/repos", """{"url":"$origin","token":"secret-token-abc"}""")
+        val resp = post("/api/repos", """{"projectId":${defaultProjectId()},"url":"$origin","token":"secret-token-abc"}""")
         assertEquals(200, resp.statusCode(), resp.body())
         assertEquals(1, json.readTree(resp.body()).at("/apiCount").asInt())
 
@@ -245,7 +252,7 @@ class WebApiTest : TestDbIsolation() {
     @Test
     @Order(5)
     fun `注册非法仓返回 5xx 且不崩`() {
-        val resp = post("/api/repos", """{"url":"/nonexistent/path/repo.git"}""")
+        val resp = post("/api/repos", """{"projectId":${defaultProjectId()},"url":"/nonexistent/path/repo.git"}""")
         assertTrue(resp.statusCode() >= 500, "非法仓应服 5xx：${resp.statusCode()}")
     }
 }

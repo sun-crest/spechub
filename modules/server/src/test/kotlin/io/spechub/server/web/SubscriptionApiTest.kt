@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.service.ProjectService
 import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
@@ -131,6 +132,11 @@ class SubscriptionApiTest : TestDbIsolation() {
     @Autowired
     lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
 
+    @Autowired
+    lateinit var projects: ProjectService
+
+    private fun defaultProjectId(): Long = projects.projectIdByName("default") ?: error("default project 未初始化")
+
     @BeforeEach
     fun cleanProjection() {
         clearManagementTables(jdbc)
@@ -141,7 +147,7 @@ class SubscriptionApiTest : TestDbIsolation() {
 
     /** 手动辅助：注册 origin 并返回 repoId */
     private fun seedAndRegister(): Long {
-        val reg = req("POST", "/api/repos", """{"url":"file://$origin"}""")
+        val reg = req("POST", "/api/repos", """{"projectId":${defaultProjectId()},"url":"file://$origin"}""")
         return json.readTree(reg.body()).at("/repo/id").asLong()
     }
 

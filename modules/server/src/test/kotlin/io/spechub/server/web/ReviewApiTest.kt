@@ -58,6 +58,8 @@ class ReviewApiTest : TestDbIsolation() {
     @Autowired
     lateinit var userService: UserService
 
+    private fun defaultProjectId(): Long = projectService.projectIdByName("default") ?: error("default project 未初始化")
+
     companion object {
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
         private val TEMPDIR: java.nio.file.Path = kotlin.io.path.createTempDirectory("spechub-test-" + System.nanoTime())
@@ -158,7 +160,7 @@ class ReviewApiTest : TestDbIsolation() {
         val (appToken, _) = createEditor("approver")
 
         // admin 注册仓库（editor 注册也是一样作用域）
-        val reg = req("POST", "/api/repos", token = ADMIN, body = """{"url":"file://$origin"}""")
+        val reg = req("POST", "/api/repos", token = ADMIN, body = """{"projectId":${defaultProjectId()},"url":"file://$origin"}""")
         val repoId = json.readTree(reg.body()).at("/repo/id").asLong()
 
         val before = head()
@@ -210,7 +212,7 @@ class ReviewApiTest : TestDbIsolation() {
     fun `reject 打回且真源不动`() {
         val (reqToken, _) = createEditor("requester2")
         val (appToken, _) = createEditor("approver2")
-        val reg = req("POST", "/api/repos", token = ADMIN, body = """{"url":"file://$origin"}""")
+        val reg = req("POST", "/api/repos", token = ADMIN, body = """{"projectId":${defaultProjectId()},"url":"file://$origin"}""")
         val repoId = json.readTree(reg.body()).at("/repo/id").asLong()
 
         val before = head()
@@ -243,7 +245,7 @@ class ReviewApiTest : TestDbIsolation() {
         val (reqToken, _) = createEditor("chain_requester")
         val (appToken, appName) = createEditor("chain_approver")
 
-        val reg = req("POST", "/api/repos", token = ADMIN, body = """{"url":"file://$origin"}""")
+        val reg = req("POST", "/api/repos", token = ADMIN, body = """{"projectId":${defaultProjectId()},"url":"file://$origin"}""")
         val repoId = json.readTree(reg.body()).at("/repo/id").asLong()
 
         val content =

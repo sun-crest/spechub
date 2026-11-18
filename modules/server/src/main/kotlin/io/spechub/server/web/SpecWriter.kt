@@ -2,6 +2,10 @@ package io.spechub.server.web
 
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.service.ChangelogService
+import io.spechub.server.service.RepoBindingService
+import io.spechub.server.service.RepoService
+import io.spechub.server.web.common.ApiErrorCode
+import io.spechub.server.web.common.ApiException
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
 import io.spechub.spec.index.ChangelogAction
@@ -25,6 +29,7 @@ class SpecWriter(
     private val props: SpecHubProperties,
     private val urlTokens: UrlTokenStore,
     private val changelogService: ChangelogService,
+    private val repoService: RepoService,
 ) {
     /** 平台提交身份（写入 commit 由这台机器统一署名，便于真源审计） */
     private val bot = Identity("spechub-bot", "specbot@spechub.test")
@@ -43,8 +48,9 @@ class SpecWriter(
         path: String,
         content: String,
     ): WriteResult {
-        val work = workDirFor(repo)
-        ensureSyncedWork(repo, work)
+        val source = sourceOf(repo)
+        val work = workDirFor(repo, source)
+        ensureSyncedWork(repo, source, work)
 
         Files.createDirectories(work.resolve(path).parent)
         Files.writeString(work.resolve(path), content)
@@ -56,7 +62,7 @@ class SpecWriter(
                 file.path == path || (file.path.endsWith("/") && path.startsWith(file.path))
             }
         if (!changed) {
-            return WriteResult(git.commitHash(work), repo.branch)
+            return WriteResult(git.commitHash(work), source.branch)
         }
 
         git.stage(work, listOf(path)).require("stage $path")
@@ -68,16 +74,16 @@ class SpecWriter(
             } catch (e: Exception) {
                 ""
             }
-        git.push(work, "origin", repo.branch).require("push")
+        git.push(work, "origin", source.branch).require("push")
         val short = git.commitHash(work, "HEAD")
         changelogService.add(
             repoId = repo.id,
             apiId = null,
             actor = bot.name,
             action = ChangelogAction.SPEC_WRITE,
-            detail = "PUT spec $path → commit $short（${repo.branch}）; diff ${diffStat.ifEmpty { "（首次/无增量）" }}",
+            detail = "PUT spec $path → commit $short（${source.branch}）; diff ${diffStat.ifEmpty { "（首次/无增量）" }}",
         )
-        return WriteResult(short, repo.branch)
+        return WriteResult(short, source.branch)
     }
 
     /** 该仓全部 spec 文件相对路径（工作树视角，含 specs/ 目录内） */
@@ -85,9 +91,10 @@ class SpecWriter(
         repo: RepoRecord,
         branch: String? = null,
     ): List<String> {
-        val work = workDirFor(repo)
-        ensureSyncedWork(repo, work)
-        val all = git.listFiles(work, branch ?: repo.branch)
+        val source = sourceOf(repo)
+        val work = workDirFor(repo, source)
+        ensureSyncedWork(repo, source, work)
+        val all = git.listFiles(work, branch ?: source.branch)
         val ext = listOf(".yaml", ".yml", ".json")
         return all.filter { ext.any { it.endsWith(it) } }.sorted()
     }
@@ -97,29 +104,40 @@ class SpecWriter(
         repo: RepoRecord,
         path: String,
     ): String? {
-        val work = workDirFor(repo)
-        ensureSyncedWork(repo, work)
+        val source = sourceOf(repo)
+        val work = workDirFor(repo, source)
+        ensureSyncedWork(repo, source, work)
         val file = work.resolve(path)
         return if (Files.exists(file)) Files.readString(file) else null
     }
 
+    /** 真源只认 active binding：retired / 无 active 时拒绝读写（ADR §4.4）。 */
+    private fun sourceOf(repo: RepoRecord): RepoBindingService.Source =
+        repoService.sourceOf(repo.id)
+            ?: throw ApiException(ApiErrorCode.CONFLICT, "repo ${repo.id} 没有 active binding（retired 不可读写）")
+
     /** 工作树同步到远端最新（增量 clone 或 fetch+reset） */
     private fun ensureSyncedWork(
         repo: RepoRecord,
+        source: RepoBindingService.Source,
         work: Path,
     ) {
-        val effectiveUrl = urlTokens.get(repo.id) ?: repo.url
+        val effectiveUrl = urlTokens.get(repo.id) ?: source.remoteUrl
         if (git.isGitRepo(work)) {
-            git.syncWorkingToRemote(work, "origin", repo.branch).require("sync $work")
+            git.syncWorkingToRemote(work, "origin", source.branch).require("sync $work")
         } else {
             Files.createDirectories(work.parent)
-            git.cloneInto(effectiveUrl, work, repo.branch).require("clone into $work")
+            git.cloneInto(effectiveUrl, work, source.branch).require("clone into $work")
         }
     }
 
-    private fun workDirFor(repo: RepoRecord): Path {
+    /** 工作树按真源 URL 命名：flip 到新来源后重建，避免复用旧 origin 写回 retired。 */
+    private fun workDirFor(
+        repo: RepoRecord,
+        source: RepoBindingService.Source,
+    ): Path {
         val orgRepo =
-            repo.url
+            source.remoteUrl
                 .removeSuffix(".git")
                 .substringAfter("://")
                 .replace(Regex("[^A-Za-z0-9._-]"), "_")

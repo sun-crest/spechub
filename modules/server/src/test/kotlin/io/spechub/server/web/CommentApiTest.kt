@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.service.ProjectService
 import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
@@ -46,6 +47,11 @@ class CommentApiTest : TestDbIsolation() {
     /** 管理库 JdbcTemplate（comment 已迁管理库，按 schema 隔离清理） */
     @Autowired
     lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
+
+    @Autowired
+    lateinit var projects: ProjectService
+
+    private fun defaultProjectId(): Long = projects.projectIdByName("default") ?: error("default project 未初始化")
 
     @BeforeEach
     fun cleanProjection() {
@@ -137,7 +143,11 @@ class CommentApiTest : TestDbIsolation() {
 
     private fun ensureRepoAndApi(): Pair<Long, Long> {
         // 管理库 repo 跨用例保留（投影每用例清空）：注册幂等且总会触发一次摄取，保证投影就绪
-        val repoId = json.readTree(req("POST", "/api/repos", """{"url":"file://$origin"}""").body()).at("/repo/id").asLong()
+        val repoId =
+            json
+                .readTree(req("POST", "/api/repos", """{"projectId":${defaultProjectId()},"url":"file://$origin"}""").body())
+                .at("/repo/id")
+                .asLong()
         val apisBody = get("/api/apis").body()
         val apis = json.readTree(apisBody)
         val api = apis.findFirst("path", "/pets") ?: throw AssertionError("无 /pets api; apis=$apisBody")

@@ -212,7 +212,8 @@ class AuthApiTest : TestDbIsolation() {
         val (vtoken, _, _) = createUser(ADMIN, "rbac_viewer", "viewer")
         val (etoken, _, _) = createUser(ADMIN, "rbac_editor", "editor")
 
-        val url = """{"url":"file://$origin"}"""
+        val projectId = projectService.projectIdByName("default") ?: error("default project 未初始化")
+        val url = """{"projectId":$projectId,"url":"file://$origin"}"""
         assertEquals(401, req("POST", "/api/repos", body = url).statusCode(), "未登录 401")
         assertEquals(403, req("POST", "/api/repos", token = vtoken, body = url).statusCode(), "viewer 403")
         assertEquals(200, req("POST", "/api/repos", token = etoken, body = url).statusCode(), "editor 200")

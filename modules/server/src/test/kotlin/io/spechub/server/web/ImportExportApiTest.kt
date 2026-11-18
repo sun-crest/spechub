@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.service.ProjectService
 import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
@@ -46,6 +47,11 @@ class ImportExportApiTest : TestDbIsolation() {
     /** 管理库 JdbcTemplate（管理域表清理） */
     @Autowired
     lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
+
+    @Autowired
+    lateinit var projects: ProjectService
+
+    private fun defaultProjectId(): Long = projects.projectIdByName("default") ?: error("default project 未初始化")
 
     companion object {
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
@@ -123,7 +129,7 @@ class ImportExportApiTest : TestDbIsolation() {
     }
 
     private fun seedAndRegister(): Long {
-        val reg = req("POST", "/api/repos", """{"url":"file://$origin"}""")
+        val reg = req("POST", "/api/repos", """{"projectId":${defaultProjectId()},"url":"file://$origin"}""")
         return json.readTree(reg.body()).at("/repo/id").asLong()
     }
 

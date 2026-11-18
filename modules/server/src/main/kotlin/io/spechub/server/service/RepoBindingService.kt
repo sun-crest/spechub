@@ -1,5 +1,6 @@
 package io.spechub.server.service
 
+import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.repository.RepoBindingEntity
 import io.spechub.server.repository.RepoBindingRepository
 import io.spechub.server.repository.RepoEntity
@@ -10,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 /**
  * 真源绑定 Service（ADR §4.4，single-primary binding）。
@@ -23,7 +25,14 @@ class RepoBindingService(
     private val bindings: RepoBindingRepository,
     private val repos: RepoRepository,
     private val git: GitStore,
+    private val props: SpecHubProperties,
 ) {
+    /** 真源位置：摄取 / 写回只允许使用 active binding 的这一份（retired 不可读写）。 */
+    data class Source(
+        val remoteUrl: String,
+        val branch: String,
+    )
+
     data class VerifyResult(
         val status: String,
         val candidateId: Long,
@@ -45,6 +54,12 @@ class RepoBindingService(
 
     fun active(repoId: Long): RepoBindingEntity? = bindings.findByRepoIdAndStatus(repoId, RepoBindingEntity.STATUS_ACTIVE)
 
+    /** 摄取 / 写回使用的真源；没有 active binding 时返回 null（调用方拒绝读写）。 */
+    fun activeSource(repoId: Long): Source? = active(repoId)?.let { Source(it.remoteUrl, it.branch.ifEmpty { "main" }) }
+
+    /** retired binding 的可删除时间：退休时刻 + 回滚窗口。 */
+    fun deleteAfter(binding: RepoBindingEntity): Instant? = binding.retiredAt?.plus(props.repoBindingRollbackDays, ChronoUnit.DAYS)
+
     fun get(
         repoId: Long,
         bindingId: Long,
@@ -55,13 +70,26 @@ class RepoBindingService(
     fun createActiveManaged(
         repo: RepoEntity,
         externalRepoId: String,
+    ): RepoBindingEntity = createActive(repo, RepoBindingEntity.KIND_MANAGED, null, externalRepoId)
+
+    /** 新仓库注册时创建首条 active binding（managed / external）。已存在 active 时幂等返回。 */
+    @Transactional
+    fun createActive(
+        repo: RepoEntity,
+        kind: String,
+        connectionId: Long? = null,
+        externalRepoId: String? = null,
     ): RepoBindingEntity {
+        require(kind == RepoBindingEntity.KIND_MANAGED || kind == RepoBindingEntity.KIND_EXTERNAL) {
+            "kind ∈ ${RepoBindingEntity.KIND_MANAGED}|${RepoBindingEntity.KIND_EXTERNAL}"
+        }
         val repoId = checkNotNull(repo.id) { "repo 必有 id" }
         bindings.findByRepoIdAndStatus(repoId, RepoBindingEntity.STATUS_ACTIVE)?.let { return it }
         return bindings.save(
             RepoBindingEntity(
                 repoId = repoId,
-                kind = RepoBindingEntity.KIND_MANAGED,
+                kind = kind,
+                connectionId = connectionId,
                 externalRepoId = externalRepoId,
                 remoteUrl = repo.url,
                 branch = repo.branch,
@@ -109,7 +137,8 @@ class RepoBindingService(
     }
 
     /**
-     * 候选转正：旧 active → retired，候选 → active。
+     * 候选转正 / 回滚：旧 active → retired，目标 → active。
+     * `retired` 绑定只允许在回滚窗口内重新激活（ADR §4.4 状态机）。
      * 并发 flip 由数据库单主唯一约束兜底（调用方映射 409）。
      */
     @Transactional
@@ -119,8 +148,15 @@ class RepoBindingService(
     ): RepoBindingEntity {
         val candidate = requireBinding(repoId, bindingId)
         if (candidate.status == RepoBindingEntity.STATUS_ACTIVE) return candidate
-        require(candidate.status == RepoBindingEntity.STATUS_CANDIDATE) {
-            "只有 candidate 可激活（当前 ${candidate.status}）"
+        require(
+            candidate.status == RepoBindingEntity.STATUS_CANDIDATE ||
+                candidate.status == RepoBindingEntity.STATUS_RETIRED,
+        ) {
+            "只有 candidate 或回滚窗口内的 retired 可激活（当前 ${candidate.status}）"
+        }
+        if (candidate.status == RepoBindingEntity.STATUS_RETIRED) {
+            val deleteAfter = deleteAfter(candidate) ?: throw IllegalStateException("binding $bindingId 缺少退休时间")
+            require(Instant.now().isBefore(deleteAfter)) { "回滚窗口已结束（$deleteAfter），不能重新激活" }
         }
         val now = Instant.now()
         bindings.findByRepoIdAndStatus(repoId, RepoBindingEntity.STATUS_ACTIVE)?.let {
@@ -143,7 +179,7 @@ class RepoBindingService(
         return bindings.save(binding.copy(status = RepoBindingEntity.STATUS_RETIRED, retiredAt = Instant.now()))
     }
 
-    /** 只允许删除已退休绑定（回滚窗口结束后）。 */
+    /** 只允许删除已退休绑定，且必须等回滚窗口结束（默认 30 天，可配置）。 */
     @Transactional
     fun deleteRetired(
         repoId: Long,
@@ -151,6 +187,10 @@ class RepoBindingService(
     ) {
         val binding = requireBinding(repoId, bindingId)
         require(binding.status == RepoBindingEntity.STATUS_RETIRED) { "只能删除 retired binding" }
+        val deleteAfter = deleteAfter(binding) ?: throw IllegalStateException("binding $bindingId 缺少退休时间")
+        if (Instant.now().isBefore(deleteAfter)) {
+            throw IllegalStateException("回滚窗口未结束，可删除时间：$deleteAfter")
+        }
         bindings.deleteById(bindingId)
     }
 

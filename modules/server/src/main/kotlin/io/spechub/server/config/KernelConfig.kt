@@ -64,6 +64,8 @@ class KernelConfig(
                 addNotification = { team, repoId, method, path, summary -> subscriptionService.addNotification(team, repoId, method, path, summary) },
             ),
             props,
+            // 摄取只认 active binding（ADR §4.4）；repo.url / retired 不再作为真源
+            sourceResolver = { repo -> repoService.sourceOf(repo.id)?.let { Ingestor.RepoSource(it.remoteUrl, it.branch) } },
         )
 
     /** Mock 规则引擎（零 Spring 内核模块；规则经 MockRuleSource 端口由管理库注入） */

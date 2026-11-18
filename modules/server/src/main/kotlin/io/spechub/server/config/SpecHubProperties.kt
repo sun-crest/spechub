@@ -36,6 +36,8 @@ data class SpecHubProperties(
     val adminToken: String? = null,
     /** prod profile 置 true：admin token 缺失/空串即启动失败（R10） */
     val requireAdminToken: Boolean = false,
+    /** binding flip 后旧 binding 的回滚窗口（天）：窗口内禁止删除 retired binding（ADR §4.4） */
+    @field:Min(0) val repoBindingRollbackDays: Long = 30,
     // R11 文档端点是否公开：dev 默认 true，放行 api-docs / doc.html / webjars；
     // prod 置 false 并关闭 springdoc/knife4j，文档仍受 TokenAuthFilter 保护（401）。
     val openapiPublic: Boolean = true,

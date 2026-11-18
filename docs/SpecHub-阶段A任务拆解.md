@@ -242,13 +242,15 @@
 
 ### A7 · 仓库注册 + binding（L）
 
-- [ ] `POST /api/repos` 必须携带 `projectId`；创建逻辑 repo + 首个 `active` binding（`managed` 或 `external`）。
-- [ ] `GET/POST /api/repos/{id}/bindings`；`POST .../verify`；`POST .../activate`；`POST .../retire`；`DELETE`（仅 retired）。
-- [ ] `verify`：空 → 允许推送当前内容；一致 → 可 flip；不一致 → 返回 diff，要求显式确认。
-- [ ] `activate`：事务内 flip；并发 409；旧 binding 进入回滚窗口（默认 30 天，可配置）。
-- [ ] 摄取 / Webhook / 写回只认 `active` binding；`retired` 不可读写。
-- [ ] 前端仓库注册表单增加项目选择（可并入 A8）。
-- [ ] `RepoBindingApiTest`：单主约束、并发 flip、verify 三分支、flip 后评论/订阅/评审不变。
+- [x] `POST /api/repos` 必须携带 `projectId`；创建逻辑 repo + 首个 `active` binding（`managed` 或 `external`）。
+- [x] `GET/POST /api/repos/{id}/bindings`；`POST .../verify`；`POST .../activate`；`POST .../retire`；`DELETE`（仅 retired）。
+- [x] `verify`：空 → 允许推送当前内容；一致 → 可 flip；不一致 → 返回 diff，要求显式确认（`activate` 未带 `confirm=true` 时 409）。
+- [x] `activate`：事务内 flip；并发 409；旧 binding 进入回滚窗口（默认 30 天，`spechub.repo-binding-rollback-days` 可配），窗口内可重新激活（回滚），窗口结束前禁止删除。
+- [x] 摄取 / Webhook / 写回只认 `active` binding；`retired` 不可读写（无 active 时摄取 409/跳过，写回 409）。
+- [ ] 前端仓库注册表单增加项目选择（当前前端无注册表单，并入 A8）。
+- [x] `RepoBindingApiTest`：单主约束、并发 flip、verify 三分支、flip 后评论/订阅/评审不变。
+
+**状态**：✅ 2026-11-18 完成；PostgreSQL / MySQL 全量 `:server:test`（88 项）与 `:server:ktlintCheck` 通过。
 
 ### A8 · 前端多项目骨架（M）
 

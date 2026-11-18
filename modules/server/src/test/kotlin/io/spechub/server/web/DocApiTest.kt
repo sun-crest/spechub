@@ -1,11 +1,13 @@
 package io.spechub.server.web
 
+import io.spechub.server.service.ProjectService
 import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
@@ -35,6 +37,11 @@ import kotlin.test.assertTrue
 class DocApiTest : TestDbIsolation() {
     @LocalServerPort
     var port: Int = 0
+
+    @Autowired
+    lateinit var projects: ProjectService
+
+    private fun defaultProjectId(): Long = projects.projectIdByName("default") ?: error("default project 未初始化")
 
     companion object {
         /** 每次运行全新临时投影目录（与其他集成测试同款隔离；缺失会导致评论等管理数据跨运行残留） */
@@ -114,7 +121,7 @@ class DocApiTest : TestDbIsolation() {
 
     @Test
     fun `docs 摄取入索引 - 列表与全文检索`() {
-        req("POST", "/api/repos", """{"url":"file://$origin"}""")
+        req("POST", "/api/repos", """{"projectId":${defaultProjectId()},"url":"file://$origin"}""")
 
         val docs = json.readTree(req("GET", "/api/docs").body())
         assertTrue(docs.size() >= 1, "docs/ Markdown 已摄取")
@@ -131,7 +138,7 @@ class DocApiTest : TestDbIsolation() {
 
     @Test
     fun `doc 详情含关联接口节 且 doc 可评论`() {
-        req("POST", "/api/repos", """{"url":"file://$origin"}""")
+        req("POST", "/api/repos", """{"projectId":${defaultProjectId()},"url":"file://$origin"}""")
         val docId =
             json
                 .readTree(req("GET", "/api/docs").body())

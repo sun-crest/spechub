@@ -1,5 +1,6 @@
 package io.spechub.server.service
 
+import io.spechub.server.repository.RepoBindingEntity
 import io.spechub.server.repository.RepoEntity
 import io.spechub.server.repository.RepoRepository
 import io.spechub.spec.index.ProjectRecord
@@ -39,12 +40,18 @@ class RepoService(
         branch: String = "main",
     ): RepoRecord = register(projectService.ensureProject(projectName), url, branch)
 
-    /** 新写路径：必须显式归属项目；同（project, url）幂等返回既存行。 */
+    /**
+     * 新写路径：必须显式归属项目；注册时创建逻辑仓库 + 首个 `active` binding。
+     * 同（project, url）幂等返回既存行，并补齐 active binding。
+     */
     @Transactional
     fun register(
         projectId: Long,
         url: String,
         branch: String = "main",
+        kind: String = RepoBindingEntity.KIND_MANAGED,
+        connectionId: Long? = null,
+        externalRepoId: String? = null,
     ): RepoRecord {
         val project = projectService.get(projectId) ?: throw IllegalArgumentException("project $projectId 不存在")
         val orgId = project.orgId ?: throw IllegalStateException("项目 $projectId 未归属组织")
@@ -52,7 +59,7 @@ class RepoService(
             bindings.ensureActiveManaged(existing)
             return existing.toRecord()
         }
-        val externalRepoId = md5(url)
+        val resolvedExternalId = externalRepoId?.takeIf { it.isNotBlank() } ?: md5(url)
         val saved =
             repos.save(
                 RepoEntity(
@@ -61,13 +68,17 @@ class RepoService(
                     url = url,
                     branch = branch,
                     syncStatus = SyncStatus.NEW,
-                    externalRepoId = externalRepoId,
+                    connectionId = connectionId,
+                    externalRepoId = resolvedExternalId,
                     createdAt = Instant.now(),
                 ),
             )
-        bindings.createActiveManaged(saved, externalRepoId)
+        bindings.createActive(saved, kind, connectionId, resolvedExternalId)
         return saved.toRecord()
     }
+
+    /** 摄取 / 写回使用的真源（active binding）；没有 active 时返回 null。 */
+    fun sourceOf(repoId: Long): RepoBindingService.Source? = bindings.activeSource(repoId)
 
     fun listRepos(): List<RepoRecord> = repos.findAllByOrderByIdAsc().map { it.toRecord() }
 

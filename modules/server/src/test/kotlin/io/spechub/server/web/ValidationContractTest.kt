@@ -1,6 +1,8 @@
 package io.spechub.server.web
 
+import io.spechub.server.service.ProjectService
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
@@ -31,6 +33,11 @@ import kotlin.test.assertTrue
 class ValidationContractTest : TestDbIsolation() {
     @LocalServerPort
     var port: Int = 0
+
+    @Autowired
+    lateinit var projects: ProjectService
+
+    private fun defaultProjectId(): Long = projects.projectIdByName("default") ?: error("default project 未初始化")
 
     companion object {
         private val TEMPDIR: java.nio.file.Path = kotlin.io.path.createTempDirectory("spechub-validation-test-" + System.nanoTime())
@@ -100,7 +107,7 @@ class ValidationContractTest : TestDbIsolation() {
 
     @Test
     fun `RepoController - 空 url 被注解拦截（未注册无副作用）`() {
-        val r = post("/api/repos", """{"url":""}""")
+        val r = post("/api/repos", """{"projectId":${defaultProjectId()},"url":""}""")
         assertEquals(400, r.statusCode())
         assertValidation(r.body(), "url")
         // 校验失败不进方法体：不应创建任何 repo

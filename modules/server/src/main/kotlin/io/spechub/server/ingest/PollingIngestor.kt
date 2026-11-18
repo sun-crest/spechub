@@ -23,6 +23,10 @@ class PollingIngestor(
         if (repos.isEmpty()) return
         log.info("轮询摄取：{} 个仓", repos.size)
         for (repo in repos) {
+            if (repoService.sourceOf(repo.id) == null) {
+                log.warn("轮询跳过 repo#{} {}：没有 active binding", repo.id, repo.url)
+                continue
+            }
             try {
                 ingestor.ingest(repo, urlTokens.get(repo.id))
             } catch (e: Exception) {
