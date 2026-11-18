@@ -50,8 +50,14 @@ class DocController(
         request: HttpServletRequest,
         @RequestParam repoId: Long? = null,
         @RequestParam q: String? = null,
+        @RequestParam projectId: Long? = null,
     ): List<io.spechub.spec.index.DocRecord> {
-        val visibleRepoIds = auth.visibleRepoIds(request, Stage.RELEASE)
+        val visibleRepoIds =
+            if (projectId == null) {
+                auth.visibleRepoIds(request, Stage.RELEASE)
+            } else {
+                auth.visibleRepoIds(request, Stage.RELEASE, projectId)
+            }
         if (visibleRepoIds.isEmpty()) return emptyList()
         val repoIds =
             if (repoId != null) {

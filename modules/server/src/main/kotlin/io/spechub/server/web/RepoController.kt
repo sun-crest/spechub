@@ -110,8 +110,17 @@ class RepoController(
     }
 
     @GetMapping("/repos")
-    fun list(request: HttpServletRequest): List<RepoRecord> {
-        val repoIds = auth.visibleRepoIds(request, Stage.RELEASE)
+    fun list(
+        request: HttpServletRequest,
+        @RequestParam projectId: Long? = null,
+    ): List<RepoRecord> {
+        // projectId 供 A8 前端按项目拉取；不传保持「全部可见仓库」语义
+        val repoIds =
+            if (projectId == null) {
+                auth.visibleRepoIds(request, Stage.RELEASE)
+            } else {
+                auth.visibleRepoIds(request, Stage.RELEASE, projectId)
+            }
         return repoService.listReposByIds(repoIds)
     }
 

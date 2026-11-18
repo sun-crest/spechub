@@ -43,12 +43,18 @@ class ApiQueryController(
         @RequestParam q: String? = null,
         @RequestParam method: String? = null,
         @RequestParam stage: String? = null,
+        @RequestParam projectId: Long? = null,
     ): List<ApiRecord> {
         val resolvedStage = stage ?: Stage.DRAFT
         if (resolvedStage !in setOf(Stage.DRAFT, Stage.RELEASE)) {
             throw ApiException(ApiErrorCode.VALIDATION, "stage ∈ draft | release", listOf(ApiErrorBody.FieldError("stage", "stage ∈ draft | release")))
         }
-        val repoIds = auth.visibleRepoIds(request, resolvedStage)
+        val repoIds =
+            if (projectId == null) {
+                auth.visibleRepoIds(request, resolvedStage)
+            } else {
+                auth.visibleRepoIds(request, resolvedStage, projectId)
+            }
         return if (repoIds.isEmpty()) {
             emptyList()
         } else {

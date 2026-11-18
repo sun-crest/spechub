@@ -183,6 +183,20 @@ class ReadIsolationTest {
         assertEquals(200, docSearchResp.statusCode(), docSearchResp.body())
         assertEquals(listOf(f.repoA), idsOf(docSearchResp.body(), "repoId"), "文档检索只应命中 A")
 
+        // A8：按项目过滤（?projectId=）——A 正常，B 统一 404
+        val reposInA = get("/api/repos?projectId=${f.projectA}", f.token)
+        assertEquals(200, reposInA.statusCode(), reposInA.body())
+        assertEquals(listOf(f.repoA), idsOf(reposInA.body(), "id"), "按项目 A 过滤只返回 A 的仓库")
+        val apisInA = get("/api/apis?q=iso&projectId=${f.projectA}", f.token)
+        assertEquals(200, apisInA.statusCode(), apisInA.body())
+        assertEquals(listOf(f.repoA), idsOf(apisInA.body(), "repoId"), "按项目 A 过滤只返回 A 的接口")
+        val docsInA = get("/api/docs?projectId=${f.projectA}", f.token)
+        assertEquals(200, docsInA.statusCode(), docsInA.body())
+        assertEquals(listOf(f.repoA), idsOf(docsInA.body(), "repoId"), "按项目 A 过滤只返回 A 的文档")
+        assertEquals(404, get("/api/repos?projectId=${f.projectB}", f.token).statusCode(), "按不可见项目过滤应 404")
+        assertEquals(404, get("/api/apis?projectId=${f.projectB}", f.token).statusCode(), "按不可见项目过滤应 404")
+        assertEquals(404, get("/api/docs?projectId=${f.projectB}", f.token).statusCode(), "按不可见项目过滤应 404")
+
         assertEquals(404, get("/api/repos/${f.repoB}", f.token).statusCode(), "B 仓库详情应 404")
         assertEquals(404, get("/api/repos/${f.repoB}/apis", f.token).statusCode(), "B 接口列表应 404")
         assertEquals(404, get("/api/apis/${f.apiB}", f.token).statusCode(), "B 接口详情应 404")

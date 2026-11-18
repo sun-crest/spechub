@@ -186,7 +186,15 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAdminToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   const r = await fetch("/api" + path, { headers, ...init });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  if (!r.ok) {
+    // 统一错误体 { status, code, message }：优先展示后端 message
+    let msg = `${r.status} ${r.statusText}`;
+    try {
+      const body = (await r.json()) as { message?: string };
+      if (body?.message) msg = body.message;
+    } catch { /* 非 JSON 错误体 */ }
+    throw new Error(msg);
+  }
   if (r.status === 204) return undefined as T;
   return r.json() as Promise<T>;
 }
@@ -217,7 +225,107 @@ export const removeProjectMember = (projectId: number, userId: number) =>
   j<unknown>(`/projects/${projectId}/members/${userId}`, { method: "DELETE" });
 
 export const listProjects = () => j<Project[]>("/projects");
-export const listRepos = () => j<Repo[]>("/repos");
+/** 仓库列表；传 projectId 时只取该项目（A8 前端按项目加载） */
+export const listRepos = (projectId?: number) =>
+  j<Repo[]>(`/repos${projectId != null ? `?projectId=${projectId}` : ""}`);
+
+// ── 阶段 A：项目 CRUD / 归档 / owner 转移 ─────────────────────────────────
+export const getProject = (id: number) => j<Project>(`/projects/${id}`);
+
+export const createProject = (p: {
+  name: string;
+  slug?: string;
+  description?: string;
+  visibility?: string;
+  ownerId?: number | null;
+}) => j<Project>("/projects", { method: "POST", body: JSON.stringify(p) });
+
+export const updateProject = (
+  id: number,
+  patch: { name?: string; slug?: string; description?: string; visibility?: string; archived?: boolean },
+) => j<Project>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+
+export const archiveProject = (id: number) =>
+  j<Project>(`/projects/${id}/archive`, { method: "POST" });
+
+export const transferProjectOwner = (id: number, ownerId: number) =>
+  j<Project>(`/projects/${id}/transfer`, { method: "POST", body: JSON.stringify({ ownerId }) });
+
+export const deleteProject = (id: number) =>
+  j<unknown>(`/projects/${id}`, { method: "DELETE" });
+
+// ── 阶段 A：仓库注册（必须归属项目）与真源 binding ─────────────────────────
+export interface RegisterRepoResp {
+  repo: Repo;
+  bindingId?: number | null;
+  apiCount: number;
+  schemaCount: number;
+  versionCount: number;
+  messages: string[];
+}
+
+export const registerRepo = (r: {
+  projectId: number;
+  url: string;
+  branch?: string;
+  token?: string;
+  kind?: "managed" | "external";
+  connectionId?: number | null;
+  externalRepoId?: string;
+}) => j<RegisterRepoResp>("/repos", { method: "POST", body: JSON.stringify(r) });
+
+export interface RepoBinding {
+  id: number;
+  repoId: number;
+  kind: string;
+  connectionId?: number | null;
+  externalRepoId?: string | null;
+  remoteUrl: string;
+  branch: string;
+  status: string;
+  createdAt: string;
+  retiredAt?: string | null;
+  /** retired 绑定的可删除时间（回滚窗口结束） */
+  deleteAfter?: string | null;
+}
+
+export interface BindingVerifyResult {
+  status: "identical" | "diverged" | "no_active" | "error";
+  candidateId: number;
+  activeId?: number | null;
+  added: string[];
+  removed: string[];
+  changed: string[];
+  message?: string | null;
+}
+
+export interface ActivateBindingResp {
+  binding: RepoBinding;
+  verify?: BindingVerifyResult | null;
+  ingest?: { repoId: number; apiCount: number; schemaCount: number; versionCount: number; messages: string[] } | null;
+  ingestError?: string | null;
+}
+
+export const listRepoBindings = (repoId: number) => j<RepoBinding[]>(`/repos/${repoId}/bindings`);
+export const createRepoBinding = (
+  repoId: number,
+  b: { remoteUrl: string; kind?: "managed" | "external"; branch?: string; connectionId?: number | null; externalRepoId?: string },
+) => j<RepoBinding>(`/repos/${repoId}/bindings`, { method: "POST", body: JSON.stringify(b) });
+
+export const verifyRepoBinding = (repoId: number, bindingId: number) =>
+  j<BindingVerifyResult>(`/repos/${repoId}/bindings/${bindingId}/verify`, { method: "POST" });
+
+export const activateRepoBinding = (repoId: number, bindingId: number, confirm = false) =>
+  j<ActivateBindingResp>(`/repos/${repoId}/bindings/${bindingId}/activate`, {
+    method: "POST",
+    body: JSON.stringify({ confirm }),
+  });
+
+export const retireRepoBinding = (repoId: number, bindingId: number) =>
+  j<RepoBinding>(`/repos/${repoId}/bindings/${bindingId}/retire`, { method: "POST" });
+
+export const deleteRepoBinding = (repoId: number, bindingId: number) =>
+  j<unknown>(`/repos/${repoId}/bindings/${bindingId}`, { method: "DELETE" });
 
 // ── K AI 文档层（Doc 域，两域隔离 §5.7）──────────────────────────────────
 export interface Doc {
@@ -238,12 +346,25 @@ export interface DocComment {
   createdAt?: string | null;
 }
 
-export const listDocs = (repoId?: number) =>
-  j<Doc[]>(`/docs${repoId ? `?repoId=${repoId}` : ""}`);
-export const searchDocs = (q: string, repoId?: number) => {
+export interface DocQuery {
+  repoId?: number;
+  projectId?: number;
+}
+
+const docQuery = (opts?: DocQuery): string => {
+  const p = new URLSearchParams();
+  if (opts?.repoId) p.set("repoId", String(opts.repoId));
+  if (opts?.projectId) p.set("projectId", String(opts.projectId));
+  const s = p.toString();
+  return s ? `?${s}` : "";
+};
+
+export const listDocs = (opts?: DocQuery) => j<Doc[]>(`/docs${docQuery(opts)}`);
+export const searchDocs = (q: string, opts?: DocQuery) => {
   const p = new URLSearchParams();
   if (q) p.set("q", q);
-  if (repoId) p.set("repoId", String(repoId));
+  if (opts?.repoId) p.set("repoId", String(opts.repoId));
+  if (opts?.projectId) p.set("projectId", String(opts.projectId));
   const s = p.toString();
   return j<Doc[]>(`/docs${s ? `?${s}` : ""}`);
 };
@@ -251,11 +372,12 @@ export const getDoc = (id: number) => j<Doc>(`/docs/${id}`);
 export const listDocComments = (id: number) => j<DocComment[]>(`/docs/${id}/comments`);
 export const addDocComment = (id: number, body: string) =>
   j<DocComment>(`/docs/${id}/comments`, { method: "POST", body: JSON.stringify({ body }) });
-export const listApis = (q?: string, method?: string, stage = "draft") => {
+export const listApis = (q?: string, method?: string, stage = "draft", projectId?: number) => {
   const p = new URLSearchParams();
   if (q) p.set("q", q);
   if (method) p.set("method", method);
   if (stage) p.set("stage", stage);
+  if (projectId != null) p.set("projectId", String(projectId));
   const s = p.toString();
   return j<Api[]>(`/apis${s ? `?${s}` : ""}`);
 };

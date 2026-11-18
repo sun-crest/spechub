@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Boxes, ChevronsUpDown, LogOut, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2, Users, History, ClipboardCheck } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Boxes, ChevronsUpDown, LogOut, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2, Users, History, ClipboardCheck, FolderPlus, Settings2, Plus } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,8 @@ import { ApiDetail } from "./demo/ApiDetail";
 import { EditorView, type EditingEntry } from "./demo/EditorView";
 import { LoginDialog } from "./demo/LoginDialog";
 import { MembersDialog } from "./demo/MembersDialog";
+import { ProjectDialog } from "./demo/ProjectDialog";
+import { RepoRegisterDialog } from "./demo/RepoRegisterDialog";
 import { ChangeLogDialog } from "./demo/ChangeLogDialog";
 import { ReviewDialog } from "./demo/ReviewDialog";
 import { DocPanel } from "./demo/DocPanel";
@@ -35,6 +37,9 @@ export default function App() {
   const [docQ, setDocQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // A8：项目创建/设置、仓库注册入口
+  const [projectDialog, setProjectDialog] = useState<{ mode: "create" | "settings" } | null>(null);
+  const [repoDialogOpen, setRepoDialogOpen] = useState(false);
 
   const [filter, setFilter] = useState<Filter>({});
   const [selected, setSelected] = useState<number | null>(null);
@@ -74,7 +79,9 @@ export default function App() {
   const currentProjectRole = selectedProjectId != null
     ? (me?.projectRoles?.[String(selectedProjectId)] ?? (me?.platformAdmin ? "owner" : null))
     : null;
+  const isOrgAdmin = me?.orgAdmin === true || me?.platformAdmin === true;
   const canManageCurrentProject = me?.orgAdmin === true || (currentProjectRole != null && ["admin", "owner"].includes(currentProjectRole));
+  const canOwnerCurrentProject = isOrgAdmin || currentProjectRole === "owner";
   const meCanWrite = me == null
     ? !(authStatus?.authEnabled && !authStatus.authenticated) // 尚未加载：若已探测启用且未认证 → 先按只读
     : !me.authEnabled || (me.authenticated === true && (me.platformAdmin ?? false)) || (me.authenticated === true && WRITE_ROLES.includes(currentProjectRole ?? ""));
@@ -87,42 +94,57 @@ export default function App() {
     : !me.authEnabled || me.authenticated === true;
   const meUsername = me?.username ?? null;
 
+  // A8：先取可见项目，再按选中项目拉取 repos / apis / docs（不再全量）
+  const loadSeq = useRef(0);
   async function load() {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
     try {
-      const [pr, re, ap, dc] = await Promise.all([listProjects(), listRepos(), listApis(undefined, undefined, stage), listDocs()]);
+      const pr = await listProjects();
+      if (seq !== loadSeq.current) return;
       setProjects(pr);
+      // 选中项失效（删除/归档/权限变化）时回落到第一个可见项目
+      const pid =
+        selectedProjectId != null && pr.some((p) => p.id === selectedProjectId)
+          ? selectedProjectId
+          : (pr[0]?.id ?? null);
+      if (pid !== selectedProjectId) setSelectedProjectId(pid);
+      const [re, ap, dc] = await Promise.all([
+        listRepos(pid ?? undefined),
+        listApis(undefined, undefined, stage, pid ?? undefined),
+        listDocs(pid != null ? { projectId: pid } : undefined),
+      ]);
+      if (seq !== loadSeq.current) return;
       setRepos(re);
       setApis(ap);
       setDocs(dc);
     } catch (e) {
-      setError(String(e));
+      if (seq === loadSeq.current) setError(String(e));
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }
-  useEffect(() => { void load(); }, [stage]);
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [stage, selectedProjectId]);
 
-  // 项目列表变化时保持选中项有效（阶段 A 默认选第一个可见项目）
+  // 切换项目时清空跨项目选择（详情/编辑/文档/仓库过滤）
   useEffect(() => {
-    if (projects.length === 0) {
-      setSelectedProjectId(null);
-      return;
-    }
-    if (selectedProjectId == null || !projects.some((p) => p.id === selectedProjectId)) {
-      setSelectedProjectId(projects[0].id);
-    }
-  }, [projects, selectedProjectId]);
+    setSelected(null);
+    setEditing(null);
+    setSelectedDocId(null);
+    setFilter({});
+  }, [selectedProjectId]);
 
-  // K：Doc 全文检索（防抖）
+  // K：Doc 全文检索（防抖，按当前项目；切换项目时丢弃过期响应）
   useEffect(() => {
+    let alive = true;
     const t = setTimeout(() => {
-      if (docQ.trim()) void searchDocs(docQ.trim()).then(setDocs).catch(() => setDocs([]));
-      else void listDocs().then(setDocs).catch(() => setDocs([]));
+      const opts = selectedProjectId != null ? { projectId: selectedProjectId } : undefined;
+      const p = docQ.trim() ? searchDocs(docQ.trim(), opts) : listDocs(opts);
+      void p.then((d) => { if (alive) setDocs(d); }).catch(() => { if (alive) setDocs([]); });
     }, 250);
-    return () => clearTimeout(t);
-  }, [docQ]);
+    return () => { alive = false; clearTimeout(t); };
+  }, [docQ, selectedProjectId]);
 
   // K：Doc↔Api 链接 —— 从 AI 文档跳转到关联接口详情
   function gotoApi(path: string) {
@@ -155,7 +177,19 @@ export default function App() {
 
         {domain === "api" ? (
           <ScrollArea className="min-h-0 flex-1 px-2">
-            <div className="mb-1 px-2.5 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">仓库</div>
+            <div className="mb-1 flex items-center justify-between pr-1 pl-2.5 pt-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">仓库</span>
+              {canWrite && selectedProjectId != null && (
+                <button
+                  onClick={() => setRepoDialogOpen(true)}
+                  className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                  title="注册仓库（归属当前项目）"
+                  aria-label="注册仓库"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              )}
+            </div>
             <div className="flex flex-col gap-0.5">
               {repos.map((r) => (
                 <button
@@ -172,7 +206,16 @@ export default function App() {
                   <span className="font-mono text-xs">{cntByRepo(r.id)}</span>
                 </button>
               ))}
-              {repos.length === 0 && (loading ? <div className="px-2.5 py-2 text-xs text-muted-foreground">加载中…</div> : <div className="px-2.5 py-2 text-xs text-muted-foreground">暂无仓库，先 POST /api/repos 注册</div>)}
+              {repos.length === 0 && (loading ? (
+                <div className="px-2.5 py-2 text-xs text-muted-foreground">加载中…</div>
+              ) : (
+                <div className="px-2.5 py-2 text-xs text-muted-foreground">
+                  当前项目还没有仓库。
+                  {canWrite && selectedProjectId != null && (
+                    <button onClick={() => setRepoDialogOpen(true)} className="ml-1 text-link hover:underline">注册仓库…</button>
+                  )}
+                </div>
+              ))}
             </div>
 
             {tags.length > 0 && (
@@ -259,15 +302,28 @@ export default function App() {
           <DropdownMenu>
             <DropdownMenuTrigger className="flex max-w-56 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] text-muted-foreground hover:bg-muted">
               <span className="truncate">{selectedProject?.name ?? "加载项目…"}</span>
+              {selectedProject?.archived && <span className="rounded bg-muted px-1 text-[10px]">已归档</span>}
               <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden="true" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent align="start" className="min-w-56">
               {projects.map((p) => (
                 <DropdownMenuItem key={p.id} onSelect={() => setSelectedProjectId(p.id)}>
-                  {p.name}
+                  <span className="flex-1 truncate">{p.name}</span>
+                  {p.archived && <span className="text-[10px] text-muted-foreground">已归档</span>}
+                  {p.id === selectedProjectId && <span className="text-[10px] text-muted-foreground">当前</span>}
                 </DropdownMenuItem>
               ))}
               {projects.length === 0 && <DropdownMenuItem disabled>无项目</DropdownMenuItem>}
+              {(me?.orgAdmin === true || me?.platformAdmin === true) && (
+                <DropdownMenuItem onSelect={() => setProjectDialog({ mode: "create" })}>
+                  <FolderPlus className="size-3.5" /> 新建项目…
+                </DropdownMenuItem>
+              )}
+              {selectedProject != null && canManageCurrentProject && (
+                <DropdownMenuItem onSelect={() => setProjectDialog({ mode: "settings" })}>
+                  <Settings2 className="size-3.5" /> 项目设置…
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
           {/* I6 双层版本开关：draft（仓内最新，可编辑） / release（发布快照，只读消费视图） */}
@@ -348,7 +404,19 @@ export default function App() {
         </header>
 
         <main className="min-h-0 flex-1">
-          {domain === "api" ? (
+          {!loading && !error && projects.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+              <FolderPlus className="size-8 text-muted-foreground/60" />
+              <div className="text-sm text-muted-foreground">当前没有可见项目。</div>
+              {(me?.orgAdmin === true || me?.platformAdmin === true) ? (
+                <Button size="sm" onClick={() => setProjectDialog({ mode: "create" })}>
+                  <FolderPlus className="size-3.5" /> 新建项目
+                </Button>
+              ) : (
+                <div className="text-[12.5px] text-muted-foreground">请联系组织管理员把你加入项目。</div>
+              )}
+            </div>
+          ) : domain === "api" ? (
             editing && canEdit ? (
               <EditorView
                 entry={editing}
@@ -430,6 +498,33 @@ export default function App() {
         projectId={selectedProjectId}
         projectName={selectedProject?.name ?? null}
         canManageOrg={me?.orgAdmin === true}
+      />
+
+      {/* A8 项目创建 / 设置（归档 / 删除） */}
+      <ProjectDialog
+        open={projectDialog != null}
+        onOpenChange={(o) => { if (!o) setProjectDialog(null); }}
+        mode={projectDialog?.mode ?? "create"}
+        project={projectDialog?.mode === "settings" ? selectedProject : null}
+        canCreate={isOrgAdmin}
+        canOwner={canOwnerCurrentProject}
+        canAdmin={canManageCurrentProject}
+        onChanged={(p) => {
+          if (p) {
+            setToast(projectDialog?.mode === "create" ? `项目「${p.name}」已创建` : `项目「${p.name}」已更新`);
+            setSelectedProjectId(p.id);
+          }
+          void load();
+        }}
+      />
+
+      {/* A7/A8 仓库注册：必须归属项目 */}
+      <RepoRegisterDialog
+        open={repoDialogOpen}
+        onOpenChange={setRepoDialogOpen}
+        projects={projects}
+        projectId={selectedProjectId}
+        onRegistered={(msg) => { setToast(msg); void load(); }}
       />
 
       {/* I5 全局变更记录 */}

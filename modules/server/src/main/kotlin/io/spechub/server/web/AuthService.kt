@@ -195,6 +195,21 @@ class AuthService(
         }
     }
 
+    /**
+     * 指定项目下的可见 repo id（A8 前端按项目拉取 repos/apis/docs）。
+     * 项目不可见统一 404；返回集合已与用户可见 repo 求交，空集合表示该无内容。
+     */
+    fun visibleRepoIds(
+        req: HttpServletRequest,
+        stage: String,
+        projectId: Long,
+    ): Set<Long> {
+        requireProjectVisible(req, projectId, stage)
+        val inProject = repoService.listReposByProjectIds(listOf(projectId)).map { it.id }.toSet()
+        if (!authEnabled) return inProject
+        return inProject intersect visibleRepoIds(req, stage)
+    }
+
     /** 用户是成员（含 org_admin）的项目 id；评审/评论/变更记录等内部视图使用。 */
     fun memberProjectIds(req: HttpServletRequest): Set<Long> {
         val projects = projectService.list(currentOrgId(req))

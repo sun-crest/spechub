@@ -247,19 +247,21 @@
 - [x] `verify`：空 → 允许推送当前内容；一致 → 可 flip；不一致 → 返回 diff，要求显式确认（`activate` 未带 `confirm=true` 时 409）。
 - [x] `activate`：事务内 flip；并发 409；旧 binding 进入回滚窗口（默认 30 天，`spechub.repo-binding-rollback-days` 可配），窗口内可重新激活（回滚），窗口结束前禁止删除。
 - [x] 摄取 / Webhook / 写回只认 `active` binding；`retired` 不可读写（无 active 时摄取 409/跳过，写回 409）。
-- [ ] 前端仓库注册表单增加项目选择（当前前端无注册表单，并入 A8）。
+- [x] 前端仓库注册表单增加项目选择（A8 落地：`RepoRegisterDialog` 归属项目选择）。
 - [x] `RepoBindingApiTest`：单主约束、并发 flip、verify 三分支、flip 后评论/订阅/评审不变。
 
 **状态**：✅ 2026-11-18 完成；PostgreSQL / MySQL 全量 `:server:test`（88 项）与 `:server:ktlintCheck` 通过。
 
 ### A8 · 前端多项目骨架（M）
 
-- [ ] `App.tsx` 增加 `selectedProjectId`，`load()` 按项目拉取 repos/apis/docs（当前为全量，[App.tsx](apps/web/src/App.tsx)）。
-- [ ] 项目下拉可用；项目创建/设置/归档入口；空状态引导。
-- [ ] `api.ts` 增加项目 CRUD、成员、binding 的类型与调用。
-- [ ] 角色可见性按当前项目重新计算，不再依赖 `me.role`（当前是 default 项目角色）。
-- [ ] 侧栏「分组」保持 API tag 语义，不改成组织分组。
-- [ ] 前端 build + 手动 e2e。
+- [x] `App.tsx` 增加 `selectedProjectId`，`load()` 按项目拉取 repos/apis/docs（后端新增 `?projectId=` 过滤）。
+- [x] 项目下拉可用；项目创建/设置/归档入口；空状态引导（无项目 / 无仓库均有引导与入口）。
+- [x] `api.ts` 增加项目 CRUD、成员、binding 的类型与调用。
+- [x] 角色可见性按当前项目重新计算，不再依赖 `me.role`（`me.projectRoles[selectedProjectId]`）。
+- [x] 侧栏「分组」保持 API tag 语义，不改成组织分组。
+- [x] 前端 build + 手动 e2e（dev 模式：创建项目 A/B → 注册仓库 → 按项目拉取 repos/apis/docs 互不可见；项目/仓库对话框入口）。
+
+**状态**：✅ 2026-11-18 完成；`apps/web` 构建通过，后端 PostgreSQL / MySQL 测试通过。
 
 ### A9 · 测试矩阵与双库验证（L）
 
