@@ -1,9 +1,8 @@
 package io.spechub.server.web
 
-import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.service.ChangelogService
 import io.spechub.server.service.OrgService
-import io.spechub.server.service.RepoService
+import io.spechub.server.service.ProjectService
 import io.spechub.server.service.UserService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
@@ -24,23 +23,23 @@ import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 
 /*
- * I4 —— RBAC 身份与成员管理（替换 H6 的 admin-token 占位，二者兼容）。
- * - GET  /api/auth/status          启用与当前认证状态（前端启动探测用）
- * - POST /api/auth/login           {username, token}：校验；{token} 兼容 admin-token
- * - GET  /api/auth/me              当前用户 + 对 default project 的角色
- * - GET  /api/auth/users           成员列表（需对 default project admin+ 或平台 admin）
- * - POST /api/auth/users           {username, displayName, role}：创建用户 + 加入 default project，返回一次性 token
- * - POST /api/auth/users/{id}/role {role}：改角色（同上权限）
- * - POST /api/auth/users/{id}/token    重置 token（admin+）
- * - DELETE /api/auth/users/{id}    删除用户（owner）
- * 本组端点自身放行（TokenAuthFilter 不拦 /api/auth 前缀），所以端点内自行做身份/角色校验。
+ * I4 / 阶段 A —— 认证与组织用户管理（ADR §4.2 / §7）。
+ * - GET  /api/auth/status          启用与当前认证状态
+ * - POST /api/auth/login           用户名 + token
+ * - GET  /api/auth/me              当前用户 + 组织上下文 + 各项目角色
+ * - GET  /api/auth/users           组织用户目录（org_admin）
+ * - POST /api/auth/users           创建组织用户（org_admin，默认 org_member）
+ * - POST /api/auth/users/{id}/role 改组织角色（org_admin）
+ * - POST /api/auth/users/{id}/token 重置 token（org_admin）
+ * - DELETE /api/auth/users/{id}    删除组织用户（org_admin）
+ *
+ * 项目成员与项目角色由 `/api/projects/{id}/members` 管理，本控制器不再硬编码 default 项目。
  */
 @RestController
 @RequestMapping("/api/auth")
 class AuthController(
-    private val props: SpecHubProperties,
     private val changelogService: ChangelogService,
-    private val repoService: RepoService,
+    private val projectService: ProjectService,
     private val users: UserService,
     private val orgs: OrgService,
     private val auth: AuthService,
@@ -75,9 +74,11 @@ class AuthController(
         val orgs: List<OrgView> = emptyList(),
         val currentOrgId: Long? = null,
         val currentOrgSlug: String? = null,
-        /** 对 default project 的角色（前端编辑可见性据此） */
+        /** 兼容字段：阶段 A 起不再返回 default 项目角色，前端用 projectRoles。 */
         val role: String? = null,
-        /** 全局角色视图：平台 admin / org admin / 项目 admin+ 视为可管理 */
+        /** projectId → 当前用户在该项目的角色 */
+        val projectRoles: Map<Long, String> = emptyMap(),
+        /** 全局角色视图：org_admin 或任一项目 admin+ 视为可管理 */
         val canManage: Boolean = false,
     )
 
@@ -86,14 +87,17 @@ class AuthController(
         val username: String,
         val displayName: String,
         val platformAdmin: Boolean,
-        val role: String?,
+        /** 项目角色（org 目录接口不再返回；项目成员端点返回） */
+        val role: String? = null,
+        /** 组织角色：org_admin / org_member */
+        val orgRole: String? = null,
         val createdAt: String? = null,
     )
 
     data class CreateUserRequest(
         @field:NotBlank val username: String,
         val displayName: String = "",
-        val role: String = Role.VIEWER,
+        val orgRole: String = OrgService.ROLE_MEMBER,
     )
 
     data class UpdateRoleRequest(
@@ -132,7 +136,6 @@ class AuthController(
     fun me(req: HttpServletRequest): MeResponse {
         val user = auth.currentUser(req)
         if (user == null || !auth.authEnabled) {
-            // 未启用鉴权：报告环境 + 未认证（前端据此免登录只读）
             return MeResponse(authenticated = user != null, authEnabled = auth.authEnabled)
         }
         val currentOrg = auth.currentOrg(req)
@@ -151,8 +154,14 @@ class AuthController(
                     }
                 }
             } ?: emptyList()
-        val defaultProjectId = repoService.projectIdByName(RepoController.DEFAULT_PROJECT)
-        val role = auth.effectiveRole(user, defaultProjectId)
+        val projectRoles =
+            projectService
+                .list(orgId)
+                .mapNotNull { project ->
+                    project.id?.let { projectId ->
+                        auth.effectiveRole(user, projectId)?.let { projectId to it }
+                    }
+                }.toMap()
         return MeResponse(
             authenticated = true,
             authEnabled = true,
@@ -163,27 +172,22 @@ class AuthController(
             orgs = orgViews,
             currentOrgId = orgId,
             currentOrgSlug = currentOrg.slug,
-            role = role,
-            canManage = orgAdmin || Role.rank(role) >= Role.rank(Role.ADMIN),
+            projectRoles = projectRoles,
+            canManage = orgAdmin || projectRoles.values.any { Role.rank(it) >= Role.rank(Role.ADMIN) },
         )
     }
 
-    // ── 成员管理（需要 default project admin+ 或平台 admin；MVP 单项目 default） ──
+    // ── 组织用户目录（org_admin） ───────────────────────────────────────────
 
     @GetMapping("/users")
     fun users(req: HttpServletRequest): List<UserView> {
-        auth.requireProjectRole(req, repoService.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "查看成员")
-        val projectId = repoService.projectIdByName(RepoController.DEFAULT_PROJECT)
-        return users.listUsers().map { user ->
-            UserView(
-                id = user.id as Long,
-                username = user.username,
-                displayName = user.displayName,
-                platformAdmin = user.isPlatformAdmin,
-                role = projectId?.let { users.membershipRole(user.id as Long, it) },
-                createdAt = user.createdAt,
-            )
-        }
+        auth.requireOrgAdmin(req, "查看组织成员")
+        val orgId = auth.currentOrgId(req)
+        val orgRoles = orgs.membersOf(orgId).associate { it.userId to it.orgRole }
+        return users
+            .listUsers()
+            .filter { user -> user.id?.let { orgRoles.containsKey(it) } == true }
+            .map { user -> toView(user, user.id?.let { orgRoles[it] }) }
     }
 
     @PostMapping("/users")
@@ -191,24 +195,23 @@ class AuthController(
         req: HttpServletRequest,
         @RequestBody @Valid body: CreateUserRequest,
     ): CreateUserResponse {
-        auth.requireProjectRole(req, repoService.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "创建用户")
+        auth.requireOrgAdmin(req, "创建组织用户")
         val username = body.username.trim()
-        if (!Role.ALL.contains(body.role)) {
-            throw ApiException(
-                ApiErrorCode.VALIDATION,
-                "role ∈ ${Role.ALL}",
-                listOf(ApiErrorBody.FieldError("role", "role ∈ ${Role.ALL}")),
-            )
-        }
+        validateOrgRole(body.orgRole, "orgRole")
         if (users.findByUsername(username) != null) {
             throw ApiException(ApiErrorCode.CONFLICT, "用户 $username 已存在")
         }
         val token = AuthService.generateToken()
-        val projectId = repoService.projectIdByName(RepoController.DEFAULT_PROJECT)
-        // 用户 + 成员在管理库同一事务内创建；changelog 仍在投影库，跨库不做分布式事务
-        val user = users.createUserWithMembership(username, body.displayName, AuthService.sha256(token), projectId, body.role)
-        changelogService.add(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.create", detail = "创建用户 $username（$body.role）")
-        return CreateUserResponse(toView(user, projectId), token)
+        val user = users.createOrgUser(username, body.displayName, AuthService.sha256(token), body.orgRole)
+        changelogService.add(
+            repoId = null,
+            apiId = null,
+            actor = auth.currentActor(req),
+            action = "user.create",
+            detail = "创建组织用户 $username（${body.orgRole}）",
+            orgId = auth.currentOrgId(req),
+        )
+        return CreateUserResponse(toView(user, body.orgRole), token)
     }
 
     @PostMapping("/users/{id}/role")
@@ -217,16 +220,21 @@ class AuthController(
         @PathVariable id: Long,
         @RequestBody @Valid body: UpdateRoleRequest,
     ): UserView {
-        auth.requireProjectRole(req, repoService.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "改角色")
-        if (!Role.ALL.contains(body.role)) {
-            throw ApiException(ApiErrorCode.VALIDATION, "role ∈ ${Role.ALL}", listOf(ApiErrorBody.FieldError("role", "role ∈ ${Role.ALL}")))
-        }
+        auth.requireOrgAdmin(req, "改组织角色")
+        validateOrgRole(body.role, "role")
         val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "平台 admin 角色不可改")
-        val projectId = repoService.projectIdByName(RepoController.DEFAULT_PROJECT)
-        if (projectId != null) users.setMembership(id, projectId, body.role)
-        changelogService.add(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.role", detail = "用户 ${user.username} → $body.role")
-        return toView(user, projectId)
+        val orgId = auth.currentOrgId(req)
+        orgs.ensureMembership(id, orgId, body.role)
+        changelogService.add(
+            repoId = null,
+            apiId = null,
+            actor = auth.currentActor(req),
+            action = "user.role",
+            detail = "组织用户 ${user.username} → ${body.role}",
+            orgId = orgId,
+        )
+        return toView(user, body.role)
     }
 
     @PostMapping("/users/{id}/token")
@@ -234,12 +242,12 @@ class AuthController(
         req: HttpServletRequest,
         @PathVariable id: Long,
     ): CreateUserResponse {
-        auth.requireProjectRole(req, repoService.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "重置令牌")
+        auth.requireOrgAdmin(req, "重置令牌")
         val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         val token = AuthService.generateToken()
-        // 无公开 updateToken 字段 → 删除重建不可取（保留 id/role）。这里用内部更新：
         users.updateToken(id, AuthService.sha256(token))
-        return CreateUserResponse(toView(user, repoService.projectIdByName(RepoController.DEFAULT_PROJECT)), token)
+        val orgRole = orgs.orgRole(id, auth.currentOrgId(req))
+        return CreateUserResponse(toView(user, orgRole), token)
     }
 
     @DeleteMapping("/users/{id}")
@@ -248,27 +256,45 @@ class AuthController(
         req: HttpServletRequest,
         @PathVariable id: Long,
     ) {
-        val actor = auth.currentUser(req)
-        auth.requireProjectRole(req, repoService.projectIdByName(RepoController.DEFAULT_PROJECT), Role.ADMIN, "删除用户")
+        val actor = auth.requireOrgAdmin(req, "删除用户")
         val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除平台 admin")
-        if (actor != null && actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")
+        if (actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")
         users.deleteUser(id)
-        changelogService.add(repoId = null, apiId = null, actor = auth.currentActor(req), action = "user.delete", detail = "删除用户 ${user.username}")
+        changelogService.add(
+            repoId = null,
+            apiId = null,
+            actor = auth.currentActor(req),
+            action = "user.delete",
+            detail = "删除组织用户 ${user.username}",
+            orgId = auth.currentOrgId(req),
+        )
     }
 
-    // ── 内部 ───────────────────────────────────────────────────────────────
+    private fun validateOrgRole(
+        role: String,
+        field: String,
+    ) {
+        val allowed = setOf(OrgService.ROLE_ADMIN, OrgService.ROLE_MEMBER)
+        if (!allowed.contains(role)) {
+            throw ApiException(
+                ApiErrorCode.VALIDATION,
+                "$field ∈ $allowed",
+                listOf(ApiErrorBody.FieldError(field, "$field ∈ $allowed")),
+            )
+        }
+    }
 
     private fun toView(
         user: UserRecord,
-        projectId: Long?,
+        orgRole: String?,
     ): UserView =
         UserView(
-            id = user.id as Long,
+            id = checkNotNull(user.id) { "user 必有 id" },
             username = user.username,
             displayName = user.displayName,
             platformAdmin = user.isPlatformAdmin,
-            role = projectId?.let { users.membershipRole(user.id as Long, it) },
+            orgRole = orgRole,
             createdAt = user.createdAt,
         )
 }

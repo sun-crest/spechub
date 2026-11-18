@@ -216,17 +216,29 @@
 
 **后端**
 
-- [ ] `GET/POST/PATCH/DELETE /api/projects/{id}/members`。
-- [ ] 替换 `AuthController` 中全部 `DEFAULT_PROJECT` 硬编码（[AuthController.kt](modules/server/src/main/kotlin/io/spechub/server/web/AuthController.kt)）。
-- [ ] `GET /api/auth/users` 改为组织维度（org_admin 可见）；项目成员走项目端点。
-- [ ] 成员变更写 changelog。
+- [x] `GET/POST/PATCH/DELETE /api/projects/{id}/members`（`ProjectMemberController`）。
+- [x] 成员角色仅 viewer/editor/admin；owner 只能走项目转移接口；不能移除 owner。
+- [x] 添加成员支持 `userId` 或 `username`，且必须是组织成员；项目 admin+ 可管理。
+- [x] 替换 `AuthController` 中全部 `DEFAULT_PROJECT` 硬编码：组织用户目录 / 创建组织用户 / 组织角色 / token 重置 / 删除。
+- [x] `GET /api/auth/users` 改为组织维度（org_admin 可见）。
+- [x] `GET /api/auth/me` 返回 `projectRoles`（projectId → 角色），不再绑定 default 项目。
+- [x] 成员变更写 changelog（project.member.add / role / delete）。
 
 **前端**
 
-- [ ] `MembersDialog` 接收 `projectId`，不再默认项目。
-- [ ] 项目切换器接真实 `onSelect`（当前为空实现，[App.tsx](apps/web/src/App.tsx)）。
-- [ ] 账号菜单的「成员与角色」按当前项目角色显示。
-- [ ] `ProjectMembershipApiTest` + 手动 UI 验证。
+- [x] `MembersDialog` 接收 `projectId`，不再默认项目；按项目列成员/加成员/改角色/移除。
+- [x] 项目切换器接真实 `onSelect`，顶栏显示当前项目。
+- [x] 账号菜单的「成员与角色」按当前项目角色显示。
+- [x] `api.ts` 增加项目成员 API、`projectRoles`、组织用户字段。
+- [x] org_admin 可在同一弹窗创建/重置/删除组织用户；项目 admin 可按用户名加入已有用户。
+
+**测试**
+
+- [x] `ProjectMembershipApiTest`：owner/成员增删改、项目 admin 权限、owner 锁定、非成员 404。
+- [x] `AuthApiTest` 适配组织用户语义；`ValidationContractTest` 改为校验 `orgRole`。
+- [x] PostgreSQL / MySQL 全量测试、`:server:ktlintCheck`、`apps/web` 构建通过。
+
+**状态**：✅ 2026-11-17 完成。
 
 ### A7 · 仓库注册 + binding（L）
 

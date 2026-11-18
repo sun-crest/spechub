@@ -1,5 +1,7 @@
 package io.spechub.server.web
 
+import io.spechub.server.service.ProjectService
+import io.spechub.server.service.UserService
 import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
@@ -49,6 +51,12 @@ class ReviewApiTest : TestDbIsolation() {
     /** 管理库 JdbcTemplate（管理域表清理） */
     @Autowired
     lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
+
+    @Autowired
+    lateinit var projectService: ProjectService
+
+    @Autowired
+    lateinit var userService: UserService
 
     companion object {
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
@@ -128,9 +136,12 @@ class ReviewApiTest : TestDbIsolation() {
     private fun createEditor(prefix: String): Pair<String, String> {
         seq++
         val name = "${prefix}_${System.nanoTime()}"
-        val r = req("POST", "/api/auth/users", token = ADMIN, body = """{"username":"$name","role":"editor"}""")
+        val r = req("POST", "/api/auth/users", token = ADMIN, body = """{"username":"$name"}""")
         assertEquals(200, r.statusCode(), r.body())
-        return json.readTree(r.body()).at("/token").asText() to name
+        val tree = json.readTree(r.body())
+        val projectId = projectService.projectIdByName("default") ?: error("default project 未初始化")
+        userService.setMembership(tree.at("/user/id").asLong(), projectId, "editor")
+        return tree.at("/token").asText() to name
     }
 
     @BeforeEach

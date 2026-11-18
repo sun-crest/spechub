@@ -60,6 +60,39 @@ class UserService(
 
     fun listUsers(): List<UserRecord> = users.findAllOrdered().map { it.toRecord() }
 
+    fun findByIds(ids: Collection<Long>): Map<Long, UserRecord> =
+        if (ids.isEmpty()) {
+            emptyMap()
+        } else {
+            users
+                .findAllById(ids)
+                .mapNotNull { entity -> entity.id?.let { id -> id to entity.toRecord() } }
+                .toMap()
+        }
+
+    /** 创建组织用户（不加入任何项目）；项目成员关系由项目成员端点维护。 */
+    @Transactional
+    fun createOrgUser(
+        username: String,
+        displayName: String,
+        tokenHash: String,
+        orgRole: String,
+    ): UserRecord {
+        val saved =
+            users.save(
+                UserEntity(
+                    username = username,
+                    displayName = displayName.ifBlank { username },
+                    tokenHash = tokenHash,
+                    isPlatformAdmin = false,
+                    createdAt = Instant.now(),
+                ),
+            )
+        val userId = checkNotNull(saved.id) { "用户创建后应回填 id" }
+        orgs.ensureMembership(userId, orgs.defaultOrgId(), orgRole)
+        return saved.toRecord()
+    }
+
     /** 创建用户并加入默认组织；projectId 非空时同时加入项目。 */
     @Transactional
     fun createUserWithMembership(
@@ -122,6 +155,14 @@ class UserService(
         userId: Long,
         projectId: Long,
     ): String? = memberships.findByUserIdAndProjectId(userId, projectId)?.role
+
+    @Transactional
+    fun removeMembership(
+        userId: Long,
+        projectId: Long,
+    ) {
+        memberships.deleteByUserIdAndProjectId(userId, projectId)
+    }
 
     fun membershipsOf(userId: Long): Map<Long, String> = memberships.findAllByUserId(userId).associate { it.projectId to it.role }
 

@@ -27,8 +27,17 @@ export interface Me {
   username?: string | null;
   displayName?: string | null;
   platformAdmin?: boolean;
-  /** 对 default project 的角色（前端编辑入口可见性） */
+  /** 组织管理员（含平台 admin） */
+  orgAdmin?: boolean;
+  /** 当前组织 */
+  currentOrgId?: number | null;
+  currentOrgSlug?: string | null;
+  /** 当前用户的组织列表（阶段 A 一个默认组织） */
+  orgs?: { id: number; name: string; slug: string; role: string }[];
+  /** 兼容字段：阶段 A 起不再返回 default 项目角色，前端用 projectRoles */
   role?: string | null;
+  /** projectId → 当前用户角色 */
+  projectRoles?: Record<string, string>;
   canManage?: boolean;
 }
 
@@ -38,7 +47,16 @@ export interface UserView {
   displayName: string;
   platformAdmin: boolean;
   role?: string | null;
+  orgRole?: string | null;
   createdAt?: string | null;
+}
+
+export interface ProjectMember {
+  userId: number;
+  username: string;
+  displayName: string;
+  role: string;
+  orgRole?: string | null;
 }
 
 export interface CreateUserResp {
@@ -48,10 +66,18 @@ export interface CreateUserResp {
 
 /** 写权限角色集合（editor / admin / owner） */
 export const WRITE_ROLES = ["editor", "admin", "owner"];
+/** 项目成员可设置角色（owner 只能通过转移接口） */
+export const PROJECT_ROLES = ["admin", "editor", "viewer"];
 
 export interface Project {
   id: number;
   name: string;
+  slug?: string | null;
+  description?: string;
+  visibility?: string;
+  ownerId?: number | null;
+  archived?: boolean;
+  createdAt?: string | null;
 }
 
 export interface Repo {
@@ -172,14 +198,23 @@ export const login = (token: string, username?: string) =>
   j<AuthStatus>("/auth/login", { method: "POST", body: JSON.stringify({ username, token }) });
 /** 当前用户 + 对默认项目角色（前端据此定编辑入口可见性） */
 export const getMe = () => j<Me>("/auth/me");
-/** 成员列表（需 admin+） */
+/** 组织用户目录（org_admin） */
 export const listUsers = () => j<UserView[]>("/auth/users");
-export const createUser = (u: { username: string; displayName?: string; role: string }) =>
+export const createUser = (u: { username: string; displayName?: string; orgRole?: string }) =>
   j<CreateUserResp>("/auth/users", { method: "POST", body: JSON.stringify(u) });
 export const setUserRole = (id: number, role: string) =>
   j<UserView>(`/auth/users/${id}/role`, { method: "POST", body: JSON.stringify({ role }) });
 export const resetUserToken = (id: number) => j<CreateUserResp>(`/auth/users/${id}/token`, { method: "POST" });
 export const deleteUser = (id: number) => j<unknown>(`/auth/users/${id}`, { method: "DELETE" });
+
+// ── 项目成员（阶段 A）────────────────────────────────────────────────────
+export const listProjectMembers = (projectId: number) => j<ProjectMember[]>(`/projects/${projectId}/members`);
+export const addProjectMember = (projectId: number, m: { username: string; role: string }) =>
+  j<ProjectMember>(`/projects/${projectId}/members`, { method: "POST", body: JSON.stringify(m) });
+export const updateProjectMemberRole = (projectId: number, userId: number, role: string) =>
+  j<ProjectMember>(`/projects/${projectId}/members/${userId}`, { method: "PATCH", body: JSON.stringify({ role }) });
+export const removeProjectMember = (projectId: number, userId: number) =>
+  j<unknown>(`/projects/${projectId}/members/${userId}`, { method: "DELETE" });
 
 export const listProjects = () => j<Project[]>("/projects");
 export const listRepos = () => j<Repo[]>("/repos");

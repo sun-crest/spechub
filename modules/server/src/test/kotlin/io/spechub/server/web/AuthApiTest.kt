@@ -1,6 +1,8 @@
 package io.spechub.server.web
 
 import io.spechub.server.repository.MembershipRepository
+import io.spechub.server.service.ProjectService
+import io.spechub.server.service.UserService
 import io.spechub.spec.gstore.GitCli
 import io.spechub.spec.gstore.GitStore
 import io.spechub.spec.gstore.Identity
@@ -43,6 +45,12 @@ class AuthApiTest : TestDbIsolation() {
 
     @Autowired
     lateinit var memberships: MembershipRepository
+
+    @Autowired
+    lateinit var projectService: ProjectService
+
+    @Autowired
+    lateinit var userService: UserService
 
     companion object {
         /** 每次运行全新临时投影目录（companion 静态字段即时创建，不依赖注入时机） */
@@ -167,10 +175,14 @@ class AuthApiTest : TestDbIsolation() {
         role: String,
     ): Triple<String, Long, String> {
         val username = "${base}_${System.nanoTime()}"
-        val r = req("POST", "/api/auth/users", token = adminToken, body = """{"username":"$username","role":"$role"}""")
+        val r = req("POST", "/api/auth/users", token = adminToken, body = """{"username":"$username"}""")
         assertEquals(200, r.statusCode(), r.body())
         val tree = json.readTree(r.body())
-        return Triple(tree.at("/token").asText(), tree.at("/user/id").asLong(), username)
+        val token = tree.at("/token").asText()
+        val userId = tree.at("/user/id").asLong()
+        val projectId = projectService.projectIdByName("default") ?: error("default project 未初始化")
+        userService.setMembership(userId, projectId, role)
+        return Triple(token, userId, username)
     }
 
     @Test
@@ -191,7 +203,7 @@ class AuthApiTest : TestDbIsolation() {
         val (vtoken, _, _) = createUser(ADMIN, "hier_viewer", "viewer")
 
         assertEquals(403, req("GET", "/api/auth/users", token = vtoken).statusCode(), "viewer 不可查看成员")
-        assertEquals(403, req("POST", "/api/auth/users", token = vtoken, body = """{"username":"x","role":"viewer"}""").statusCode(), "viewer 不可创建")
+        assertEquals(403, req("POST", "/api/auth/users", token = vtoken, body = """{"username":"x"}""").statusCode(), "viewer 不可创建")
         assertEquals(200, req("GET", "/api/auth/users", token = ADMIN).statusCode(), "admin 可管理成员")
     }
 
@@ -209,10 +221,12 @@ class AuthApiTest : TestDbIsolation() {
     @Test
     fun `改角色与重置令牌与删除后令牌失效`() {
         val (t1, uid, _) = createUser(ADMIN, "mutable1", "viewer")
+        val projectId = projectService.projectIdByName("default") ?: error("default project 未初始化")
 
-        // 改角色 editor
-        val role = req("POST", "/api/auth/users/$uid/role", token = ADMIN, body = """{"role":"editor"}""")
+        // 改项目角色 editor（项目成员端点；组织目录不再承载项目角色）
+        val role = req("PATCH", "/api/projects/$projectId/members/$uid", token = ADMIN, body = """{"role":"editor"}""")
         assertEquals(200, role.statusCode(), role.body())
+        assertEquals("editor", userService.membershipRole(uid, projectId))
 
         // 重置令牌：旧失效、新有效
         val reset = req("POST", "/api/auth/users/$uid/token", token = ADMIN)

@@ -92,10 +92,10 @@ class ValidationContractTest : TestDbIsolation() {
     }
 
     @Test
-    fun `AuthController - 非法 role 值为 VALIDATION 错误体`() {
-        val r = post("/api/auth/users", """{"username":"alice","role":"superadmin"}""")
+    fun `AuthController - 非法 orgRole 值为 VALIDATION 错误体`() {
+        val r = post("/api/auth/users", """{"username":"alice","orgRole":"superadmin"}""")
         assertEquals(400, r.statusCode())
-        assertValidation(r.body(), "role")
+        assertValidation(r.body(), "orgRole")
     }
 
     @Test

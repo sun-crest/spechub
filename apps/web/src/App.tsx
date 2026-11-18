@@ -26,6 +26,7 @@ export default function App() {
   const [stage, setStage] = useState<"draft" | "release">("draft");
 
   const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [apis, setApis] = useState<Api[]>([]);
   // K Doc 域
@@ -68,10 +69,15 @@ export default function App() {
     return () => { alive = false; };
   }, []);
 
-  // I4 编辑入口可见性：未启用鉴权 → 可写；启用后需已认证且角色 ∈ editor/admin/owner
+  // I4 编辑入口可见性：未启用鉴权 → 可写；启用后需已认证且当前项目角色 ∈ editor/admin/owner
+  const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? projects[0] ?? null;
+  const currentProjectRole = selectedProjectId != null
+    ? (me?.projectRoles?.[String(selectedProjectId)] ?? (me?.platformAdmin ? "owner" : null))
+    : null;
+  const canManageCurrentProject = me?.orgAdmin === true || (currentProjectRole != null && ["admin", "owner"].includes(currentProjectRole));
   const meCanWrite = me == null
     ? !(authStatus?.authEnabled && !authStatus.authenticated) // 尚未加载：若已探测启用且未认证 → 先按只读
-    : !me.authEnabled || (me.authenticated === true && (me.platformAdmin ?? false)) || (me.authenticated === true && WRITE_ROLES.includes(me.role ?? ""));
+    : !me.authEnabled || (me.authenticated === true && (me.platformAdmin ?? false)) || (me.authenticated === true && WRITE_ROLES.includes(currentProjectRole ?? ""));
   const canWrite = meCanWrite;
   // I6：release 是只读消费视图，编辑/发布只作用于 draft
   const canEdit = canWrite && stage === "draft";
@@ -97,6 +103,17 @@ export default function App() {
     }
   }
   useEffect(() => { void load(); }, [stage]);
+
+  // 项目列表变化时保持选中项有效（阶段 A 默认选第一个可见项目）
+  useEffect(() => {
+    if (projects.length === 0) {
+      setSelectedProjectId(null);
+      return;
+    }
+    if (selectedProjectId == null || !projects.some((p) => p.id === selectedProjectId)) {
+      setSelectedProjectId(projects[0].id);
+    }
+  }, [projects, selectedProjectId]);
 
   // K：Doc 全文检索（防抖）
   useEffect(() => {
@@ -241,11 +258,15 @@ export default function App() {
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger className="flex max-w-56 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] text-muted-foreground hover:bg-muted">
-              <span className="truncate">{projects[0]?.name ?? "加载项目…"}</span>
+              <span className="truncate">{selectedProject?.name ?? "加载项目…"}</span>
               <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden="true" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
-              {projects.map((p) => <DropdownMenuItem key={p.id} onSelect={() => {}}>{p.name}</DropdownMenuItem>)}
+              {projects.map((p) => (
+                <DropdownMenuItem key={p.id} onSelect={() => setSelectedProjectId(p.id)}>
+                  {p.name}
+                </DropdownMenuItem>
+              ))}
               {projects.length === 0 && <DropdownMenuItem disabled>无项目</DropdownMenuItem>}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -296,10 +317,10 @@ export default function App() {
                     <DropdownMenuItem disabled className="flex flex-col items-start gap-0.5">
                       <span className="font-mono text-[13px]">{me.username}</span>
                       <span className="text-[11px] text-muted-foreground">
-                        {me.platformAdmin ? "平台 admin（owner*）" : (me.role ? `角色：${me.role}` : "未分配项目角色（只读）")}
+                        {me.platformAdmin ? "平台 admin（owner*）" : (currentProjectRole ? `${selectedProject?.name ?? "当前项目"} · 角色：${currentProjectRole}` : "未分配项目角色（只读）")}
                       </span>
                     </DropdownMenuItem>
-                    {me.canManage && (
+                    {canManageCurrentProject && (
                       <DropdownMenuItem onSelect={() => setMembersOpen(true)}>
                         <Users className="size-3.5" /> 成员与角色…
                       </DropdownMenuItem>
@@ -402,8 +423,14 @@ export default function App() {
         />
       )}
 
-      {/* I4 成员与角色管理（admin+） */}
-      <MembersDialog open={membersOpen} onOpenChange={setMembersOpen} />
+      {/* I4 / A6 项目成员与角色管理（当前项目 admin+） */}
+      <MembersDialog
+        open={membersOpen}
+        onOpenChange={setMembersOpen}
+        projectId={selectedProjectId}
+        projectName={selectedProject?.name ?? null}
+        canManageOrg={me?.orgAdmin === true}
+      />
 
       {/* I5 全局变更记录 */}
       <ChangeLogDialog open={changeLogOpen} onOpenChange={setChangeLogOpen} />
