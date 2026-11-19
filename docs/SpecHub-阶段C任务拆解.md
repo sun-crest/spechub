@@ -1,6 +1,6 @@
 # SpecHub · 阶段 C 任务拆解（账号与审计）
 
-> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 已完成；C5–C10 待启动
+> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 / C5 已完成；C6–C10 待启动
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **范围**：Spring Security Web 认证底座、Spring Session 分布式会话、密码 / OIDC 登录、账号禁用与邀请、可过期可吊销令牌、项目级服务账号、管理动作审计查询。
 > **不覆盖**：多组织切换 / 组织生命周期 / 平台运营控制面 / break-glass（阶段 D1）、自助注册 / 邮箱验证 / 域名认领（阶段 D2）、SAML / SCIM、MFA / WebAuthn、组织级服务账号、`project_group` / `api_group`。
@@ -50,7 +50,7 @@
 | C1 | 管理库 V6 / V7 迁移 | C0 | L | `V6__identity_and_audit.sql`、`V7__identity_tighten.sql`（PG/MySQL；会话走 Redis，不建管理库会话表） |
 | C2 | Spring Security 认证底座与领域适配 | C1 | L | `SecurityConfig` 双链（Bearer API / Web Session）、Spring Session Data Redis、`AuthenticationManager`、opaque Bearer provider、`AuthService` / `AuthzService` 适配 |
 
-> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 / V7 均已生效；V7 由 C4 同窗口切到 `target=7` 并删除旧列）；**C2 状态**：✅ 2026-11-19 完成（双链 / Session Redis / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）；**C3 状态**：✅ 2026-11-19 完成（密码登录 / 改密 / 邀请重置 / Redis 限流 / 会话属性；审计写点待 C7）；**C4 状态**：✅ 2026-11-20 完成（生命周期 / 会话管理 / 令牌管理 / V7；审计写点待 C7）。
+> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 / V7 均已生效；V7 由 C4 同窗口切到 `target=7` 并删除旧列）；**C2 状态**：✅ 2026-11-19 完成（双链 / Session Redis / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）；**C3 状态**：✅ 2026-11-19 完成（密码登录 / 改密 / 邀请重置 / Redis 限流 / 会话属性；审计写点待 C7）；**C4 状态**：✅ 2026-11-20 完成（生命周期 / 会话管理 / 令牌管理 / V7；审计写点待 C7）；**C5 状态**：✅ 2026-11-20 完成（项目级服务账号 / 跨项目隔离 / MCP / CLI；审计写点待 C7）。
 
 ### 2.2 C‑2 登录与账号生命周期
 
@@ -604,14 +604,14 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **领域层**
 
-- [ ] `ServiceAccountRecord`：`id/orgId/projectId/name/prefix/role/status/expiresAt/lastUsedAt/revokedAt/createdAt`。
-- [ ] `ServiceAccountService`：
+- [x] `ServiceAccountRecord`：`id/orgId/projectId/name/prefix/role/status/expiresAt/lastUsedAt/revokedAt/createdAt`。
+- [x] `ServiceAccountService`：
   - `create(orgId, projectId, name, role, expiresAt, actor)`：校验项目属于组织；名称项目内忽略大小写唯一；角色仅 `viewer|editor`；过期 1–365 天；
   - `list(projectId)`：不含 hash；
   - `revoke(id, projectId, actor)`：置 `status=revoked` + `revoked_at`，立即生效；
   - `rotate(id, projectId, actor)`：事务内吊销旧密钥并签发新密钥，返回明文一次；
   - `resolve(raw)`：校验前缀、hash、状态、过期、项目未删除。
-- [ ] `ProjectService.delete`：删除项目前显式 `deleteAllByProjectId` 清理服务账号（或返回 409 要求先吊销，C0 拍板；建议清理并审计）。
+- [x] `ProjectService.delete`：删除项目前显式 `deleteAllByProjectId` 清理服务账号（或返回 409 要求先吊销，C0 拍板；建议清理并审计）。
 
 **API**
 
@@ -622,34 +622,36 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 | `DELETE` | `/api/service-accounts/{id}` | 项目 `admin+` / `org_admin` | 吊销；跨项目 404 |
 | `POST` | `/api/service-accounts/{id}/rotate` | 项目 `admin+` / `org_admin` | 轮换；旧密钥立即失效 |
 
-- [ ] 创建请求 `{projectId, name, role, expiresInDays?}`；响应 `{account, token}`。
-- [ ] 列表视图不返回 `tokenHash` / 明文；显示 `prefix` 便于识别。
-- [ ] 服务账号与项目成员可同名，但不共享成员表；审计 actor 用 `service:<name>` 区分。
+- [x] 创建请求 `{projectId, name, role, expiresInDays?}`；响应 `{account, token}`。
+- [x] 列表视图不返回 `tokenHash` / 明文；显示 `prefix` 便于识别。
+- [x] 服务账号与项目成员可同名，但不共享成员表；审计 actor 用 `service:<name>` 区分。
 
 **认证与授权**
 
-- [ ] `ServiceAccountAuthenticationProvider`（或 `BearerAuthenticationFilter` 内的委托）：按 SHA-256 查 `service_account`（`shs_` 前缀仅用于展示 / 基本校验），校验状态 / 过期 / 吊销，返回带 `ServicePrincipal` 的 `Authentication`；接入 Bearer API 链。
-- [ ] `AuthService.effectiveRole`：服务账号仅在其 `projectId` 返回自身角色；其它项目 `null`，读 404 / 写 403。
-- [ ] 服务账号不可登录 Web：Web 链的 JSON 登录 filter 只接受用户令牌 / 密码，拒绝 `shs_`；`/api/auth/login` 对服务账号令牌返回 401。
-- [ ] 服务账号不可访问：`/api/auth/users`、`/api/teams`、`/api/projects` 管理动作（POST/PATCH/DELETE/transfer/archive）、`/api/audit`、`/api/service-accounts`（管理自身也不行）；评论 / 订阅 / 评审审批等人类协作端点使用 `requireHuman` 拒绝。
-- [ ] 服务账号可访问：所属项目的 repos / apis / docs / export / mock / spec 读写（按角色）、导入、评审状态读取与写回提交；`GET /api/projects` 只返回所属项目；actor 记 `service:<name>`。
-- [ ] 服务账号对 `/api/apis` 等列表的可见集合只包含所属项目；空集合返回空，禁止退化全量。
-- [ ] `/mock/{repoId}/**`：携带有效服务账号且项目匹配时可用；跨项目 / 无效令牌 404 / 401（D1 再做 public/mock key 收敛）。
+- [x] `ServiceAccountAuthenticationProvider`（或 `BearerAuthenticationFilter` 内的委托）：按 SHA-256 查 `service_account`（`shs_` 前缀仅用于展示 / 基本校验），校验状态 / 过期 / 吊销，返回带 `ServicePrincipal` 的 `Authentication`；接入 Bearer API 链。
+- [x] `AuthService.effectiveRole`：服务账号仅在其 `projectId` 返回自身角色；其它项目 `null`，读 404 / 写 403。
+- [x] 服务账号不可登录 Web：Web 链的 JSON 登录 filter 只接受用户令牌 / 密码，拒绝 `shs_`；`/api/auth/login` 对服务账号令牌返回 401。
+- [x] 服务账号不可访问：`/api/auth/users`、`/api/teams`、`/api/projects` 管理动作（POST/PATCH/DELETE/transfer/archive）、`/api/audit`、`/api/service-accounts`（管理自身也不行）；评论 / 订阅 / 评审审批等人类协作端点使用 `requireHuman` 拒绝。
+- [x] 服务账号可访问：所属项目的 repos / apis / docs / export / mock / spec 读写（按角色）、导入、评审状态读取与写回提交；`GET /api/projects` 只返回所属项目；actor 记 `service:<name>`。
+- [x] 服务账号对 `/api/apis` 等列表的可见集合只包含所属项目；空集合返回空，禁止退化全量。
+- [x] `/mock/{repoId}/**`：携带有效服务账号且项目匹配时可用；跨项目 / 无效令牌 404 / 401（D1 再做 public/mock key 收敛）。
 
 **MCP / CLI**
 
-- [ ] 文档更新：`SPECHUB_TOKEN` 可使用服务账号令牌（MCP `apps/mcp/src/config.ts`；CLI `~/.spechub.json` / `SPECHUB_TOKEN`）。
-- [ ] 明确服务账号角色：MCP 写工具需 `editor`；只读工具 `viewer` 即可。
-- [ ] 令牌过期 / 吊销后的错误提示写入 README 与 CLI README；无需改客户端代码。
+- [x] 文档更新：`SPECHUB_TOKEN` 可使用服务账号令牌（MCP `apps/mcp/src/config.ts`；CLI `~/.spechub.json` / `SPECHUB_TOKEN`）。
+- [x] 明确服务账号角色：MCP 写工具需 `editor`；只读工具 `viewer` 即可。
+- [x] 令牌过期 / 吊销后的错误提示写入 README 与 CLI README；无需改客户端代码。
 
 **测试**
 
-- [ ] `ServiceAccountApiTest`：创建 / 列表 / 吊销 / 轮换；viewer 可读不可写；editor 可写；跨项目 404；吊销后立即 401；过期 401；不能登录 Web；不能访问 org_admin 端点。
-- [ ] `ReadIsolationTest` 扩展：服务账号在项目 A，访问项目 B 的列表 / 详情 / 导出 / mock 全部 404。
-- [ ] `ProjectApiTest`：项目删除时服务账号清理（或 409 行为与 C0 一致）。
-- [ ] 双库全量测试与 ktlint 通过。
+- [x] `ServiceAccountApiTest`：创建 / 列表 / 吊销 / 轮换；viewer 可读不可写；editor 可写；跨项目 404；吊销后立即 401；过期 401；不能登录 Web；不能访问 org_admin 端点。
+- [x] `ReadIsolationTest` 扩展：服务账号在项目 A，访问项目 B 的列表 / 详情 / 导出 / mock 全部 404。
+- [x] `ProjectApiTest`：项目删除时服务账号清理（或 409 行为与 C0 一致）。
+- [x] 双库全量测试与 ktlint 通过。
 
-**状态**：待启动。
+> **C5 实施说明（2026-11-20）**：服务账号 token 认证复用 C2 的 `TokenAuthenticationProvider`（先 user_token、后 service_account）；`service_account.*` 的 `audit_event` 写点随 C7 接入。MCP / CLI 继续使用 `SPECHUB_TOKEN`，无需改客户端代码。
+
+**状态**：✅ 2026-11-20 完成（审计写点待 C7）。
 
 ---
 

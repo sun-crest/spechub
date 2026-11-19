@@ -15,6 +15,12 @@
 
 `<repo>` 用 id 或 url 前缀匹配（如 `2` 或 `petstore`）。
 
+### 服务账号令牌（C5）
+
+- `login --token` / `SPECHUB_TOKEN` 可使用用户 API 令牌（`shu_`）或项目级服务账号令牌（`shs_`）；
+- 服务账号只能访问所属项目：`status` / `pull` / `diff` 需 `viewer`，`push` / `commit` 需 `editor`；
+- 令牌过期或吊销后 backend 返回 **401 `AUTH_UNAUTHORIZED`**；在 Web「服务账号」轮换密钥后更新配置，无需改客户端代码。
+
 ## 构建与发布（G3）
 
 ```bash

@@ -5,6 +5,7 @@ import io.spechub.server.repository.MembershipRepository
 import io.spechub.server.repository.ProjectEntity
 import io.spechub.server.repository.ProjectRepository
 import io.spechub.server.repository.RepoRepository
+import io.spechub.server.repository.ServiceAccountRepository
 import io.spechub.spec.index.ProjectRecord
 import io.spechub.spec.index.Role
 import org.springframework.stereotype.Service
@@ -22,6 +23,7 @@ class ProjectService(
     private val projects: ProjectRepository,
     private val repos: RepoRepository,
     private val memberships: MembershipRepository,
+    private val serviceAccounts: ServiceAccountRepository,
     private val orgs: OrgService,
 ) {
     companion object {
@@ -171,6 +173,8 @@ class ProjectService(
         val project = projects.findById(id).orElse(null) ?: throw IllegalArgumentException("项目 $id 不存在")
         check(project.archived) { "项目 $id 必须先归档再删除" }
         check(repos.countByProjectId(id) == 0L) { "项目 $id 仍有仓库，不能删除" }
+        // 项目级服务账号随项目清理（FK RESTRICT 由 Service 显式编排）；令牌随即失效。
+        serviceAccounts.deleteAllByProjectId(id)
         memberships.deleteAllByProjectId(id)
         projects.deleteById(id)
     }

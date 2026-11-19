@@ -26,9 +26,15 @@ node dist/index.js --http    # streamable HTTP（remote 优先），端口 SPECH
 ### 环境变量
 
 - `SPECHUB_BASE_URL`：backend 基址（默认 `http://localhost:8080`）
-- `SPECHUB_TOKEN`：backend admin token（服务端配置 `spechub.admin-token` 后必需，Bearer）
+- `SPECHUB_TOKEN`：Bearer 令牌——用户 API 令牌（`shu_`）或项目级服务账号令牌（`shs_`）；服务账号只能访问所属项目
 - `SPECHUB_ALLOW_WRITE=1`：开启 `create_api` / `update_api` 写工具（**默认只读；写入即对真源仓 commit/push**，Claude 侧会确认）
 - `SPECHUB_MCP_PORT`：HTTP 模式监听端口
+
+### 服务账号令牌（C5）
+
+- 只读工具（`list_projects` / `search_api` / `get_api` / `list_specs` / `doc_sync_status`）：服务账号 `viewer` 即可；
+- 写工具（`create_api` / `update_api`）：服务账号需 `editor`，且仍需 `SPECHUB_ALLOW_WRITE=1`；
+- 令牌过期 / 吊销后 backend 返回 **401 `AUTH_UNAUTHORIZED`**；在 Web「服务账号」轮换密钥后更新 `SPECHUB_TOKEN`，无需改客户端代码。
 
 ### 冒烟
 

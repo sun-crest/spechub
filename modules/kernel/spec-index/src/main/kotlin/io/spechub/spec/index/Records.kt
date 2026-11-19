@@ -207,6 +207,23 @@ data class UserRecord(
     val createdAt: String? = null,
 )
 
+/** 项目级服务账号（C5）：CI / MCP / CLI 机器身份，不可登录 Web；明文只在创建 / 轮换时返回一次。 */
+data class ServiceAccountRecord(
+    val id: Long? = null,
+    val orgId: Long,
+    val projectId: Long,
+    val name: String,
+    /** 令牌展示前缀（不含 hash / 明文） */
+    val prefix: String = "",
+    val role: String = "viewer",
+    /** active | revoked */
+    val status: String = "active",
+    val expiresAt: String? = null,
+    val lastUsedAt: String? = null,
+    val revokedAt: String? = null,
+    val createdAt: String? = null,
+)
+
 /** 项目成员关系：user → project 的角色（owner/admin/editor/viewer） */
 data class MembershipRecord(
     val id: Long? = null,
