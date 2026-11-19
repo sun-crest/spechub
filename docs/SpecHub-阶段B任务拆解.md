@@ -229,18 +229,19 @@ ADR 未写死、但会影响实现细节的项，在 B0 一次拍板并记录。
 | `PATCH` | `/api/teams/{id}/members/{userId}` | `team lead` / `org_admin` | 改 `lead` / `member` |
 | `DELETE` | `/api/teams/{id}/members/{userId}` | `team lead` / `org_admin` | 移除；不能移除最后一个 lead |
 
-- [ ] 新建 `TeamController`（参考 `ProjectController` / `ProjectMemberController` 的权限与错误码风格）。
-- [ ] DTO：`TeamView(id, name, description, memberCount, subscriptionCount, myRole, createdAt)`、`TeamMemberView(userId, username, displayName, role, orgRole)`。
-- [ ] 校验：团队不存在 / 跨 org → 404；可见但角色不足 → 403；重名 → 409；最后一个 lead → 409。
-- [ ] `GET /api/auth/me` 增加 `teams: [{ id, name, role }]`（当前用户所在团队，`role ∈ lead|member`；org_admin 不自动列出全部团队，可另行通过 `/api/teams` 查看）。
-- [ ] dev 免登录模式：团队管理端点放行（沿用「未启用鉴权全放行」），`myRole` 返回 `lead` 语义。
+- [x] 新建 `TeamController`（参考 `ProjectController` / `ProjectMemberController` 的权限与错误码风格）。
+- [x] DTO：`TeamView(id, name, description, memberCount, subscriptionCount, myRole, canManage, createdAt)`、`TeamMemberView(userId, username, displayName, role, orgRole)`。
+- [x] 校验：团队不存在 / 跨 org → 404；可见但角色不足 → 403；重名 → 409；最后一个 lead → 409；有订阅删除 → 409。
+- [x] `GET /api/auth/me` 增加 `teams: [{ id, name, role }]`（当前用户所在团队，`role ∈ lead|member`；org_admin 不自动列出全部团队，可另行通过 `/api/teams` 查看）。
+- [x] dev 免登录模式：团队管理端点放行；列表 `canManage=true`、`myRole` 为 null（无成员身份）。
+- [x] `POST /api/teams` 创建成功后将创建者（非 dev anonymous）加入为 `lead`，保证团队始终有 lead。
 
 **测试**
 
-- [ ] `TeamApiTest`：org_admin 创建、普通成员创建 403、改名冲突 409、成员增删改、非成员看成员列表 404、最后一个 lead 409、删除有订阅 409、跨 org 404。
-- [ ] `AuthApiTest`：`me.teams` 字段与登录/未登录行为。
+- [x] `TeamApiTest`：org_admin 创建且创建者为 lead、普通成员创建 403、团队列表/myRole、`me.teams`、改名与重名 409、成员改角色、非成员看成员列表 404、最后一个 lead 409、删除有订阅 409、跨 org 404。
+- [x] `me.teams` 由 `TeamApiTest` 覆盖（鉴权模式）；dev 未登录时字段为空列表默认值。
 
-**状态**：⬜ 待开始。
+**状态**：✅ 2026-11-19 完成；PostgreSQL / MySQL 全量 `:server:test` 与 `:server:ktlintCheck` 通过。
 
 ---
 

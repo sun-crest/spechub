@@ -30,6 +30,7 @@ class TeamService(
         const val ROLE_MEMBER = "member"
         val ROLES = setOf(ROLE_LEAD, ROLE_MEMBER)
         const val MAX_NAME_LENGTH = 128
+        const val MAX_DESCRIPTION_LENGTH = 1024
     }
 
     data class TeamMembership(
@@ -82,8 +83,9 @@ class TeamService(
         actor: String = "system",
     ): TeamEntity {
         val normalized = validateName(name)
+        validateDescription(description)
         if (teams.findByOrgIdAndNameIgnoreCase(orgId, normalized) != null) {
-            throw IllegalArgumentException("团队名已存在：$normalized")
+            throw IllegalStateException("团队名已存在：$normalized")
         }
         val saved =
             teams.save(
@@ -108,9 +110,10 @@ class TeamService(
     ): TeamEntity {
         val team = get(id, orgId) ?: throw IllegalArgumentException("团队 $id 不存在")
         val newName = name?.let(::validateName) ?: team.name
+        description?.let(::validateDescription)
         val conflict = teams.findByOrgIdAndNameIgnoreCase(orgId, newName)
         if (conflict != null && conflict.id != team.id) {
-            throw IllegalArgumentException("团队名已存在：$newName")
+            throw IllegalStateException("团队名已存在：$newName")
         }
         val saved = teams.save(team.copy(name = newName, description = description?.trim() ?: team.description))
         changelogService.add(null, null, actor, "team.update", "更新团队 ${saved.name}", orgId)
@@ -201,6 +204,10 @@ class TeamService(
         require(normalized.isNotEmpty()) { "团队名不能为空" }
         require(normalized.length <= MAX_NAME_LENGTH) { "团队名最长 $MAX_NAME_LENGTH 字符" }
         return normalized
+    }
+
+    private fun validateDescription(description: String) {
+        require(description.trim().length <= MAX_DESCRIPTION_LENGTH) { "团队描述最长 $MAX_DESCRIPTION_LENGTH 字符" }
     }
 
     private fun validateRole(role: String) {

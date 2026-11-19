@@ -78,13 +78,13 @@ class TeamServiceTest : TestDbIsolation() {
         val teamId = assertNotNull(team.id)
         assertEquals(name, team.name, "名称应 trim")
         assertEquals(teamId, teams.findByName(orgId, name.uppercase())?.id, "名称查重忽略大小写")
-        assertFailsWith<IllegalArgumentException> { teams.create(orgId, name.uppercase()) }
+        assertFailsWith<IllegalStateException> { teams.create(orgId, name.uppercase()) }
 
         val renamed = teams.update(teamId, orgId, name = "$name-renamed")
         assertEquals("$name-renamed", renamed.name)
         assertEquals(0L, teams.subscriptionCount(teamId))
         val other = teams.create(orgId, uniqueName("other"))
-        assertFailsWith<IllegalArgumentException> { teams.update(teamId, orgId, name = other.name) }
+        assertFailsWith<IllegalStateException> { teams.update(teamId, orgId, name = other.name) }
     }
 
     @Test

@@ -3,6 +3,7 @@ package io.spechub.server.web
 import io.spechub.server.service.ChangelogService
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.ProjectService
+import io.spechub.server.service.TeamService
 import io.spechub.server.service.UserService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
@@ -42,6 +43,7 @@ class AuthController(
     private val projectService: ProjectService,
     private val users: UserService,
     private val orgs: OrgService,
+    private val teams: TeamService,
     private val auth: AuthService,
 ) {
     data class LoginRequest(
@@ -62,6 +64,12 @@ class AuthController(
         val role: String,
     )
 
+    data class MeTeamView(
+        val id: Long,
+        val name: String,
+        val role: String,
+    )
+
     data class MeResponse(
         val authenticated: Boolean,
         val authEnabled: Boolean,
@@ -78,6 +86,8 @@ class AuthController(
         val role: String? = null,
         /** projectId → 当前用户在该项目的角色 */
         val projectRoles: Map<Long, String> = emptyMap(),
+        /** 当前用户所在的团队（B3；org_admin 不自动列出全部团队） */
+        val teams: List<MeTeamView> = emptyList(),
         /** 全局角色视图：org_admin 或任一项目 admin+ 视为可管理 */
         val canManage: Boolean = false,
     )
@@ -162,6 +172,14 @@ class AuthController(
                         auth.effectiveRole(user, projectId)?.let { projectId to it }
                     }
                 }.toMap()
+        val teamViews =
+            user.id?.takeIf { it > 0 }?.let { uid ->
+                teams
+                    .teamsOf(uid)
+                    .mapNotNull { membership ->
+                        membership.team.id?.let { MeTeamView(it, membership.team.name, membership.role) }
+                    }
+            } ?: emptyList()
         return MeResponse(
             authenticated = true,
             authEnabled = true,
@@ -173,6 +191,7 @@ class AuthController(
             currentOrgId = orgId,
             currentOrgSlug = currentOrg.slug,
             projectRoles = projectRoles,
+            teams = teamViews,
             canManage = orgAdmin || projectRoles.values.any { Role.rank(it) >= Role.rank(Role.ADMIN) },
         )
     }
