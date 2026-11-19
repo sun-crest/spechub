@@ -300,24 +300,25 @@ ADR 未写死、但会影响实现细节的项，在 B0 一次拍板并记录。
 
 ### B6 · 前端团队管理与订阅改造（M）
 
-- [ ] 新建 `apps/web/src/demo/TeamDialog.tsx`：
+- [x] 新建 `apps/web/src/demo/TeamDialog.tsx`：
   - 团队列表（名称、成员数、我的角色、订阅数）；
-  - 创建 / 改名 / 删除（按角色显示）；空状态引导；
-  - 成员管理（添加组织用户、改 lead/member、移除；最后一个 lead 提示）。
-- [ ] `App.tsx`：组织 / 账号菜单增加「团队管理」入口；加载 `me.teams` 与团队列表；org_admin 可见全部团队。
-- [ ] `ApiDetail.tsx` 订阅 Tab：
-  - 订阅表单改为团队下拉：只列「我是 lead 的团队」；org_admin 列全部团队；无可用团队时提示去创建；
+  - 创建 / 改名 / 删除（按角色显示；dev 免登录全放行）；空状态引导；
+  - 成员管理（添加组织用户、改 lead/member、移除；最后一个 lead 错误由后端 409 提示）。
+- [x] `App.tsx`：账号菜单增加「团队管理」入口；普通用户只看自己团队，org_admin / dev 可见全部。
+- [x] `ApiDetail.tsx` 订阅 Tab：
+  - 订阅表单改为团队下拉：只列 `canManage` 的团队（team lead / org_admin；dev 全放行）；无可用团队时引导去团队管理创建；
   - 订阅方列表显示 `teamName`，取消按钮按 lead / org_admin 显示；
   - 通知面板默认拉「我的团队」，可按团队筛选；显示团队名 + 变更摘要。
-- [ ] `api.ts`：
+- [x] `api.ts`：
   - 新增 `Team` / `TeamMember` 类型与 CRUD / 成员 API；
   - `Subscription` 增加 `teamId` / `teamName`，`subscribe` 改 `teamId`；
   - `Notification` 增加 `teamId` / `teamName`，`listNotifications` 改 `teamId`；
   - `Me` 增加 `teams`。
-- [ ] 文案统一「团队」（B0 结论）。
-- [ ] `apps/web` 构建通过；手动 e2e：创建团队 → 加成员 → 订阅 → 改 spec → 成员看到通知 / 非成员看不到 → 团队改名 → 订阅仍有效。
+- [x] 文案统一「团队」（B0 结论）。
+- [x] `apps/web` 构建通过（`tsc -b && vite build`，含 dev 免登录团队管理分支）。
+- [ ] 浏览器手动 e2e（留 B7 联调）：创建团队 → 加成员 → 订阅 → 改 spec → 成员看到通知 / 非成员看不到 → 团队改名 → 订阅仍有效。
 
-**状态**：⬜ 待开始。
+**状态**：✅ 2026-11-19 代码与构建完成；浏览器手测随 B7 联调执行。
 
 ---
 

@@ -17,6 +17,7 @@ import { ProjectDialog } from "./demo/ProjectDialog";
 import { RepoRegisterDialog } from "./demo/RepoRegisterDialog";
 import { ChangeLogDialog } from "./demo/ChangeLogDialog";
 import { ReviewDialog } from "./demo/ReviewDialog";
+import { TeamDialog } from "./demo/TeamDialog";
 import { DocPanel } from "./demo/DocPanel";
 import { getAuthStatus, getAdminToken, setAdminToken, getMe, listApis, listProjects, listRepos, listDocs, searchDocs, listReviews, repoDisplay, WRITE_ROLES, type Api, type Doc, type Me, type Project, type Repo, type WriteSpecResp, type AuthStatus } from "@/lib/api";
 
@@ -52,6 +53,8 @@ export default function App() {
   // I4 RBAC：当前用户 + 默认项目角色（决定写入口可见性）
   const [me, setMe] = useState<Me | null>(null);
   const [membersOpen, setMembersOpen] = useState(false);
+  // B6：团队管理（组织级，账号菜单入口）
+  const [teamsOpen, setTeamsOpen] = useState(false);
   // I5 变更记录独立视图
   const [changeLogOpen, setChangeLogOpen] = useState(false);
   // I8 评审审批流
@@ -367,7 +370,12 @@ export default function App() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {!me?.authEnabled ? (
-                  <DropdownMenuItem disabled className="text-muted-foreground">后端未启用鉴权（免登录）</DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem disabled className="text-muted-foreground">后端未启用鉴权（免登录）</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setTeamsOpen(true)}>
+                      <Users className="size-3.5" /> 团队管理…
+                    </DropdownMenuItem>
+                  </>
                 ) : me?.authenticated ? (
                   <>
                     <DropdownMenuItem disabled className="flex flex-col items-start gap-0.5">
@@ -381,6 +389,9 @@ export default function App() {
                         <Users className="size-3.5" /> 成员与角色…
                       </DropdownMenuItem>
                     )}
+                    <DropdownMenuItem onSelect={() => setTeamsOpen(true)}>
+                      <Users className="size-3.5" /> 团队管理…
+                    </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => {
                       const enabled = authStatus?.authEnabled ?? false;
                       setAdminToken(null);
@@ -525,6 +536,14 @@ export default function App() {
         projects={projects}
         projectId={selectedProjectId}
         onRegistered={(msg) => { setToast(msg); void load(); }}
+      />
+
+      {/* B6 团队管理（org_admin / team lead；普通成员查看自己的团队） */}
+      <TeamDialog
+        open={teamsOpen}
+        onOpenChange={setTeamsOpen}
+        me={me}
+        onChanged={() => void loadMe()}
       />
 
       {/* I5 全局变更记录 */}

@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { MethodBadge } from "./method";
 import { TryPanel } from "./TryPanel";
 import { MockPanel } from "./MockPanel";
-import { getApi, listVersions, listChangelog, promoteSpec, listComments, addComment, deleteComment, listSubscriptions, subscribe, unsubscribe, listNotifications, repoDisplay, type Api, type ChangelogEntry, type Comment, type Repo, type Subscription, type Notification, type VersionRecord } from "@/lib/api";
+import { getApi, listVersions, listChangelog, promoteSpec, listComments, addComment, deleteComment, listSubscriptions, subscribe, unsubscribe, listNotifications, listTeams, repoDisplay, type Api, type ChangelogEntry, type Comment, type Repo, type Subscription, type Notification, type VersionRecord, type Team } from "@/lib/api";
 import { OperationContract, type SpecOp } from "./contract";
 
 export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername, stage, onEdit, onPromoted }: {
@@ -31,9 +30,11 @@ export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername,
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentBody, setCommentBody] = useState("");
   const [commentMsg, setCommentMsg] = useState<string | null>(null);
-  // I7 订阅
+  // I7 / B6 订阅（teamId 契约）
   const [subs, setSubs] = useState<Subscription[]>([]);
-  const [team, setTeam] = useState("");
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
+  const [notifTeamId, setNotifTeamId] = useState<number | null>(null);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [subMsg, setSubMsg] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
@@ -83,29 +84,57 @@ export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername,
     catch (e) { setCommentMsg(String(e)); }
   }
 
-  // I7 订阅：该接口的订阅方列表 + 当前用户的通知
+  // I7 / B6 订阅：该接口的订阅方列表 + 当前用户团队的通知
   const loadSubs = useCallback((repoId: number, method: string, path: string) => {
     void listSubscriptions(repoId).then((all) =>
       setSubs(all.filter((s) => s.method === method && s.path === path))).catch(() => setSubs([]));
   }, []);
-  const loadNotifs = useCallback((teamName: string | null) => {
-    if (!teamName) { setNotifs([]); return; }
-    void listNotifications(teamName, 5).then(setNotifs).catch(() => setNotifs([]));
+  const loadNotifs = useCallback((teamId: number | null) => {
+    void listNotifications(teamId ?? undefined, 5).then(setNotifs).catch(() => setNotifs([]));
   }, []);
+  // 团队下拉：canManage = team lead / org_admin；通知筛选：canManage 或我的团队
+  const manageableTeams = useMemo(() => teams.filter((t) => t.canManage), [teams]);
+  const notifTeams = useMemo(() => teams.filter((t) => t.canManage || t.myRole != null), [teams]);
+  const teamCanManage = useCallback(
+    (teamId?: number | null) => teamId != null && teams.some((t) => t.id === teamId && t.canManage),
+    [teams],
+  );
+
+  // 打开订阅 Tab 时刷新团队列表（团队管理新增/改名后即时可见）
   useEffect(() => {
-    if (api) { loadSubs(api.repoId, api.method, api.path); loadNotifs(meUsername); }
-  }, [api, meUsername, loadSubs, loadNotifs]);
+    if (tab !== "subscribe") return;
+    let alive = true;
+    void listTeams()
+      .then((ts) => {
+        if (!alive) return;
+        setTeams(ts);
+        const manageable = ts.filter((t) => t.canManage);
+        setSelectedTeamId((cur) => (cur != null && manageable.some((t) => t.id === cur) ? cur : (manageable[0]?.id ?? null)));
+      })
+      .catch(() => { if (alive) setTeams([]); });
+    return () => { alive = false; };
+  }, [api?.id, tab]);
+
+  // 团队被删除/失去权限后清空失效的筛选
+  useEffect(() => {
+    if (notifTeamId != null && !teams.some((t) => t.id === notifTeamId)) setNotifTeamId(null);
+  }, [teams, notifTeamId]);
+
+  useEffect(() => {
+    if (api) loadSubs(api.repoId, api.method, api.path);
+  }, [api, loadSubs]);
+  useEffect(() => {
+    if (api) loadNotifs(notifTeamId);
+  }, [api, notifTeamId, loadNotifs]);
 
   async function doSubscribe() {
     if (!api) return;
-    const name = team.trim() || meUsername?.trim() || "";
-    if (!name) { setSubMsg("请填订阅团队名（或已登录自动用你的用户名）"); return; }
+    if (selectedTeamId == null) { setSubMsg("请选择团队；只有 team lead / org_admin 可以订阅"); return; }
     setSubMsg(null);
     try {
-      await subscribe(api.repoId, api.method, api.path, name);
-      setTeam("");
+      const sub = await subscribe(api.repoId, api.method, api.path, selectedTeamId);
       await loadSubs(api.repoId, api.method, api.path);
-      setSubMsg("已订阅（结构变更时通知「$name」）");
+      setSubMsg(`已订阅：团队「${sub.teamName}」将收到结构变更通知`);
     } catch (e) { setSubMsg(String(e)); }
   }
 
@@ -300,7 +329,7 @@ export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername,
             )}
           </div>
         </TabsContent>
-      {/* ⑤ 订阅（I7） */}
+      {/* ⑤ 订阅（I7 / B6：团队 teamId 契约） */}
         <TabsContent value="subscribe" className="mt-5 flex flex-col gap-4">
           <div className="rounded-lg border bg-card p-5">
             <h3 className="mb-3 text-sm font-semibold">订阅方（消费团队 · {subs.length}）</h3>
@@ -309,9 +338,9 @@ export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername,
               <ul className="flex flex-col gap-1.5">
                 {subs.map((s) => (
                   <li key={s.id} className="flex items-center gap-2 rounded border bg-muted/20 px-3 py-1.5 text-[13px]">
-                    <Badge variant="outline" className="font-mono text-[10px]">{s.team}</Badge>
+                    <Badge variant="outline" className="font-mono text-[10px]">{s.teamName}</Badge>
                     <span className="min-w-0 flex-1 truncate text-muted-foreground">{s.notifyUrl || "（通知落平台记录）"}</span>
-                    {(meUsername != null && (s.team === meUsername || meUsername === "admin")) && (
+                    {teamCanManage(s.teamId) && (
                       <button className="text-[11px] text-muted-foreground hover:text-destructive" onClick={() => void doUnsubscribe(s.id)}>取消</button>
                     )}
                   </li>
@@ -321,32 +350,55 @@ export function ApiDetail({ id, onBack, repos, canWrite, canComment, meUsername,
               <p className="py-1 text-[12.5px] text-muted-foreground">暂无团队订阅此接口</p>
             )}
 
-            {canComment ? (
+            {!canComment ? (
+              <p className="mt-3 text-[12px] text-muted-foreground">订阅需要登录（账号菜单登录后可用）。</p>
+            ) : manageableTeams.length > 0 ? (
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <Input
-                  value={team}
-                  onChange={(e) => setTeam(e.target.value)}
-                  placeholder={meUsername ? `订阅团队名（默认 ${meUsername}）` : "订阅团队名"}
-                  className="w-56 text-[12.5px]"
-                />
+                <select
+                  value={selectedTeamId ?? ""}
+                  onChange={(e) => setSelectedTeamId(e.target.value ? Number(e.target.value) : null)}
+                  className="h-8 rounded-md border bg-background px-2 font-mono text-[12px]"
+                  title="以团队身份订阅"
+                >
+                  {manageableTeams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
                 <Button size="sm" variant="outline" onClick={() => void doSubscribe()}>订阅此接口</Button>
+                <span className="text-[11.5px] text-muted-foreground">仅 team lead / org_admin 可订阅</span>
               </div>
             ) : (
-              <p className="mt-3 text-[12px] text-muted-foreground">订阅需要登录（账号菜单登录后可用）。</p>
+              <p className="mt-3 text-[12px] text-muted-foreground">
+                你还没有可管理的团队。请先在账号菜单 →「团队管理」创建团队，或让 team lead 把你加入为 lead。
+              </p>
             )}
           </div>
 
-          {notifs.length > 0 && (
+          {(notifTeams.length > 0 || notifs.length > 0) && (
             <div className="rounded-lg border bg-card p-5">
-              <h3 className="mb-3 text-sm font-semibold">你的团队最近的变更通知</h3>
-              <div className="flex flex-col gap-1.5">
-                {notifs.map((n) => (
-                  <div key={n.id} className="rounded border bg-muted/20 px-3 py-1.5 text-[12.5px]">
-                    <span className="font-mono text-muted-foreground">{n.method} {n.path}：</span>{n.summary}
-                    <span className="ml-2 font-mono text-[11px] text-muted-foreground">{n.createdAt ?? ""}</span>
-                  </div>
-                ))}
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-semibold">团队最近的变更通知</h3>
+                <select
+                  value={notifTeamId ?? ""}
+                  onChange={(e) => setNotifTeamId(e.target.value ? Number(e.target.value) : null)}
+                  className="ml-auto h-7 rounded-md border bg-background px-1.5 font-mono text-[11.5px]"
+                  title="按团队筛选通知"
+                >
+                  <option value="">我的全部团队</option>
+                  {notifTeams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
               </div>
+              {notifs.length > 0 ? (
+                <div className="flex flex-col gap-1.5">
+                  {notifs.map((n) => (
+                    <div key={n.id} className="rounded border bg-muted/20 px-3 py-1.5 text-[12.5px]">
+                      <Badge variant="outline" className="mr-1.5 font-mono text-[10px]">{n.teamName}</Badge>
+                      <span className="font-mono text-muted-foreground">{n.method} {n.path}：</span>{n.summary}
+                      <span className="ml-2 font-mono text-[11px] text-muted-foreground">{n.createdAt ?? ""}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[12px] text-muted-foreground">当前筛选下暂无变更通知。</p>
+              )}
             </div>
           )}
         </TabsContent>

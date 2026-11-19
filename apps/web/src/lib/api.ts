@@ -38,6 +38,8 @@ export interface Me {
   role?: string | null;
   /** projectId → 当前用户角色 */
   projectRoles?: Record<string, string>;
+  /** 当前用户所在团队（B3） */
+  teams?: { id: number; name: string; role: string }[];
   canManage?: boolean;
 }
 
@@ -223,6 +225,43 @@ export const updateProjectMemberRole = (projectId: number, userId: number, role:
   j<ProjectMember>(`/projects/${projectId}/members/${userId}`, { method: "PATCH", body: JSON.stringify({ role }) });
 export const removeProjectMember = (projectId: number, userId: number) =>
   j<unknown>(`/projects/${projectId}/members/${userId}`, { method: "DELETE" });
+
+// ── 阶段 B（B3）：团队与成员 ──────────────────────────────────────────────
+export interface Team {
+  id: number;
+  name: string;
+  description?: string;
+  memberCount: number;
+  subscriptionCount: number;
+  /** 当前用户在该团队的角色（lead / member）；org_admin 可为 null 但 canManage=true */
+  myRole?: string | null;
+  canManage?: boolean;
+  createdAt?: string | null;
+}
+
+export interface TeamMember {
+  userId: number;
+  username: string;
+  displayName: string;
+  role: string;
+  orgRole?: string | null;
+}
+
+export const TEAM_ROLES = ["lead", "member"];
+
+export const listTeams = () => j<Team[]>("/teams");
+export const createTeam = (t: { name: string; description?: string }) =>
+  j<Team>("/teams", { method: "POST", body: JSON.stringify(t) });
+export const updateTeam = (id: number, patch: { name?: string; description?: string }) =>
+  j<Team>(`/teams/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const deleteTeam = (id: number) => j<unknown>(`/teams/${id}`, { method: "DELETE" });
+export const listTeamMembers = (id: number) => j<TeamMember[]>(`/teams/${id}/members`);
+export const addTeamMember = (id: number, m: { userId?: number; username?: string; role?: string }) =>
+  j<TeamMember>(`/teams/${id}/members`, { method: "POST", body: JSON.stringify(m) });
+export const updateTeamMemberRole = (id: number, userId: number, role: string) =>
+  j<TeamMember>(`/teams/${id}/members/${userId}`, { method: "PATCH", body: JSON.stringify({ role }) });
+export const removeTeamMember = (id: number, userId: number) =>
+  j<unknown>(`/teams/${id}/members/${userId}`, { method: "DELETE" });
 
 export const listProjects = () => j<Project[]>("/projects");
 /** 仓库列表；传 projectId 时只取该项目（A8 前端按项目加载） */
@@ -417,21 +456,27 @@ export const addComment = (apiId: number, body: string) =>
   j<Comment>(`/apis/${apiId}/comments`, { method: "POST", body: JSON.stringify({ body }) });
 export const deleteComment = (id: number) => j<unknown>(`/comments/${id}`, { method: "DELETE" });
 
-// ── I7 订阅与变更通知 ─────────────────────────────────────────────────────
+// ── I7 / B4 订阅与变更通知（teamId 契约）──────────────────────────────────
 export interface Subscription {
   id: number;
   repoId: number;
   apiId?: number | null;
   method: string;
   path: string;
-  team: string;
+  teamId?: number | null;
+  teamName: string;
+  /** 兼容字段：与 teamName 同值 */
+  team?: string;
   notifyUrl?: string;
   createdAt?: string | null;
 }
 
 export interface Notification {
   id: number;
-  team: string;
+  teamId?: number | null;
+  teamName: string;
+  /** 兼容字段：与 teamName 同值 */
+  team?: string;
   repoId: number;
   method: string;
   path: string;
@@ -439,14 +484,19 @@ export interface Notification {
   createdAt?: string | null;
 }
 
-export const listSubscriptions = (repoId?: number) =>
-  j<Subscription[]>(`/subscriptions${repoId ? `?repoId=${repoId}` : ""}`);
-export const subscribe = (repoId: number, method: string, path: string, team: string, notifyUrl = "") =>
-  j<Subscription>(`/subscriptions`, { method: "POST", body: JSON.stringify({ repoId, method, path, team, notifyUrl }) });
-export const unsubscribe = (id: number) => j<unknown>(`/subscriptions/${id}`, { method: "DELETE" });
-export const listNotifications = (team?: string, limit = 20) => {
+export const listSubscriptions = (repoId?: number, teamId?: number) => {
   const p = new URLSearchParams();
-  if (team) p.set("team", team);
+  if (repoId) p.set("repoId", String(repoId));
+  if (teamId) p.set("teamId", String(teamId));
+  const s = p.toString();
+  return j<Subscription[]>(`/subscriptions${s ? `?${s}` : ""}`);
+};
+export const subscribe = (repoId: number, method: string, path: string, teamId: number, notifyUrl = "") =>
+  j<Subscription>("/subscriptions", { method: "POST", body: JSON.stringify({ repoId, method, path, teamId, notifyUrl }) });
+export const unsubscribe = (id: number) => j<unknown>(`/subscriptions/${id}`, { method: "DELETE" });
+export const listNotifications = (teamId?: number, limit = 20) => {
+  const p = new URLSearchParams();
+  if (teamId) p.set("teamId", String(teamId));
   p.set("limit", String(limit));
   return j<Notification[]>(`/subscriptions/notifications?${p.toString()}`);
 };
