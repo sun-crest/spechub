@@ -123,7 +123,7 @@ class ValidationContractTest : TestDbIsolation() {
 
     @Test
     fun `SubscriptionController - 空 method 被注解拦截`() {
-        val r = post("/api/subscriptions", """{"repoId":1,"method":"","path":"/pets","team":"core"}""")
+        val r = post("/api/subscriptions", """{"repoId":1,"method":"","path":"/pets","teamId":1}""")
         assertEquals(400, r.statusCode())
         assertValidation(r.body(), "method")
     }

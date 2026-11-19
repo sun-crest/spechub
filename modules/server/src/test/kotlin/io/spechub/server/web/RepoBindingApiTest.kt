@@ -259,9 +259,12 @@ class RepoBindingApiTest {
         val apis = json.readTree(send("GET", "/api/repos/$repoId/apis").body())
         val apiId = checkNotNull(apis.get(0)?.at("/id")?.asLong())
         assertEquals(200, send("POST", "/api/apis/$apiId/comments", """{"body":"迁移前评论"}""").statusCode())
+        val teamResp = send("POST", "/api/teams", """{"name":"core"}""")
+        assertEquals(201, teamResp.statusCode(), teamResp.body())
+        val teamId = json.readTree(teamResp.body()).at("/id").asLong()
         assertEquals(
             200,
-            send("POST", "/api/subscriptions", """{"repoId":$repoId,"method":"GET","path":"/pets","team":"core"}""").statusCode(),
+            send("POST", "/api/subscriptions", """{"repoId":$repoId,"method":"GET","path":"/pets","teamId":$teamId}""").statusCode(),
         )
         val put =
             send(

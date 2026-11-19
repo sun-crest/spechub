@@ -15,6 +15,11 @@ interface NotificationRepository : CrudRepository<NotificationEntity, Long> {
 
     fun findAllByRepoIdIn(repoIds: Collection<Long>): List<NotificationEntity>
 
+    fun findAllByTeamIdAndRepoIdIn(
+        teamId: Long,
+        repoIds: Collection<Long>,
+    ): List<NotificationEntity>
+
     fun findAllByTeamAndRepoIdIn(
         team: String,
         repoIds: Collection<Long>,

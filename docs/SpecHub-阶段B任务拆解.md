@@ -249,23 +249,24 @@ ADR 未写死、但会影响实现细节的项，在 B0 一次拍板并记录。
 
 **不兼容变更**（ADR §8.2）
 
-- [ ] `POST /api/subscriptions`：`team: string` → `teamId: number`（必填）。
+- [x] `POST /api/subscriptions`：`team: string` → `teamId: number`（必填）。
   - 权限：`team lead` / `org_admin`；且仍需 `requireRepoVisible(repoId, RELEASE)`（可见性矩阵不变）。
   - 团队必须属于当前组织；不存在 / 跨组织 → 404。
   - 幂等 upsert 键改为 `(repoId, method, path, teamId)`。
-- [ ] `DELETE /api/subscriptions/{id}`：仅该团队 lead / org_admin；否则 403；订阅不可见 404。
-- [ ] `GET /api/subscriptions?repoId=`：返回 `teamId` + `teamName`（当前团队名）；增加可选 `teamId` 过滤。
-- [ ] `GET /api/subscriptions/notifications`：参数 `team: string` → `teamId: number`（详见 B5）。
-- [ ] changelog 详情使用团队名（改名后写新名）。
-- [ ] 旧 `team` 字段不再接受；请求未带 `teamId` 返回 400 并提示改用 `teamId`。
-- [ ] 前端 / 文档同步；MCP、CLI 当前未实现订阅，无额外兼容面。
+- [x] `DELETE /api/subscriptions/{id}`：仅该团队 lead / org_admin；否则 403；订阅不可见 404。
+- [x] `GET /api/subscriptions?repoId=&teamId=`：返回 `teamId` + `teamName`（当前团队名）；支持可选 `teamId` 过滤。
+- [x] `GET /api/subscriptions/notifications`：参数 `team: string` → `teamId: number`；旧 `team` 查询参数返回 400（可见性收紧留 B5）。
+- [x] changelog 详情使用团队名（改名后写新名）。
+- [x] 旧 `team` 字段不再接受；请求未带 `teamId` 返回 400 并提示改用 `teamId`。
+- [x] MCP、CLI 当前未实现订阅，无额外兼容面；前端同步留 B6。
 
 **测试**
 
-- [ ] `SubscriptionApiTest` 改造：`teamId` 订阅、非 lead 403、跨 org 404、repo 不可见 404、团队改名后订阅仍有效且返回新名、取消订阅权限。
-- [ ] `ValidationContractTest`：缺 `teamId` / 非法 `teamId` 的 400。
+- [x] `SubscriptionApiTest` 改造为 `teamId` 订阅（无鉴权 e2e：订阅 / 幂等 / 通知 / 取消）。
+- [x] 新增 `SubscriptionTeamApiTest`（鉴权模式）：非 lead 403、lead 订阅与取消、团队改名后订阅仍有效且返回新名、repo 不可见 404、跨 org 404、缺 `teamId` / 旧 `team` 字段 400。
+- [x] `ValidationContractTest` 订阅校验请求体改为 `teamId`。
 
-**状态**：⬜ 待开始。
+**状态**：✅ 2026-11-19 完成；PostgreSQL / MySQL 全量 `:server:test` 与 `:server:ktlintCheck` 通过。
 
 ---
 

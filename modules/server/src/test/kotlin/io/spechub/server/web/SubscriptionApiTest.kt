@@ -151,30 +151,38 @@ class SubscriptionApiTest : TestDbIsolation() {
         return json.readTree(reg.body()).at("/repo/id").asLong()
     }
 
+    private fun createTeam(name: String): Long {
+        val resp = req("POST", "/api/teams", """{"name":"$name"}""")
+        assertEquals(201, resp.statusCode(), resp.body())
+        return json.readTree(resp.body()).at("/id").asLong()
+    }
+
     @Test
     fun `订阅改动触发通知 且 幂等续跑不重复`() {
         val repoId = seedAndRegister()
+        val teamId = createTeam("pay-team")
 
         // 订阅 /pets by pay-team
         val sub =
             req(
                 "POST",
                 "/api/subscriptions",
-                """{"repoId":$repoId,"method":"GET","path":"/pets","team":"pay-team","notifyUrl":"https://pay.example/hook"}""",
+                """{"repoId":$repoId,"method":"GET","path":"/pets","teamId":$teamId,"notifyUrl":"https://pay.example/hook"}""",
             )
         assertEquals(200, sub.statusCode(), sub.body())
         assertEquals("/pets", json.readTree(sub.body()).at("/path").asText())
+        assertEquals("pay-team", json.readTree(sub.body()).at("/teamName").asText())
         // 同 team 再订一遍 → 幂等（仍是 1 条）
-        req("POST", "/api/subscriptions", """{"repoId":$repoId,"method":"GET","path":"/pets","team":"pay-team"}""")
+        req("POST", "/api/subscriptions", """{"repoId":$repoId,"method":"GET","path":"/pets","teamId":$teamId}""")
         assertEquals(1, json.readTree(get("/api/subscriptions?repoId=$repoId").body()).size())
 
         // 无变化时通知为空
-        assertTrue(json.readTree(get("/api/subscriptions/notifications?team=pay-team").body()).size() == 0)
+        assertTrue(json.readTree(get("/api/subscriptions/notifications?teamId=$teamId").body()).size() == 0)
 
         // 生产者改 spec push → webhook 摄取 → 通知 1 条
         pushSpecV2()
         assertEquals(200, req("POST", "/api/webhooks/$repoId").statusCode())
-        var notifs = json.readTree(get("/api/subscriptions/notifications?team=pay-team").body())
+        var notifs = json.readTree(get("/api/subscriptions/notifications?teamId=$teamId").body())
         assertEquals(1, notifs.size(), "结构变更应落 1 条通知")
         assertTrue(
             notifs
@@ -189,21 +197,22 @@ class SubscriptionApiTest : TestDbIsolation() {
 
         // 幂等续跑：不改内容再次 webhook → 不新增通知
         assertEquals(200, req("POST", "/api/webhooks/$repoId").statusCode())
-        notifs = json.readTree(get("/api/subscriptions/notifications?team=pay-team").body())
+        notifs = json.readTree(get("/api/subscriptions/notifications?teamId=$teamId").body())
         assertEquals(1, notifs.size(), "同内容再次摄取不重复通知")
     }
 
     @Test
     fun `取消订阅后不再通知`() {
         val repoId = seedAndRegister()
-        val sub = req("POST", "/api/subscriptions", """{"repoId":$repoId,"method":"GET","path":"/pets","team":"pay-team"}""")
+        val teamId = createTeam("pay-team")
+        val sub = req("POST", "/api/subscriptions", """{"repoId":$repoId,"method":"GET","path":"/pets","teamId":$teamId}""")
         val subId = json.readTree(sub.body()).at("/id").asLong()
 
         assertEquals(204, req("DELETE", "/api/subscriptions/$subId").statusCode())
         pushSpecV2()
         req("POST", "/api/webhooks/$repoId")
         assertTrue(
-            json.readTree(get("/api/subscriptions/notifications?team=pay-team").body()).size() == 0,
+            json.readTree(get("/api/subscriptions/notifications?teamId=$teamId").body()).size() == 0,
             "订阅取消后结构变更不再通知",
         )
     }

@@ -67,19 +67,30 @@ class SubscriptionService(
         return saved.toRecord(resolvedTeam.name)
     }
 
-    fun list(repoId: Long? = null): List<SubscriptionRecord> =
-        if (repoId != null) {
-            toRecords(subscriptions.findByRepoId(repoId))
-        } else {
-            toRecords(subscriptions.findAllOrdered())
-        }
+    fun list(
+        repoId: Long? = null,
+        teamId: Long? = null,
+    ): List<SubscriptionRecord> {
+        val records =
+            if (repoId != null) {
+                toRecords(subscriptions.findByRepoId(repoId))
+            } else {
+                toRecords(subscriptions.findAllOrdered())
+            }
+        return if (teamId == null) records else records.filter { it.teamId == teamId }
+    }
 
     /** 多 repo 过滤：空集合返回空，禁止退化为全量。 */
-    fun list(repoIds: Collection<Long>): List<SubscriptionRecord> =
+    fun list(
+        repoIds: Collection<Long>,
+        teamId: Long? = null,
+    ): List<SubscriptionRecord> =
         if (repoIds.isEmpty()) {
             emptyList()
         } else {
-            toRecords(subscriptions.findAllByRepoIdIn(repoIds)).sortedWith(compareBy({ it.teamName }, { it.path }))
+            toRecords(subscriptions.findAllByRepoIdIn(repoIds))
+                .filter { teamId == null || it.teamId == teamId }
+                .sortedWith(compareBy({ it.teamName }, { it.path }))
         }
 
     fun get(id: Long): SubscriptionRecord? = subscriptions.findById(id).orElse(null)?.let { toRecords(listOf(it)).single() }
@@ -129,8 +140,24 @@ class SubscriptionService(
             notifications.findLatest(limit).map { it.toRecord() }
         }
 
-    /** 多 repo 过滤：空集合返回空，禁止退化为全量。 */
+    /** 多 repo 过滤（B4）：按 team_id 过滤；空集合返回空，禁止退化为全量。 */
     fun listNotifications(
+        teamId: Long?,
+        repoIds: Collection<Long>,
+        limit: Int = 50,
+    ): List<NotificationRecord> {
+        if (repoIds.isEmpty()) return emptyList()
+        val entities =
+            if (teamId != null) {
+                notifications.findAllByTeamIdAndRepoIdIn(teamId, repoIds)
+            } else {
+                notifications.findAllByRepoIdIn(repoIds)
+            }
+        return entities.sortedByDescending { it.id }.take(limit).map { it.toRecord() }
+    }
+
+    /** 旧文本团队过滤（保留给过渡期测试/调用方）。 */
+    fun listNotificationsByTeamName(
         team: String?,
         repoIds: Collection<Long>,
         limit: Int = 50,

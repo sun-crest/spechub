@@ -23,12 +23,14 @@ import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 
 /*
- * I7 —— 变更订阅：消费团队声明依赖某接口（repo + method + path 稳定寻址）→ 结构变更时收到通知。
- * - POST   /api/subscriptions           订阅 {repoId, method, path, team, notifyUrl?}（登录即可；幂等 upsert）
- * - GET    /api/subscriptions?repoId=   订阅列表
- * - DELETE /api/subscriptions/{id}      取消订阅（204）
- * - GET    /api/subscriptions/notifications?team=&limit=   变更通知（摄取期由 Ingestor 写入）
- * 通知触发：Ingestor 比对 specHash 判定结构变化（幂等续跑同内容不通知），见 §6.4 决策 5 消费侧默认读 release。
+ * 阶段 B（B4）—— 变更订阅：消费团队声明依赖某接口（repo + method + path 稳定寻址）→ 结构变更时收到通知。
+ * - POST   /api/subscriptions           订阅 {repoId, method, path, teamId, notifyUrl?}（team lead / org_admin；幂等 upsert）
+ * - GET    /api/subscriptions?repoId=&teamId=   订阅列表
+ * - DELETE /api/subscriptions/{id}      取消订阅（team lead / org_admin；204）
+ * - GET    /api/subscriptions/notifications?teamId=&limit=   变更通知（摄取期由 Ingestor 写入）
+ *
+ * B4 不兼容变更：`team: string` 已移除，必须传 `teamId`（旧字段返回 400）。
+ * 订阅写权限收紧为 team lead / org_admin；repo 可见性校验保持不变（ADR §4.3）。
  */
 @RestController
 @RequestMapping("/api/subscriptions")
@@ -42,7 +44,7 @@ class SubscriptionController(
         val repoId: Long,
         @field:NotBlank val method: String,
         @field:NotBlank val path: String,
-        @field:NotBlank val team: String,
+        val teamId: Long? = null,
         val notifyUrl: String = "",
     )
 
@@ -51,8 +53,11 @@ class SubscriptionController(
         @RequestBody @Valid body: SubscribeRequest,
         request: HttpServletRequest,
     ): SubscriptionRecord {
-        auth.requireAuthenticated(request, "订阅")
+        val teamId =
+            body.teamId
+                ?: throw ApiException(ApiErrorCode.VALIDATION, "teamId 必填（旧 team 字段已移除）")
         auth.requireRepoVisible(request, body.repoId, Stage.RELEASE)
+        auth.requireTeamLead(request, teamId, "订阅")
         // api_id 尽力关联（method+path 命中当前投影则填，便于详情展示；非 FK）
         val apiId =
             projection
@@ -65,15 +70,15 @@ class SubscriptionController(
                 apiId,
                 body.method.uppercase(),
                 body.path,
-                body.team.trim(),
-                body.notifyUrl.trim(),
+                notifyUrl = body.notifyUrl.trim(),
+                teamId = teamId,
             )
         changelogService.add(
             body.repoId,
             apiId,
             auth.currentActor(request),
             "subscription",
-            "${body.team} 订阅 ${body.method.uppercase()} ${body.path}",
+            "${sub.teamName} 订阅 ${body.method.uppercase()} ${body.path}",
         )
         return sub
     }
@@ -82,12 +87,13 @@ class SubscriptionController(
     fun list(
         request: HttpServletRequest,
         @RequestParam repoId: Long? = null,
+        @RequestParam teamId: Long? = null,
     ): List<SubscriptionRecord> {
         if (repoId != null) {
             auth.requireRepoVisible(request, repoId, Stage.RELEASE)
-            return subscriptionService.list(repoId)
+            return subscriptionService.list(repoId, teamId)
         }
-        return subscriptionService.list(auth.visibleRepoIds(request, Stage.RELEASE))
+        return subscriptionService.list(auth.visibleRepoIds(request, Stage.RELEASE), teamId)
     }
 
     @DeleteMapping("/{id}")
@@ -96,17 +102,23 @@ class SubscriptionController(
         @PathVariable id: Long,
         request: HttpServletRequest,
     ) {
-        auth.requireAuthenticated(request, "取消订阅")
         val sub = subscriptionService.get(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "订阅 $id 不存在")
         auth.requireRepoVisible(request, sub.repoId, Stage.RELEASE)
+        val teamId = sub.teamId ?: throw ApiException(ApiErrorCode.CONFLICT, "订阅缺少团队归属")
+        auth.requireTeamLead(request, teamId, "取消订阅")
         subscriptionService.unsubscribe(id)
-        changelogService.add(sub.repoId, sub.apiId, auth.currentActor(request), "subscription.delete", "取消订阅：${sub.team} ${sub.method} ${sub.path}")
+        changelogService.add(sub.repoId, sub.apiId, auth.currentActor(request), "subscription.delete", "取消订阅：${sub.teamName} ${sub.method} ${sub.path}")
     }
 
     @GetMapping("/notifications")
     fun notifications(
         request: HttpServletRequest,
-        @RequestParam team: String? = null,
+        @RequestParam teamId: Long? = null,
         @RequestParam limit: Int = 50,
-    ): List<NotificationRecord> = subscriptionService.listNotifications(team, auth.visibleRepoIds(request, Stage.RELEASE), limit)
+    ): List<NotificationRecord> {
+        if (request.getParameter("team") != null) {
+            throw ApiException(ApiErrorCode.BAD_REQUEST, "team 参数已移除，请使用 teamId")
+        }
+        return subscriptionService.listNotifications(teamId, auth.visibleRepoIds(request, Stage.RELEASE), limit)
+    }
 }
