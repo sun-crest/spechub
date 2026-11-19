@@ -324,23 +324,39 @@ ADR 未写死、但会影响实现细节的项，在 B0 一次拍板并记录。
 
 ### B7 · 测试矩阵与双库验证（L）
 
-- [ ] 迁移测试（扩展 `ManagementDbMigrationTest`）：
+- [x] 迁移测试（`ManagementDbMigrationTest`，4 项）：
   - V3 → V4：同名合并、`team_id` 回填、成员启发式回填、旧唯一键保留；
-  - V4 → V5：过渡期 NULL 回填、重复订阅去重、唯一键切换、`NOT NULL`；
+  - V4 → V5：过渡期 NULL 回填、重复订阅去重、唯一键切换、`NOT NULL`、`team_member` 代理主键；
   - 空库 V1 → V5。
-- [ ] 新增 `TeamApiTest`（B3 清单）。
-- [ ] 改造 `SubscriptionApiTest`（B4/B5 清单）。
-- [ ] 扩展 `ReadIsolationTest`：通知跨团队不可见。
-- [ ] 更新 `AuthApiTest`、`ValidationContractTest`、`WebApiTest` 中的订阅/`me` 假设。
-- [ ] 全量门禁：
-  - `./gradlew check --rerun-tasks`；
-  - `./gradlew :server:test -Dspechub.test.db=mysql` 与默认 PostgreSQL 各全绿；
-  - `:server:ktlintCheck`；
-  - `apps/web` 构建；
-  - dev 免登录回归（Doc / Comment / Web / Subscription / ImportExport）。
-- [ ] e2e 手动清单落文档（团队 / 订阅 / 通知 / 改名 / 删除保护）。
+- [x] 新增 `TeamApiTest`（6 项）：创建/权限、列表与 `me.teams`、改名/重名 409、最后 lead 409、删除有订阅 409、跨 org 404。
+- [x] 改造 `SubscriptionApiTest`（2 项）：`teamId` 订阅、幂等、通知、取消。
+- [x] 新增 `SubscriptionTeamApiTest`（8 项）：team lead 订阅/取消权限、团队改名后订阅仍有效、repo 不可见/跨 org 404、旧字段 400、通知可见性与跨团队隔离、团队删除后历史通知保留。
+- [x] 扩展 `ReadIsolationTest`：非团队成员指定 B 团队 `teamId` 返回 404。
+- [x] `ValidationContractTest` 订阅请求体改 `teamId`；`AuthApiTest` / `WebApiTest` 未涉及团队/订阅断言，无需改动。
+- [x] 全量门禁：
+  - `./gradlew check --rerun-tasks`（PostgreSQL）通过；
+  - MySQL 全量 `./gradlew :server:test -Dspechub.test.db=mysql --rerun-tasks` 通过（113 项，0 失败）；
+  - `:server:ktlintCheck` 通过；
+  - `apps/web` `npm run build` 通过；
+  - dev 免登录回归（Doc / Comment / Web / Subscription / ImportExport）随全量套件通过。
+- [x] e2e 手动清单落文档（见下）。
 
-**状态**：⬜ 待开始。
+### B7.1 手动 e2e 清单（浏览器）
+
+> 自动化已覆盖 API 链路；以下清单用于 UI 联调/验收，待人工执行。
+
+1. 以 `org_admin` 登录 Web。
+2. 账号菜单 →「团队管理」创建团队 A；确认创建者出现在成员列表且角色为 `lead`。
+3. 添加用户 B 为 `member`；B 登录后打开团队管理，只看到团队 A，且无创建/删除/成员管理入口。
+4. 打开任一接口详情 →「订阅」Tab：团队下拉出现 A，订阅成功，订阅方显示 A。
+5. B 打开同一接口：无订阅按钮（非 lead）；通知筛选可选团队 A。
+6. 修改 spec 并 push（或 Web 编辑提交）触发摄取。
+7. 团队 A 的成员看到结构变更通知；非成员 C（同组织、可见该接口）看不到 A 的通知，指定 `teamId=A` 返回 404。
+8. 在团队管理把 A 改名为 A2；订阅方显示 A2，订阅仍有效。
+9. 删除 A2 → 409（仍有订阅）；取消订阅后可删除；历史通知仍可由 `org_admin` 查到。
+10. dev 免登录模式：团队管理入口可用、订阅下拉可用、通知为可见 repo 全量。
+
+**状态**：✅ 2026-11-19 自动化门禁全部通过；浏览器手测清单已落文档，待人工执行。
 
 ---
 
