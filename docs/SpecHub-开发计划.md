@@ -14,7 +14,7 @@
 | **P2** | 平台化 | I · J · K | 团队日常愿意用 |
 | **P2.5** | 多项目骨架（ADR 阶段 A） | A0–A10 | 项目/成员可管理、读隔离通过、仓库归属项目 |
 | **P2.6** | 团队与跨团队订阅（ADR 阶段 B） | B0–B8 | 团队可管理、订阅绑定团队、通知只发给成员 |
-| **P2.7** | 账号与审计（ADR 阶段 C） | C0–C10 | 密码 / 会话 / OIDC、禁用即时失效、服务账号隔离、审计可查 |
+| **P2.7** | 账号与审计（ADR 阶段 C） | C0–C10 | Spring Security/Session、密码 / OIDC、禁用即时失效、服务账号隔离、审计可查 |
 | **P3** | 放大差异化 | L · M · N | 插件 / 契约测试 / 托管 |
 
 约定：`[模块]` = 对应 §7.4 工程结构的目录；`→` = 依赖的前置任务。
@@ -142,7 +142,7 @@
 - [x] A5–A8 可用骨架：项目 CRUD / 多项目成员 / 仓库 binding / 前端按项目加载（A5–A6 ✅ 2026-11-17；A7–A8 ✅ 2026-11-18）
 - [x] A9–A10 测试门禁与收尾：双库迁移、隔离测试、文档（✅ 2026-11-18/19）
 
-**P2.5 验收**：用户只在项目 A 时，列表 / 详情 / 搜索 / 导出 / 评论 / 评审 / 订阅均看不到项目 B；每个仓库恰好一条 `active` binding；dev 免登录行为不回归。✅ 2026-11-19：`ReadIsolationTest`、`ManagementDbMigrationTest`（PostgreSQL / MySQL）与 `./gradlew check` 全部通过。
+**P2.5 验收**：用户只在项目 A 时，列表 / 详情 / 搜索 / 导出 / 评论 / 评审 / 订阅均看不到项目 B；每个仓库恰好一条 `active` binding；dev 免登录行为不回归（阶段 C 起取消，统一真实登录）。✅ 2026-11-19：`ReadIsolationTest`、`ManagementDbMigrationTest`（PostgreSQL / MySQL）与 `./gradlew check` 全部通过。
 
 ---
 
@@ -162,7 +162,7 @@
 - [x] B7 测试矩阵与双库验证（PostgreSQL `check`、MySQL 113 项、ktlint、前端构建全部通过；浏览器手测清单已落文档）
 - [x] B8 文档与收尾（README 团队/订阅说明、ADR §13.11 回填、持久化选型 Phase 5、运维手册）
 
-**P2.6 验收**：创建团队、加成员、绑定订阅；团队改名后订阅仍有效；通知只投递给团队成员。迁移在 PostgreSQL / MySQL 双库通过，dev 免登录行为不回归。✅ 2026-11-19：自动化门禁全部通过；浏览器手测清单见 [阶段 B 拆解 B7.1](SpecHub-阶段B任务拆解.md)。
+**P2.6 验收**：创建团队、加成员、绑定订阅；团队改名后订阅仍有效；通知只投递给团队成员。迁移在 PostgreSQL / MySQL 双库通过，dev 免登录行为不回归（阶段 C 起取消，统一真实登录）。✅ 2026-11-19：自动化门禁全部通过；浏览器手测清单见 [阶段 B 拆解 B7.1](SpecHub-阶段B任务拆解.md)。
 
 ---
 
@@ -171,20 +171,21 @@
 > **详细任务拆解**：[SpecHub-阶段C任务拆解.md](SpecHub-阶段C任务拆解.md)（C0–C10，含依赖、文件落点、安全门禁、手动 e2e 清单）
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **状态**：待启动（C0–C10 已拆解，2026-11-19）
+> **认证基线**：阶段 C 起本地与生产使用同一套真实登录（admin-token / 密码 / OIDC + Spring Session Data Redis，机器用 Bearer）；不保留 dev 免登录或放行链，不做 JDBC 会话过渡。
 
-- [ ] C0 前置对齐与决策（会话 / CSRF / Argon2id / 令牌前缀与迁移 / 服务账号 / OIDC / 审计存储）
-- [ ] C1 管理库 V6 / V7 迁移（`app_user` 身份列、`user_token`、`user_session`、`service_account`、`user_identity`、`audit_event`；V7 删 `token_hash` / `is_platform_admin`）
-- [ ] C2 身份领域层与统一认证入口（`AuthPrincipal`、密码 / 令牌原语、`TokenAuthFilter` Bearer + 会话双通道、状态检查、CSRF）
-- [ ] C3 密码登录与会话端点（`login` / `logout` / `me` / `password` / `password/setup`、CSRF、登录限流）
-- [ ] C4 账号生命周期与令牌管理（禁用 / 启用 / 邀请 / 重置、用户令牌 CRUD、最后 org_admin 保护、V7 收紧）
-- [ ] C5 项目级服务账号（CRUD / 轮换 / 跨项目隔离、MCP / CLI 文档）
-- [ ] C6 OIDC 登录（单 IdP、PKCE、身份绑定、auto-provision 默认关）
-- [ ] C7 管理动作审计（`audit_event`、关键写点接入、`GET /api/audit`、保留策略）
-- [ ] C8 前端账号与安全改造（登录框、账号与安全、服务账号、审计页、去掉 localStorage 长期令牌）
-- [ ] C9 测试矩阵与双库验证（迁移 V5→V6→V7、会话 / 密码 / 禁用 / 服务账号 / OIDC / 审计、手动 e2e）
+- [ ] C0 前置对齐与决策（Spring Security 双链 / Spring Session Data Redis dev+prod / 全环境真实登录 / Argon2id / 令牌前缀与迁移 / 服务账号 / OIDC / 审计存储）
+- [ ] C1 管理库 V6 / V7 迁移（`app_user` 身份列、`user_token`、`service_account`、`user_identity`、`audit_event`；会话走 Redis，不建管理库会话表；V7 删 `token_hash` / `is_platform_admin`）
+- [ ] C2 Spring Security 认证底座与领域适配（Web Session / Bearer API 双链、全环境真实登录、Spring Session Data Redis、`AuthenticationManager`、opaque Bearer provider、`AuthService` / `AuthzService`、CSRF、会话固定防护）
+- [ ] C3 密码登录与会话端点（JSON 登录 filter、`LogoutFilter`、`/me`、密码管理、CSRF、Redis 登录限流）
+- [ ] C4 账号生命周期与令牌管理（禁用 / 启用 / 邀请 / 重置、Redis 会话列表与吊销、用户令牌 CRUD、最后 org_admin 保护、V7 收紧）
+- [ ] C5 项目级服务账号（`ServiceAccountAuthenticationProvider`、CRUD / 轮换 / 跨项目隔离、MCP / CLI 文档）
+- [ ] C6 OIDC 登录（`oauth2Login`、单 IdP、PKCE、身份绑定、auto-provision 默认关）
+- [ ] C7 管理动作审计（`audit_event`、关键写点接入、`GET /api/audit`、保留策略；可补 Spring Security 事件）
+- [ ] C8 前端账号与安全改造（登录框、账号与安全 / 活动会话、服务账号、审计页、去掉 localStorage 长期令牌、无 dev 免登录）
+- [ ] C9 测试矩阵与双库验证（迁移 V5→V6→V7、SecurityConfig、真实登录 / Redis 会话 / 密码 / 禁用 / 服务账号 / OIDC / 审计、手动 e2e）
 - [ ] C10 文档与收尾（README、ADR §13 回填、持久化选型 Phase 6、运维手册、UI 方案、编码规范）
 
-**P2.7 验收**：密码 / OIDC 登录可用；Web 使用 HttpOnly 会话且不再把长期令牌放 localStorage；禁用用户所有会话与令牌立即失效；服务账号只能访问所属项目；管理动作审计可查；V5→V6→V7 在 PostgreSQL / MySQL 双库通过，dev 免登录行为不回归。
+**P2.7 验收**：Spring Security + Spring Session Data Redis 的 Web 会话与 Bearer API 双链可用；本地与生产都通过真实 admin-token / 密码 / OIDC 或 Bearer 访问，无 dev 免登录；浏览器不再把长期令牌放 localStorage；禁用用户所有会话与令牌立即失效；服务账号只能访问所属项目；管理动作审计可查；V5→V6→V7 在 PostgreSQL / MySQL 双库通过，Redis 会话 / 限流集成测试通过。
 
 ---
 

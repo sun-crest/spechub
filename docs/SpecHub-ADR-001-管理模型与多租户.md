@@ -228,7 +228,7 @@ subscription(id, repo_id, method, path, team_id, notify_url, created_at)
 - `internal` / 匿名视图**不含** draft、评论、评审、mock 规则、变更通知。
 - 不可见资源统一返回 **404**（不是 403），避免暴露资源是否存在。
 - `/mock/{repoId}/**` 在 SaaS 下不再全局放行：仅 `public` 项目匿名可用，或携带项目级 mock key / 服务账号。
-- dev 环境（`authEnabled=false`）保留免登录放行，但**SaaS 档禁止关闭鉴权**。
+- **所有环境默认启用鉴权**：dev 也通过 `SPECHUB_ADMIN_TOKEN` bootstrap 后使用真实 Spring Session / Bearer，不存在 `authEnabled=false` 免登录模式；**SaaS 档更禁止关闭鉴权**。
 
 ### 4.4 逻辑仓库与单主绑定（single-primary binding）
 
@@ -385,7 +385,7 @@ candidate ──校验通过后 flip──▶ active ──retire──▶ retir
 
 | 能力 | 现状 | 目标 |
 |---|---|---|
-| 登录 | 用户名 + 一次性 token | Web：HttpOnly 会话 + OIDC 优先 / 密码兜底 |
+| 登录 | 用户名 + 一次性 token | Web：HttpOnly 会话（Spring Session Data Redis）+ OIDC 优先 / 密码兜底 |
 | 密码 | 无 | Argon2id；首次登录/邀请设置 |
 | 账号状态 | 无 | `active / disabled / invited`；禁用立即生效 |
 | token | 永不过期、无范围 | 带前缀、可过期、可吊销；Web 不再把长期 token 放 localStorage |
@@ -393,7 +393,9 @@ candidate ──校验通过后 flip──▶ active ──retire──▶ retir
 | 服务账号 | 无 | 项目级、`viewer/editor`、不可登录 Web；供 CI/MCP/CLI |
 | 审计 | changelog 部分覆盖 | 管理动作统一带 `org_id/actor/action/target`；后续可独立 `audit_event` 表 |
 
-自托管部署保留 `spechub.admin-token` bootstrap 默认 org 的 `org_admin`；**SaaS 档禁止关闭鉴权**，首个管理员通过 OIDC 或邀请创建。
+自托管部署（含本地 dev）保留 `spechub.admin-token` bootstrap 默认 org 的 `org_admin`；**所有环境默认启用鉴权，不存在免登录模式**；**SaaS 档更禁止关闭鉴权**，首个管理员通过 OIDC 或邀请创建。
+
+会话存储：所有环境（含本地 dev）统一使用 **Spring Session Data Redis**，不做 JDBC 过渡；会话数据不纳入管理库备份，Redis 不可用时鉴权 fail-closed。登录限流同样使用 Redis，不做内存限流的过渡实现。
 
 ### 7.2 平台运营控制面
 
@@ -538,7 +540,7 @@ pending_verification → active → suspended → archived → deleted
 | `POST /api/subscriptions` | `team`（自由文本）改为 `teamId` |
 | `GET /api/auth/users` | 组织维度；项目管理成员走项目端点 |
 | 全部列表/详情/导出 | 加租户 + 可见性过滤；不可见返回 404 |
-| `/mock/{repoId}/**` | 不再全局放行（dev 除外） |
+| `/mock/{repoId}/**` | 不再全局放行：`public` 项目匿名可用，其余需 mock key / 服务账号（D1 完整收敛） |
 
 兼容策略：旧的 `team` 字符串在迁移期自动映射为同名 team；旧 admin-token 继续可用；`DEFAULT_PROJECT` 变为 bootstrap 创建的默认项目，不再硬编码在写路径。
 
@@ -548,7 +550,7 @@ pending_verification → active → suspended → archived → deleted
 
 | 阶段 | 目标 | 关键交付 | 退出标准 |
 |---|---|---|---|
-| **A · 多项目骨架** | 把单项目 demo 变成多项目平台 | `org` + `org_membership` + `project` CRUD + `visibility` + 所有读端点过滤 + 多项目成员 API/UI + 仓库注册带 `projectId` + 表加 `org_id` + `git_connection` + **`repo_binding`（managed/local，`connection_id` 可空，单主约束）**；email/mfa/密码留阶段 C | 两个项目、用户只在 A：列表/详情/搜索/导出均看不到 B；注册仓库归属正确；每个 repo 恰好一个 active binding；dev 免登录仍可用 |
+| **A · 多项目骨架** | 把单项目 demo 变成多项目平台 | `org` + `org_membership` + `project` CRUD + `visibility` + 所有读端点过滤 + 多项目成员 API/UI + 仓库注册带 `projectId` + 表加 `org_id` + `git_connection` + **`repo_binding`（managed/local，`connection_id` 可空，单主约束）**；email/mfa/密码留阶段 C | 两个项目、用户只在 A：列表/详情/搜索/导出均看不到 B；注册仓库归属正确；每个 repo 恰好一个 active binding；dev 免登录仍可用（阶段 C 起取消，统一真实登录） |
 | **B · 团队** | 跨团队订阅落地 | `team` + 成员 + `subscription.team_id` 迁移 + 团队管理页 + 通知按团队投递 | 团队改名不影响订阅；通知只发给团队成员 |
 | **C · 账号与审计** | 可运维的身份体系 | 密码/OIDC、账号禁用、token 过期、服务账号、管理动作审计查询 | 禁用用户所有 token 立即失效；服务账号无法跨项目访问 |
 | **D1 · 平台控制面** | 可售卖、可运营 | 平台 operator 控制面（组织开通/暂停/配额/审计）、销售/邀请制开通、break-glass、RLS、每租户索引/存储、BYO git 全连接器 + **binding 迁移（candidate/verify/flip/回滚）**、PR-first、可选 `repo_mirror`、租户生命周期与导出 | 运营可开通/暂停组织；operator 默认看不到租户内容；break-glass 有授权与审计；两个 org 在 DB/搜索/存储/Webhook 全隔离 |
@@ -697,7 +699,7 @@ waitlist（申请制） → 邀请 50 家 → 灰度 10% → 50% → 100%
 - 每个 repo 恰好一个 `active` binding；数据库拒绝第二条 active。
 - `managed` 注册自动创建 `active` binding；`retired` binding 不可读写。
 - `internal` 项目：非成员登录后只能读 release，读不到 draft/评论。
-- dev 免登录模式行为不回归。
+- dev 免登录模式行为不回归（阶段 C 起取消，本地与生产统一真实登录）。
 
 ### 阶段 B
 
