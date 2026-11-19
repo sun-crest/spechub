@@ -91,6 +91,32 @@ cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
 
 > 管理库连接默认值即 `jdbc:postgresql://localhost:5432/spechub` + `spechub/spechub`，与上面 compose 的 db 完全一致；本段 `SPECHUB_DB_*` 显式写出，便于切换到 MySQL 或远程库时直接替换。
 
+### 多项目（阶段 A）
+
+**bootstrap（幂等）**：后端首次启动写入默认组织 `default` 与默认项目 `default`（`ApplicationInit`）。配置 `SPECHUB_ADMIN_TOKEN` 时，token 持有者为平台 admin → 默认组织 `org_admin`、默认项目 owner；未配置则是 dev 免登录模式，行为与阶段 A 之前一致。
+
+**种子数据（本地 / dev 示例）**——仓库必须归属项目，指定 `projectId`：
+
+```bash
+# 1) 创建项目并取回 id（dev 免登录；生产需 org_admin token）
+PID=$(curl -s -X POST http://localhost:8080/api/projects -H 'Content-Type: application/json' \
+  -d '{"name":"支付平台","slug":"payments"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+
+# 2) 注册仓库（必须归属项目；注册即按 active binding 摄取 specs/ 与 docs/）
+curl -s -X POST http://localhost:8080/api/repos -H 'Content-Type: application/json' \
+  -d "{\"projectId\":$PID,\"url\":\"file:///tmp/spechub-origin\",\"branch\":\"main\"}"
+
+# 3) 按项目读取（Web 前端同样使用 ?projectId=）
+curl -s "http://localhost:8080/api/repos?projectId=$PID"
+curl -s "http://localhost:8080/api/apis?projectId=$PID&stage=draft"
+```
+
+- **Web**：顶栏项目下拉切换；org_admin「新建项目」，项目 admin+「项目设置」（owner 改名/归档/删除，admin 改可见性）；侧栏「+」注册仓库。
+- **可见性**：`private`（仅成员）/ `internal`（组织成员可读 release）/ `public`（匿名可读 release）；draft / 评论 / 评审 / 订阅仅成员可见，不可见资源统一 404。
+- **真源 binding**：`GET /api/repos/{id}/bindings` → 创建 candidate → `verify`（identical / diverged / no_active）→ `activate`（diverged 需 `confirm=true`）。旧 binding 保留 `SPECHUB_REPO_BINDING_ROLLBACK_DAYS`（默认 30 天），窗口内可回滚、禁止删除。
+- **成员**：org_admin 在「成员与角色」创建组织用户并加入项目；项目角色 viewer / editor / admin / owner（owner 只能通过转移接口变更）。
+- **灰度开关**：A‑1 安全底座（`ReadIsolationTest`）在开放多项目 UI 前已通过，阶段 A 未引入 `spechub.multi-project.enabled`；如后续需要灰度，可在 `SpecHubProperties` 增加并仅隐藏项目切换入口。
+
 **质量门禁（R12）**：`./gradlew check`（ktlintCheck + Jackson 2 源码校验 + 全量测试）；CI 见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。单独跑格式检查/修复：`./gradlew ktlintCheck` / `./gradlew ktlintFormat`。
 
 **可选端**：MCP `cd apps/mcp && npm install && npm run build && node dist/index.js`（连 backend 走 HTTP）；CLI `cd apps/cli && go build`（或 `scripts/build-release.sh` 交叉编译四平台）。

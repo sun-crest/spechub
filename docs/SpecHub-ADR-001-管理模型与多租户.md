@@ -582,8 +582,8 @@ waitlist（申请制） → 邀请 50 家 → 灰度 10% → 50% → 100%
 
 ## 10. 迁移
 
-1. 启动时创建默认 `org`（名称可配置，默认 `default`）：自托管部署下把现有 `platform_admin` 映射为默认 org 的 `org_admin`；**SaaS 不把租户用户映射为 `platform_operator`**，运营账号独立创建。
-2. 现有 `app_user` 就地升级为全局身份 + 新增 `org_membership`：
+1. 启动时创建默认 `org`（bootstrap 固定 `name=default` / `slug=default`）：自托管部署下把现有 `platform_admin` 映射为默认 org 的 `org_admin`；**SaaS 不把租户用户映射为 `platform_operator`**，运营账号独立创建。
+2. `app_user` **不新增 `org_id`，保持全局身份**；新增 `org_membership` 承载组织关系：
    - 当前 `app_user` 已是全局（无 `org_id`，`username` 全局唯一），阶段 A 保留 `username` + `token_hash`；
    - `email` / `password_hash` / `mfa_enabled` 留到阶段 C 引入，不在 A 迁移；
    - 新增 `org_membership(user_id, org_id, org_role)`：所有现有用户加入默认 org，`is_platform_admin=1` → `org_admin`，其余 → `org_member`；
@@ -591,9 +591,10 @@ waitlist（申请制） → 邀请 50 家 → 灰度 10% → 50% → 100%
    - token hash 原样保留，迁移后旧 token 继续有效。
 3. 现有 `default` 项目保留，补齐 `org_id`、`slug=default`、`visibility=private`、`owner_id`（admin 用户）。
 4. 为现有 `repo` 创建首个 `active` binding：阶段 A 先给 `managed` / `local` binding，`connection_id` 允许为空；`external_repo_id` 暂用 URL 的确定性 hash；`repo` 只保留逻辑名称，托管位置（connection、URL、branch、external ID）迁入 `repo_binding`。
-5. `subscription.team` 迁移为 `team` 行 + `team_id`；同名合并。
-6. `review`、`comment`、`mock_rule`、`changelog`、`notification`、`release` 补 `org_id`。
+5. （阶段 B）`subscription.team` 迁移为 `team` 行 + `team_id`；同名合并。
+6. `review`、`comment`、`mock_rule`、`changelog`、`notification`、`release_marker` 补 `org_id`。
 7. 所有迁移按现有纪律分 vendor（PostgreSQL / MySQL）维护 Flyway；不破坏现有数据，不做重置。
+8. 阶段 A 的迁移为 `V3__multi_project.sql`，已在 PostgreSQL 18.6 与 MySQL 8.4 上由 `ManagementDbMigrationTest` 验证「V1/V2 有数据 → V3」回填与空库 V1→V3。
 
 ---
 
