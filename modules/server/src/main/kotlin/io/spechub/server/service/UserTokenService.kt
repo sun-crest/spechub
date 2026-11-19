@@ -92,13 +92,16 @@ class UserTokenService(
         return Issued(raw, saved)
     }
 
-    /** bootstrap：用当前 admin-token 替换该用户的 legacy 行（旧值立即失效，不恢复）。 */
+    /** bootstrap：用当前 admin-token 替换该用户的 legacy 行（旧值立即失效、保留 revoked 审计痕迹）。 */
     @Transactional
     fun replaceLegacy(
         userId: Long,
         rawToken: String,
     ) {
-        tokens.deleteAllByUserIdAndPurpose(userId, PURPOSE_LEGACY)
+        tokens
+            .findAllByUserIdOrderByCreatedAtDesc(userId)
+            .filter { it.purpose == PURPOSE_LEGACY && it.revokedAt == null }
+            .forEach { tokens.save(it.copy(revokedAt = Instant.now())) }
         issue(userId, "legacy", PURPOSE_LEGACY, null, prefix = "", rawToken = rawToken)
     }
 
@@ -120,6 +123,36 @@ class UserTokenService(
     }
 
     fun list(userId: Long): List<UserTokenEntity> = tokens.findAllByUserIdOrderByCreatedAtDesc(userId)
+
+    fun findById(id: Long): UserTokenEntity? = tokens.findById(id).orElse(null)
+
+    fun status(token: UserTokenEntity): String =
+        when {
+            token.revokedAt != null -> "revoked"
+            token.usedAt != null -> "used"
+            token.expiresAt != null && !token.expiresAt.isAfter(Instant.now()) -> "expired"
+            else -> "active"
+        }
+
+    /** 兼容端点：只吊销 legacy / api 登录令牌，不影响 invite / password_reset。 */
+    @Transactional
+    fun revokeLoginTokens(userId: Long): Int {
+        val loginPurposes = setOf(PURPOSE_LEGACY, PURPOSE_API)
+        val active =
+            tokens
+                .findAllByUserIdOrderByCreatedAtDesc(userId)
+                .filter { it.purpose in loginPurposes && it.revokedAt == null }
+        active.forEach { tokens.save(it.copy(revokedAt = Instant.now())) }
+        return active.size
+    }
+
+    /** 管理端按 id 吊销任意用户令牌（调用方校验归属）。 */
+    @Transactional
+    fun revokeById(id: Long): UserTokenEntity? {
+        val token = tokens.findById(id).orElse(null) ?: return null
+        if (token.revokedAt == null) tokens.save(token.copy(revokedAt = Instant.now()))
+        return token
+    }
 
     fun findOwned(
         id: Long,

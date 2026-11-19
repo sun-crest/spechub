@@ -1,6 +1,6 @@
 # SpecHub · 阶段 C 任务拆解（账号与审计）
 
-> **日期**：2026-11-19　**状态**：C0 / C1 / C2 / C3 已完成（2026-11-19）；C4–C10 待启动
+> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 已完成；C5–C10 待启动
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **范围**：Spring Security Web 认证底座、Spring Session 分布式会话、密码 / OIDC 登录、账号禁用与邀请、可过期可吊销令牌、项目级服务账号、管理动作审计查询。
 > **不覆盖**：多组织切换 / 组织生命周期 / 平台运营控制面 / break-glass（阶段 D1）、自助注册 / 邮箱验证 / 域名认领（阶段 D2）、SAML / SCIM、MFA / WebAuthn、组织级服务账号、`project_group` / `api_group`。
@@ -50,7 +50,7 @@
 | C1 | 管理库 V6 / V7 迁移 | C0 | L | `V6__identity_and_audit.sql`、`V7__identity_tighten.sql`（PG/MySQL；会话走 Redis，不建管理库会话表） |
 | C2 | Spring Security 认证底座与领域适配 | C1 | L | `SecurityConfig` 双链（Bearer API / Web Session）、Spring Session Data Redis、`AuthenticationManager`、opaque Bearer provider、`AuthService` / `AuthzService` 适配 |
 
-> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 运行期生效；V7 文件与测试已就绪，运行期由 `spring.flyway.target=6` 暂缓，C4 与代码切换同窗口放开）；**C2 状态**：✅ 2026-11-19 完成（双链 / Session Redis / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）；**C3 状态**：✅ 2026-11-19 完成（密码登录 / 改密 / 邀请重置 / Redis 限流 / 会话属性；审计写点待 C7）。
+> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 / V7 均已生效；V7 由 C4 同窗口切到 `target=7` 并删除旧列）；**C2 状态**：✅ 2026-11-19 完成（双链 / Session Redis / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）；**C3 状态**：✅ 2026-11-19 完成（密码登录 / 改密 / 邀请重置 / Redis 限流 / 会话属性；审计写点待 C7）；**C4 状态**：✅ 2026-11-20 完成（生命周期 / 会话管理 / 令牌管理 / V7；审计写点待 C7）。
 
 ### 2.2 C‑2 登录与账号生命周期
 
@@ -280,11 +280,11 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 - [x] `DROP COLUMN app_user.token_hash`（已回填 `user_token`）。
 - [x] `DROP COLUMN app_user.is_platform_admin`（已由 `org_membership.org_role` 取代）。
-- [x] 校验：`user_token` 中 `legacy` 行数量与迁移前 `app_user` 非空 token 数一致（不一致时中止，PG `RAISE` / MySQL `chk_v7_legacy_count`）；
+- [x] 校验：每个 `app_user.token_hash` 均已落 `user_token`（C4 对轮换后缺失的旧值补记为 revoked legacy；补记后仍缺才中止）；
 - [x] 校验：`app_user.status` 无 NULL；邮箱无重复（忽略大小写，由 V6 唯一索引兜底）。
 - [x] 迁移后启动旧代码会失败，属预期；V7 必须与 C2–C4 代码同一发布窗口。
 
-> **C1 运行期策略**：V6 随 C1 生效；V7 文件与测试已落库，但 `application.yml` 用 `spring.flyway.target=6` 暂缓执行，避免旧代码启动即失败。**C4 必须把 target 改为 7（或删除该行）**，并与代码切换同一发布窗口；`ManagementDbMigrationTest` 已用显式 target 6 / 7 覆盖两种状态。
+> **C1 运行期策略（已完成）**：V6 随 C1 生效；C4 已把 `spring.flyway.target` 切到 7，V7 与代码同一发布窗口执行；`ManagementDbMigrationTest` 已覆盖 V6→V7 与空库 V1→V7。
 
 **兼容与纪律**
 
@@ -299,7 +299,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 - [x] MySQL 8.4：同上。
 - [x] V6 → V7：旧列删除；用迁移前的旧 token 仍可通过 `user_token` 认证（C1 验证 legacy 行保留且可按 hash 定位；Bearer 认证链路在 C2 接入）。
 - [x] 空库 V1 → V7 一次跑通。
-- [x] 双库全量 `:server:test` 与 `:server:ktlintCheck` 通过（V6 不破坏旧写入路径；V7 以显式 target 验证，运行期随 C4 代码切换放开）。
+- [x] 双库全量 `:server:test` 与 `:server:ktlintCheck` 通过（V6 不破坏旧写入路径；V7 已在 C4 运行期放开并验证）。
 
 **状态**：✅ 2026-11-19 完成。V6 运行期生效；V7 文件与测试就绪，运行期由 `spring.flyway.target=6` 暂缓，C4 与代码切换同窗口改为 7。
 
@@ -527,71 +527,76 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **用户管理（org_admin）**
 
-- [ ] `POST /api/auth/users` 扩展：
+- [x] `POST /api/auth/users` 扩展：
   - 请求增加 `email?` / `password?`；
   - 无 `password` → `status=invited`、`mustChangePassword=true`，生成一次性 `invite` 令牌（7 天）并在响应 `setupToken` 返回一次；仍返回一条 `api` 令牌 `token` 兼容旧客户端（`invited` 状态不阻断已发放令牌）；
   - 有 `password` → `status=active`、`must_change_password=true`；
   - 邮箱唯一冲突 409；写入审计 `user.create`。
-- [ ] `PATCH /api/auth/users/{id}`：改 `displayName` / `email`；邮箱归一化与唯一校验；审计 `user.update`。
-- [ ] `UserView` 扩展 `email` / `status` / `mustChangePassword`，移除 `platformAdmin`；列表与创建响应同步（前端 C8 适配）。
-- [ ] `POST /api/auth/users/{id}/disable`：
+- [x] `PATCH /api/auth/users/{id}`：改 `displayName` / `email`；邮箱归一化与唯一校验；审计 `user.update`。
+- [x] `UserView` 扩展 `email` / `status` / `mustChangePassword`，移除 `platformAdmin`；列表与创建响应同步（前端 C8 适配）。
+- [x] `POST /api/auth/users/{id}/disable`：
   - 禁止禁用自己；禁止禁用最后一名可登录的 `org_admin`（`app_user.status ∈ active|invited`、`org_membership.status='active'`、`org_role=org_admin`）；
   - DB 事务：`status=disabled`、吊销全部 `user_token`；
   - DB 事务提交后，按 principal 删除全部 Redis 会话（`FindByIndexNameSessionRepository.findByPrincipalName`）；删除失败不影响禁用生效，下一次请求由状态校验返回 401；
   - 审计 `user.disable`；changelog `user.disable`（产品流保留）。
-- [ ] `POST /api/auth/users/{id}/enable`：`status=active`；不恢复已删除会话 / 已吊销令牌；审计 `user.enable`。
-- [ ] `POST /api/auth/users/{id}/password/reset`：
+- [x] `POST /api/auth/users/{id}/enable`：`status=active`；不恢复已删除会话 / 已吊销令牌；审计 `user.enable`。
+- [x] `POST /api/auth/users/{id}/password/reset`：
   - DB 事务提交后删除该用户全部 Redis 会话并吊销全部令牌；会话删除失败由状态校验兜底；
   - 设 `must_change_password=true`；
   - 生成 24h 一次性 `password_reset` 令牌，响应 `setupToken` 只显示一次；
   - 审计 `user.password.reset`。
-- [ ] `DELETE /api/auth/users/{id}` 扩展：
+- [x] `DELETE /api/auth/users/{id}` 扩展：
   - 禁止删除自己；禁止删除最后一名可登录的 `org_admin`；
   - DB 事务内删除 `user_token` / `user_identity` / `team_member` / `org_membership` / `membership`，再删用户；提交后删除该用户全部 Redis 会话；
   - 审计 `user.delete`；`audit_event` 保留。
-- [ ] `AuthController` 用户管理端点移除 `isPlatformAdmin` 特判（改角色 / 删除），统一改为「最后一名可登录 `org_admin`」保护；bootstrap admin 不再特殊。
-- [ ] `POST /api/auth/users/{id}/role`：改组织角色；禁止把最后一名可登录的 `org_admin` 降为 `org_member`；审计 `user.role`。
+- [x] `AuthController` 用户管理端点移除 `isPlatformAdmin` 特判（改角色 / 删除），统一改为「最后一名可登录 `org_admin`」保护；bootstrap admin 不再特殊。
+- [x] `POST /api/auth/users/{id}/role`：改组织角色；禁止把最后一名可登录的 `org_admin` 降为 `org_member`；审计 `user.role`。
 
 **会话管理（Spring Session Redis）**
 
-- [ ] `GET /api/auth/sessions`：当前用户的活动会话（会话 id 脱敏、IP、User-Agent、创建时间、最近访问）；数据来自 `FindByIndexNameSessionRepository.findByPrincipalName` + 会话属性。
-- [ ] `DELETE /api/auth/sessions/{id}`：吊销自己的指定会话；不能删除其它用户会话（404）；审计 `session.revoke`。
-- [ ] `GET /api/auth/users/{id}/sessions` / `DELETE .../sessions/{sessionId}`：org_admin 运维使用；审计 `session.admin.revoke`。
-- [ ] 当前会话标记 `current=true`，前端不允许误删当前会话（或删除后立即登出）。
-- [ ] 会话视图不返回 Spring Session 的主键 / 属性序列化内容。
-- [ ] 禁用 / 改密 / 重置时删除会话的逻辑与上述端点共用 `SessionAdminService`，避免两套实现。
+- [x] `GET /api/auth/sessions`：当前用户的活动会话（会话 id 脱敏、IP、User-Agent、创建时间、最近访问）；数据来自 `FindByIndexNameSessionRepository.findByPrincipalName` + 会话属性。
+- [x] `DELETE /api/auth/sessions/{id}`：吊销自己的指定会话；不能删除其它用户会话（404）；审计 `session.revoke`。
+- [x] `GET /api/auth/users/{id}/sessions` / `DELETE .../sessions/{sessionId}`：org_admin 运维使用；审计 `session.admin.revoke`。
+- [x] 当前会话标记 `current=true`，前端不允许误删当前会话（或删除后立即登出）。
+- [x] 会话视图不返回 Spring Session 的主键 / 属性序列化内容。
+- [x] 禁用 / 改密 / 重置时删除会话的逻辑与上述端点共用 `SessionAdminService`，避免两套实现。
 
 **用户令牌管理**
 
-- [ ] `GET /api/auth/tokens`：当前用户令牌列表（`id/name/prefix/purpose/expiresAt/lastUsedAt/createdAt/status`），不含 hash / 明文。
-- [ ] `POST /api/auth/tokens`：`{name, expiresInDays?}`；默认 90 天，最大 365 天；返回 `token` 明文一次；审计 `token.create`。
-- [ ] `DELETE /api/auth/tokens/{id}`：只能吊销自己的令牌；审计 `token.revoke`。
-- [ ] `GET /api/auth/users/{id}/tokens` / `DELETE /api/auth/users/{id}/tokens/{tokenId}`：org_admin 运维使用；审计 `token.admin.revoke`。
-- [ ] `POST /api/auth/users/{id}/token` 兼容端点：吊销旧 `legacy` / `api` 令牌并签发新 `api` 令牌，响应仍为 `{user, token}`。
-- [ ] 令牌解析只接受未吊销、未过期、用户 active 的记录；`last_used_at` 写节流 5 分钟。
-- [ ] 过期 / 吊销清理任务：每日删除过期 / 已吊销超过 7 天的 `user_token`（会话由 Spring Session 自带清理；审计记录不删）。
+- [x] `GET /api/auth/tokens`：当前用户令牌列表（`id/name/prefix/purpose/expiresAt/lastUsedAt/createdAt/status`），不含 hash / 明文。
+- [x] `POST /api/auth/tokens`：`{name, expiresInDays?}`；默认 90 天，最大 365 天；返回 `token` 明文一次；审计 `token.create`。
+- [x] `DELETE /api/auth/tokens/{id}`：只能吊销自己的令牌；审计 `token.revoke`。
+- [x] `GET /api/auth/users/{id}/tokens` / `DELETE /api/auth/users/{id}/tokens/{tokenId}`：org_admin 运维使用；审计 `token.admin.revoke`。
+- [x] `POST /api/auth/users/{id}/token` 兼容端点：吊销旧 `legacy` / `api` 令牌并签发新 `api` 令牌，响应仍为 `{user, token}`。
+- [x] 令牌解析只接受未吊销、未过期、用户 active 的记录；`last_used_at` 写节流 5 分钟。
+- [x] 过期 / 吊销清理任务：每日删除过期 / 已吊销超过 7 天的 `user_token`（会话由 Spring Session 自带清理；审计记录不删）。
 
 **V7 收紧**
 
-- [ ] 代码切换完成后，把 `application.yml` 的 `spring.flyway.target` 从 `6` 改为 `7`（或删除该行），执行 `V7__identity_tighten.sql`，删除 `app_user.token_hash` / `app_user.is_platform_admin`。
-- [ ] grep 门禁：`is_platform_admin`、`isPlatformAdmin`、`tokenHash`（`app_user` 语境）、`platformAdmin` 仅允许出现在历史迁移 / 文档中。
-- [ ] `ManagementDbMigrationTest` 覆盖 V6→V7 后旧 token 仍可认证、用户列表正常。
+- [x] 代码切换完成后，把 `application.yml` 的 `spring.flyway.target` 从 `6` 改为 `7`（或删除该行），执行 `V7__identity_tighten.sql`，删除 `app_user.token_hash` / `app_user.is_platform_admin`。
+- [x] grep 门禁：`is_platform_admin`、`isPlatformAdmin`、`tokenHash`（`app_user` 语境）、`platformAdmin` 仅允许出现在历史迁移 / 文档中。
+- [x] `ManagementDbMigrationTest` 覆盖 V6→V7 后旧 token 仍可认证、用户列表正常。
 
 **保护规则**
 
-- [ ] 最后一名可登录的 `org_admin`（`app_user.status ∈ active|invited` + `org_membership.status='active'`）不可禁用 / 降级 / 删除（409，提示先指定新的 org_admin）。
-- [ ] 禁用 / 重置 / 删除不可作用于当前操作者自身（删除已有保护；禁用 / 重置补齐）。
-- [ ] 所有生命周期动作写 `audit_event`；用户可见的产品流仍写 `changelog`。
+- [x] 最后一名可登录的 `org_admin`（`app_user.status ∈ active|invited` + `org_membership.status='active'`）不可禁用 / 降级 / 删除（409，提示先指定新的 org_admin）。
+- [x] 禁用 / 重置 / 删除不可作用于当前操作者自身（删除已有保护；禁用 / 重置补齐）。
+- [ ] 所有生命周期动作写 `audit_event`；用户可见的产品流仍写 `changelog`（changelog 已写；`audit_event` 写点随 C7 `AuditService` 接入）。
 
 **测试**
 
-- [ ] `UserLifecycleApiTest`：禁用后 Spring Session 会话 / 旧令牌立即 401；启用不恢复；重置令牌单次；最后 org_admin 保护；邮箱冲突；删除清理关系。
-- [ ] `SessionAdminApiTest`：查看自己的会话、吊销指定会话、不能吊销他人、org_admin 运维吊销、当前会话标记。
-- [ ] `UserTokenApiTest`：创建 / 列表 / 吊销 / 过期 / 他人令牌 404 / admin 吊销；旧 token 在 V7 后仍有效。
-- [ ] `AuthApiTest` 改造：`is_platform_admin` 移除后的 admin 语义、`/me` 字段。
-- [ ] 双库全量测试与 ktlint 通过。
+- [x] `UserLifecycleApiTest`：禁用后 Spring Session 会话 / 旧令牌立即 401；启用不恢复；重置令牌单次；最后 org_admin 保护；邮箱冲突；删除清理关系。
+- [x] `SessionAdminApiTest`：查看自己的会话、吊销指定会话、不能吊销他人、org_admin 运维吊销、当前会话标记。
+- [x] `UserTokenApiTest`：创建 / 列表 / 吊销 / 过期 / 他人令牌 404 / admin 吊销；旧 token 在 V7 后仍有效。
+- [x] `AuthApiTest` 改造：`is_platform_admin` 移除后的 admin 语义、`/me` 字段。
+- [x] 双库全量测试与 ktlint 通过。
 
-**状态**：待启动。
+> **C4 实施说明（2026-11-20）**：
+> - 审计写点（`user.*` / `session.*` / `token.*`）统一随 C7 `AuditService` 接入；C4 已写产品 changelog。
+> - V7 对 C2/C3 轮换后的 `app_user.token_hash` 采用「补记 revoked legacy 再删列」策略（行数不再要求相等，缺失回填仍中止）；`ManagementDbMigrationTest` 已覆盖。
+> - 「最后一名可登录 org_admin」保护在 `UserLifecycleService` 统一判定；自禁用 / 自重置 / 自删除返回 400。
+
+**状态**：✅ 2026-11-20 完成（审计写点待 C7）。
 
 ---
 

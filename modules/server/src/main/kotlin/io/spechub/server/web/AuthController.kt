@@ -6,6 +6,7 @@ import io.spechub.server.service.ChangelogService
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.ProjectService
 import io.spechub.server.service.TeamService
+import io.spechub.server.service.UserLifecycleService
 import io.spechub.server.service.UserService
 import io.spechub.server.service.UserTokenService
 import io.spechub.server.web.common.ApiErrorBody
@@ -21,6 +22,7 @@ import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.security.web.csrf.CsrfToken
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -53,6 +55,7 @@ class AuthController(
     private val userTokens: UserTokenService,
     private val passwordEncoder: PasswordEncoder,
     private val sessions: SessionAdminService,
+    private val lifecycle: UserLifecycleService,
 ) {
     data class StatusResponse(
         val authEnabled: Boolean,
@@ -87,7 +90,7 @@ class AuthController(
         val csrfToken: String? = null,
         val mustChangePassword: Boolean = false,
         val hasPassword: Boolean = false,
-        /** 组织管理员是唯一组织管理标识（不再有 platformAdmin） */
+        /** 组织管理员是唯一组织管理标识（不再有平台级 admin 字段） */
         val orgAdmin: Boolean = false,
         val oidcEnabled: Boolean = false,
         val oidcLoginUrl: String? = null,
@@ -123,7 +126,13 @@ class AuthController(
         @field:NotBlank val username: String,
         val displayName: String = "",
         val email: String? = null,
+        val password: String? = null,
         val orgRole: String = OrgService.ROLE_MEMBER,
+    )
+
+    data class UpdateUserRequest(
+        val displayName: String? = null,
+        val email: String? = null,
     )
 
     data class UpdateRoleRequest(
@@ -133,6 +142,14 @@ class AuthController(
     data class CreateUserResponse(
         val user: UserView,
         val token: String,
+        /** 邀请用户的一次性密码设置令牌（只返回一次） */
+        val setupToken: String? = null,
+    )
+
+    data class ResetPasswordResponse(
+        val user: UserView,
+        /** 一次性 password_reset 令牌（只返回一次，24h） */
+        val setupToken: String,
     )
 
     data class ChangePasswordRequest(
@@ -339,18 +356,79 @@ class AuthController(
         if (users.findByUsername(username) != null) {
             throw ApiException(ApiErrorCode.CONFLICT, "用户 $username 已存在")
         }
-        val user = users.createOrgUser(username, body.displayName, body.email, body.orgRole)
+        val email =
+            body
+                .email
+                ?.trim()
+                ?.lowercase()
+                ?.ifBlank { null }
+        if (email != null && users.findByEmail(email) != null) {
+            throw ApiException(ApiErrorCode.CONFLICT, "邮箱 $email 已被使用")
+        }
+        val hasPassword = !body.password.isNullOrBlank()
+        if (hasPassword) validatePassword(body.password, username, email)
+        val passwordHash = body.password?.let { checkNotNull(passwordEncoder.encode(it)) { "密码编码失败" } }
+
+        val user =
+            users.createOrgUser(
+                username = username,
+                displayName = body.displayName,
+                email = email,
+                orgRole = body.orgRole,
+                status = if (hasPassword) UserStatus.ACTIVE else UserStatus.INVITED,
+                passwordHash = passwordHash,
+                mustChangePassword = true,
+            )
         val userId = checkNotNull(user.id) { "用户创建后应有 id" }
-        val issued = userTokens.issue(userId, "initial", UserTokenService.PURPOSE_API, Instant.now().plus(Duration.ofDays(90)))
+        val apiToken = userTokens.issue(userId, "initial", UserTokenService.PURPOSE_API, Instant.now().plus(Duration.ofDays(90)))
+        val setupToken =
+            if (hasPassword) {
+                null
+            } else {
+                userTokens.issue(userId, "invite", UserTokenService.PURPOSE_INVITE, Instant.now().plus(Duration.ofDays(7))).raw
+            }
         changelogService.add(
             repoId = null,
             apiId = null,
             actor = auth.currentActor(req),
             action = "user.create",
-            detail = "创建组织用户 $username（${body.orgRole}）",
+            detail = "创建组织用户 $username（${body.orgRole}${if (hasPassword) "" else "，邀请"}）",
             orgId = auth.currentOrgId(req),
         )
-        return CreateUserResponse(toView(user, body.orgRole), issued.raw)
+        return CreateUserResponse(toView(user, body.orgRole), apiToken.raw, setupToken)
+    }
+
+    @PatchMapping("/users/{id}")
+    fun updateUser(
+        req: HttpServletRequest,
+        @PathVariable id: Long,
+        @RequestBody body: UpdateUserRequest,
+    ): UserView {
+        auth.requireOrgAdmin(req, "修改用户资料")
+        val orgId = auth.currentOrgId(req)
+        lifecycle.ensureSameOrg(id, orgId)
+        users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
+
+        val email =
+            body
+                .email
+                ?.let { if (it.isBlank()) "" else it.trim().lowercase() }
+        if (!email.isNullOrBlank()) {
+            val existing = users.findByEmail(email)
+            if (existing != null && existing.id != id) throw ApiException(ApiErrorCode.CONFLICT, "邮箱 $email 已被使用")
+        }
+        val updated =
+            users.updateProfile(id, body.displayName, email)
+                ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
+        changelogService.add(
+            repoId = null,
+            apiId = null,
+            actor = auth.currentActor(req),
+            action = "user.update",
+            detail = "更新组织用户 ${updated.username} 资料",
+            orgId = orgId,
+        )
+        return toView(updated, orgs.orgRole(id, orgId))
     }
 
     @PostMapping("/users/{id}/role")
@@ -361,9 +439,9 @@ class AuthController(
     ): UserView {
         auth.requireOrgAdmin(req, "改组织角色")
         validateOrgRole(body.role, "role")
-        val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         val orgId = auth.currentOrgId(req)
-        orgs.ensureMembership(id, orgId, body.role)
+        lifecycle.ensureSameOrg(id, orgId)
+        val user = lifecycle.setOrgRole(id, orgId, body.role)
         changelogService.add(
             repoId = null,
             apiId = null,
@@ -375,17 +453,93 @@ class AuthController(
         return toView(user, body.role)
     }
 
-    /** 兼容端点：吊销该用户全部令牌并签发一条新的 API 令牌（明文只返回一次）。 */
+    @PostMapping("/users/{id}/disable")
+    fun disableUser(
+        req: HttpServletRequest,
+        @PathVariable id: Long,
+    ): UserView {
+        val actor = auth.requireOrgAdmin(req, "禁用用户")
+        val orgId = auth.currentOrgId(req)
+        lifecycle.requireNotSelf(actor.id, id, "禁用")
+        lifecycle.ensureSameOrg(id, orgId)
+        lifecycle.ensureNotLastLoginnableOrgAdmin(id, orgId)
+
+        val user = lifecycle.disable(id)
+        sessions.deleteAllSessions(user.username)
+        changelogService.add(
+            repoId = null,
+            apiId = null,
+            actor = auth.currentActor(req),
+            action = "user.disable",
+            detail = "禁用组织用户 ${user.username}（令牌已吊销、会话已删除）",
+            orgId = orgId,
+        )
+        return toView(user, orgs.orgRole(id, orgId))
+    }
+
+    @PostMapping("/users/{id}/enable")
+    fun enableUser(
+        req: HttpServletRequest,
+        @PathVariable id: Long,
+    ): UserView {
+        auth.requireOrgAdmin(req, "启用用户")
+        val orgId = auth.currentOrgId(req)
+        lifecycle.ensureSameOrg(id, orgId)
+        val user = lifecycle.enable(id)
+        changelogService.add(
+            repoId = null,
+            apiId = null,
+            actor = auth.currentActor(req),
+            action = "user.enable",
+            detail = "启用组织用户 ${user.username}（不恢复旧会话 / 令牌）",
+            orgId = orgId,
+        )
+        return toView(user, orgs.orgRole(id, orgId))
+    }
+
+    @PostMapping("/users/{id}/password/reset")
+    fun resetPassword(
+        req: HttpServletRequest,
+        @PathVariable id: Long,
+    ): ResetPasswordResponse {
+        val actor = auth.requireOrgAdmin(req, "重置用户密码")
+        val orgId = auth.currentOrgId(req)
+        lifecycle.requireNotSelf(actor.id, id, "重置密码")
+        lifecycle.ensureSameOrg(id, orgId)
+
+        val user = lifecycle.resetPassword(id)
+        sessions.deleteAllSessions(user.username)
+        val setup =
+            userTokens.issue(
+                checkNotNull(user.id) { "用户必有 id" },
+                "password-reset",
+                UserTokenService.PURPOSE_PASSWORD_RESET,
+                Instant.now().plus(Duration.ofHours(24)),
+            )
+        changelogService.add(
+            repoId = null,
+            apiId = null,
+            actor = auth.currentActor(req),
+            action = "user.password.reset",
+            detail = "重置组织用户 ${user.username} 密码（会话已删除、令牌已吊销）",
+            orgId = orgId,
+        )
+        return ResetPasswordResponse(toView(user, orgs.orgRole(id, orgId)), setup.raw)
+    }
+
+    /** 兼容端点：吊销旧 legacy / api 令牌并签发一条新的 API 令牌（明文只返回一次）。 */
     @PostMapping("/users/{id}/token")
     fun resetToken(
         req: HttpServletRequest,
         @PathVariable id: Long,
     ): CreateUserResponse {
         auth.requireOrgAdmin(req, "重置令牌")
+        val orgId = auth.currentOrgId(req)
+        lifecycle.ensureSameOrg(id, orgId)
         val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
-        userTokens.revokeAll(id)
+        userTokens.revokeLoginTokens(id)
         val issued = userTokens.issue(id, "reset", UserTokenService.PURPOSE_API, Instant.now().plus(Duration.ofDays(90)))
-        val orgRole = orgs.orgRole(id, auth.currentOrgId(req))
+        val orgRole = orgs.orgRole(id, orgId)
         return CreateUserResponse(toView(user, orgRole), issued.raw)
     }
 
@@ -396,16 +550,20 @@ class AuthController(
         @PathVariable id: Long,
     ) {
         val actor = auth.requireOrgAdmin(req, "删除用户")
-        val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
-        if (actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")
-        users.deleteUser(id)
+        val orgId = auth.currentOrgId(req)
+        lifecycle.requireNotSelf(actor.id, id, "删除")
+        lifecycle.ensureSameOrg(id, orgId)
+        lifecycle.ensureNotLastLoginnableOrgAdmin(id, orgId)
+
+        val user = lifecycle.delete(id)
+        sessions.deleteAllSessions(user.username)
         changelogService.add(
             repoId = null,
             apiId = null,
             actor = auth.currentActor(req),
             action = "user.delete",
             detail = "删除组织用户 ${user.username}",
-            orgId = auth.currentOrgId(req),
+            orgId = orgId,
         )
     }
 

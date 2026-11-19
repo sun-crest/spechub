@@ -59,6 +59,30 @@ class UserService(
     /** 仅用于密码校验；不对外返回 hash。 */
     fun passwordHash(userId: Long): String? = users.findById(userId).orElse(null)?.passwordHash
 
+    /** 更新资料（displayName / email）；email 传空串表示清空，null 表示不变。 */
+    @Transactional
+    fun updateProfile(
+        id: Long,
+        displayName: String?,
+        email: String?,
+    ): UserRecord? {
+        val entity = users.findById(id).orElse(null) ?: return null
+        val newEmail =
+            when {
+                email == null -> entity.email
+                email.isBlank() -> null
+                else -> normalizeEmail(email)
+            }
+        val saved =
+            users.save(
+                entity.copy(
+                    displayName = displayName?.takeIf { it.isNotBlank() } ?: entity.displayName,
+                    email = newEmail,
+                ),
+            )
+        return saved.toRecord()
+    }
+
     /** 设置密码并清 mustChangePassword；设置密码即视为激活（邀请 / 重置流程）。 */
     @Transactional
     fun setPassword(
@@ -246,6 +270,8 @@ class UserService(
     fun orgRole(userId: Long): String? = orgs.orgRole(userId, orgs.defaultOrgId())
 
     fun isOrgAdmin(userId: Long): Boolean = orgs.isOrgAdmin(userId, orgs.defaultOrgId())
+
+    fun recordOf(entity: UserEntity): UserRecord = entity.toRecord()
 
     private fun normalizeEmail(email: String?): String? = email?.trim()?.lowercase()?.ifBlank { null }
 

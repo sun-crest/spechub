@@ -14,5 +14,7 @@ interface ProjectRepository : CrudRepository<ProjectEntity, Long> {
 
     fun findAllByOrderByIdAsc(): List<ProjectEntity>
 
+    fun findAllByOwnerId(ownerId: Long): List<ProjectEntity>
+
     fun countByOrgId(orgId: Long): Long
 }

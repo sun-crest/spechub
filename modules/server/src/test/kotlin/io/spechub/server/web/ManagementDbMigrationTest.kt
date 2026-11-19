@@ -15,6 +15,7 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -24,8 +25,8 @@ import kotlin.test.assertTrue
  * - V3 有数据 → V4：过渡期同名团队合并、跨 org 同名隔离、成员启发式回填、旧唯一键保留；
  * - V4 有数据 → V5：过渡期 NULL 回填、重复订阅去重、唯一键切换与 NOT NULL 收紧；
  * - V5 有数据 → V6：status 回填、旧 token 迁移 user_token(legacy)、新表约束、不建会话表；
- * - V6 有数据 → V7：旧列删除、legacy token 仍可按 hash 定位；
- * - 守卫：重复 token_hash 中止 V6；未回填 token 中止 V7；
+ * - V6 有数据 → V7：旧列删除、legacy token 仍可按 hash 定位；未回填 token 补记为 revoked legacy；
+ * - 守卫：重复 token_hash 中止 V6；
  * - 空库 V1 → V7：七版一次性迁移成功，bootstrap 默认组织就绪。
  *
  * 不走 Spring：直接 Testcontainers 目标库 + Flyway 编程式迁移，避免 @SpringBootTest 的 Flyway 自动装配。
@@ -871,7 +872,7 @@ class ManagementDbMigrationTest {
     }
 
     @Test
-    fun `V7 遇到未回填 token 中止迁移`() {
+    fun `V7 补记未回填 token 为 revoked legacy 并删列`() {
         val db = newTarget("v7guard")
         flyway(db, "5").migrate()
 
@@ -884,14 +885,14 @@ class ManagementDbMigrationTest {
             insert(c, "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES ('late-user', 'Late User', 'hash-late', FALSE)")
         }
 
-        val ex = assertFailsWith<FlywayException> { flyway(db, "7").migrate() }
-        val message = ex.message.orEmpty()
-        assertTrue(
-            message.contains("chk_v7_legacy") || message.contains("V7 中止"),
-            "应因未回填 token 中止 V7：$message",
-        )
+        val result = flyway(db, "7").migrate()
+        assertTrue(result.migrationsExecuted >= 1, "V7 应被执行：${result.migrationsExecuted}")
         DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
-            assertTrue(columnExists(c, db, "app_user", "token_hash"), "V7 中止后旧列仍在")
+            val late = one(c, "SELECT purpose, revoked_at FROM user_token WHERE token_hash = ?", "hash-late")
+            assertEquals("legacy", late["purpose"])
+            assertNotNull(late["revoked_at"], "未回填 token 应补记为 revoked legacy（旧值已失效）")
+            assertFalse(columnExists(c, db, "app_user", "token_hash"), "V7 后旧列删除")
+            assertFalse(columnExists(c, db, "app_user", "is_platform_admin"), "V7 后旧列删除")
         }
     }
 

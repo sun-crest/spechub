@@ -8,7 +8,7 @@ import java.time.Instant
 /**
  * 管理库 `app_user`（阶段 C）。
  *
- * - 身份全局唯一；密码只存 Argon2id hash，不再有长期 `token_hash`（V7 已删列）。
+ * - 身份全局唯一；密码只存 Argon2id hash；长期令牌统一在 `user_token`。
  * - `status ∈ active | disabled | invited`；`invited` 表示尚未设置密码，但不阻断已发放的令牌。
  * - `mfa_enabled` 仅预留列，C 阶段不实现 MFA 校验。
  */

@@ -2,6 +2,7 @@ package io.spechub.server
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
+import org.springframework.scheduling.annotation.EnableScheduling
 
 /**
  * SpecHub server 入口（Spring Boot 4 聚合层）。
@@ -10,6 +11,7 @@ import org.springframework.boot.runApplication
  * 摄取 / 索引 / REST 能力随 E3+ 落地。
  */
 @SpringBootApplication
+@EnableScheduling
 class SpecHubApplication
 
 fun main(args: Array<String>) {
