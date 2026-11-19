@@ -11,5 +11,5 @@ class IngestHooks(
     val updateSyncStatus: (repoId: Long, status: String, error: String?) -> Unit = { _, _, _ -> },
     val replayReleases: (repoId: Long, projection: ProjectionStore) -> Unit = { _, _ -> },
     val subscriptionsForEndpoint: (repoId: Long, method: String, path: String) -> List<SubscriptionRecord> = { _, _, _ -> emptyList() },
-    val addNotification: (team: String, repoId: Long, method: String, path: String, summary: String) -> Unit = { _, _, _, _, _ -> },
+    val addNotification: (teamId: Long, teamName: String, repoId: Long, method: String, path: String, summary: String) -> Unit = { _, _, _, _, _, _ -> },
 )

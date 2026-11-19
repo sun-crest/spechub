@@ -11,6 +11,15 @@ interface SubscriptionRepository : CrudRepository<SubscriptionEntity, Long> {
         team: String,
     ): SubscriptionEntity?
 
+    fun findByRepoIdAndMethodAndPathAndTeamId(
+        repoId: Long,
+        method: String,
+        path: String,
+        teamId: Long,
+    ): SubscriptionEntity?
+
+    fun countByTeamId(teamId: Long): Long
+
     @Query("SELECT * FROM subscription WHERE repo_id = :repoId ORDER BY team, path")
     fun findByRepoId(repoId: Long): List<SubscriptionEntity>
 

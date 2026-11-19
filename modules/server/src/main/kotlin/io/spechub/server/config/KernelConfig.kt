@@ -61,7 +61,9 @@ class KernelConfig(
                 updateSyncStatus = { repoId, status, error -> repoService.updateSyncStatus(repoId, status, error) },
                 replayReleases = { repoId, projection -> releaseService.replay(repoId, projection) },
                 subscriptionsForEndpoint = { repoId, method, path -> subscriptionService.subscriptionsForEndpoint(repoId, method, path) },
-                addNotification = { team, repoId, method, path, summary -> subscriptionService.addNotification(team, repoId, method, path, summary) },
+                addNotification = { teamId, teamName, repoId, method, path, summary ->
+                    subscriptionService.addNotification(teamId, teamName, repoId, method, path, summary)
+                },
             ),
             props,
             // 摄取只认 active binding（ADR §4.4）；repo.url / retired 不再作为真源

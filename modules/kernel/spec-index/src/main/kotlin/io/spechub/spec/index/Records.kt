@@ -106,22 +106,28 @@ object ChangelogAction {
     const val MOCK_RULE = "mock.rule"
 }
 
-/** 订阅（I7 §6.3）：消费团队声明对某接口（repo+method+path 稳定寻址）的结构变更关注 */
+/** 订阅（I7 §6.3 / B2）：消费团队声明对某接口（repo+method+path 稳定寻址）的结构变更关注 */
 data class SubscriptionRecord(
     val id: Long? = null,
     val repoId: Long,
     val apiId: Long? = null,
     val method: String,
     val path: String,
-    val team: String,
+    val teamId: Long? = null,
+    val teamName: String,
+    /** 兼容字段（B6 前前端仍读 team）：与 teamName 同值 */
+    val team: String = teamName,
     val notifyUrl: String = "",
     val createdAt: String? = null,
 )
 
-/** 变更通知（I7）：摄取检测订阅接口结构变化时落条；team 为消费方标识 */
+/** 变更通知（I7 / B2）：摄取检测订阅接口结构变化时落条；teamName 为投递时团队名快照 */
 data class NotificationRecord(
     val id: Long? = null,
-    val team: String,
+    val teamId: Long? = null,
+    val teamName: String,
+    /** 兼容字段：与 teamName 同值 */
+    val team: String = teamName,
     val repoId: Long,
     val method: String,
     val path: String,

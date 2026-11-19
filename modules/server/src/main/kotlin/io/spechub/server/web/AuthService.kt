@@ -3,9 +3,11 @@ package io.spechub.server.web
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.repository.OrgEntity
 import io.spechub.server.repository.ProjectEntity
+import io.spechub.server.repository.TeamEntity
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.ProjectService
 import io.spechub.server.service.RepoService
+import io.spechub.server.service.TeamService
 import io.spechub.server.service.UserService
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
@@ -36,6 +38,7 @@ class AuthService(
     private val projectService: ProjectService,
     private val users: UserService,
     private val orgs: OrgService,
+    private val teams: TeamService,
     private val props: SpecHubProperties,
 ) {
     /** 请求属性名：鉴权后放当前用户 / 当前组织 */
@@ -364,8 +367,53 @@ class AuthService(
         op: String,
     ): UserRecord {
         if (!authEnabled) {
-            return currentUser(req) ?: UserRecord(id = -1, username = "anonymous", tokenHash = "", isPlatformAdmin = false)
+            return anonymousUser(req)
         }
         return currentUser(req) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
     }
+
+    /** 团队读入口：团队不存在 / 跨组织统一 404；dev 免登录放行。 */
+    fun requireTeam(
+        req: HttpServletRequest,
+        teamId: Long,
+        op: String,
+    ): TeamEntity =
+        teams.get(teamId, currentOrgId(req))
+            ?: throw ApiException(ApiErrorCode.NOT_FOUND, "team $teamId 不存在（$op）")
+
+    /** 团队成员入口（org_admin 视同成员）；非成员统一 404，不暴露团队关系。 */
+    fun requireTeamMember(
+        req: HttpServletRequest,
+        teamId: Long,
+        op: String,
+    ): UserRecord {
+        val team = requireTeam(req, teamId, op)
+        if (!authEnabled) return anonymousUser(req)
+        val user = requireAuthenticated(req, op)
+        val uid = user.id ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
+        if (isOrgAdmin(user, team.orgId)) return user
+        if (teams.roleInTeam(uid, teamId) == null) {
+            throw ApiException(ApiErrorCode.NOT_FOUND, "team $teamId 不存在（$op）")
+        }
+        return user
+    }
+
+    /** 团队 lead 入口（org_admin 视同 lead）；可见但非 lead → 403。 */
+    fun requireTeamLead(
+        req: HttpServletRequest,
+        teamId: Long,
+        op: String,
+    ): UserRecord {
+        val team = requireTeam(req, teamId, op)
+        if (!authEnabled) return anonymousUser(req)
+        val user = requireAuthenticated(req, op)
+        val uid = user.id ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
+        if (isOrgAdmin(user, team.orgId)) return user
+        if (teams.roleInTeam(uid, teamId) != TeamService.ROLE_LEAD) {
+            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要团队 lead")
+        }
+        return user
+    }
+
+    private fun anonymousUser(req: HttpServletRequest): UserRecord = currentUser(req) ?: UserRecord(id = -1, username = "anonymous", tokenHash = "", isPlatformAdmin = false)
 }

@@ -14,6 +14,8 @@ data class SubscriptionEntity(
     @Column("api_id") val apiId: Long? = null,
     val method: String,
     val path: String,
+    @Column("team_id") val teamId: Long? = null,
+    /** 团队名快照；读取时以 team_id 关联的当前名为准（B2） */
     val team: String,
     @Column("notify_url") val notifyUrl: String = "",
     @Column("created_at") val createdAt: Instant,

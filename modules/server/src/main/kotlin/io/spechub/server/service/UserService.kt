@@ -3,6 +3,7 @@ package io.spechub.server.service
 import io.spechub.server.repository.MembershipEntity
 import io.spechub.server.repository.MembershipRepository
 import io.spechub.server.repository.OrgMembershipRepository
+import io.spechub.server.repository.TeamMemberRepository
 import io.spechub.server.repository.UserEntity
 import io.spechub.server.repository.UserRepository
 import io.spechub.spec.index.UserRecord
@@ -22,6 +23,7 @@ class UserService(
     private val users: UserRepository,
     private val memberships: MembershipRepository,
     private val orgMemberships: OrgMembershipRepository,
+    private val teamMembers: TeamMemberRepository,
     private val orgs: OrgService,
 ) {
     companion object {
@@ -120,9 +122,10 @@ class UserService(
         return saved.toRecord()
     }
 
-    /** 删除用户（先删组织/项目成员关系，满足 FK RESTRICT；集合式删除）。 */
+    /** 删除用户（先删团队/组织/项目成员关系，满足 FK RESTRICT；集合式删除）。 */
     @Transactional
     fun deleteUser(id: Long) {
+        teamMembers.deleteAllByUserId(id)
         orgMemberships.deleteAllByUserId(id)
         memberships.deleteAllByUserId(id)
         users.deleteById(id)

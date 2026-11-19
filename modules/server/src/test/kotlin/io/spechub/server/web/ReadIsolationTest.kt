@@ -138,8 +138,9 @@ class ReadIsolationTest {
         comments.add(repoA, apiA, null, "GET", "/pets", "author-a", "A 评论")
         comments.add(repoB, apiB, null, "GET", "/pets", "author-b", "B 评论")
         val reviewB = assertNotNull(reviewService.create(repoB, "specs/b.yaml", "openapi: 3.1.0", "", null, "author-b").id)
-        val subscriptionB = assertNotNull(subscriptions.subscribe(repoB, apiB, "GET", "/pets", "team-b", "").id)
-        subscriptions.addNotification("team-b", repoB, "GET", "/pets", "B 通知")
+        val subB = subscriptions.subscribe(repoB, apiB, "GET", "/pets", "team-b", "")
+        val subscriptionB = assertNotNull(subB.id)
+        subscriptions.addNotification(checkNotNull(subB.teamId), "team-b", repoB, "GET", "/pets", "B 通知")
         changelogService.add(repoB, apiB, "author-b", "comment", "B 变更记录")
 
         val rawToken = "user-token-$suffix"

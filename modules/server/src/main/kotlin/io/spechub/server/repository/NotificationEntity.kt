@@ -9,6 +9,8 @@ import java.time.Instant
 @Table("notification")
 data class NotificationEntity(
     @Id val id: Long? = null,
+    @Column("team_id") val teamId: Long? = null,
+    /** 投递时团队名快照；团队删除后仍可展示 */
     val team: String,
     @Column("repo_id") val repoId: Long,
     @Column("org_id") val orgId: Long? = null,

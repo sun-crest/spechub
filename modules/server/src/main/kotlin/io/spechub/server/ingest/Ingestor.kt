@@ -206,7 +206,8 @@ class Ingestor(
         hash: String,
     ) {
         for (s in hooks.subscriptionsForEndpoint(repoId, method, path)) {
-            hooks.addNotification(s.team, repoId, method, path, "结构变更：$method $path → specHash ${hash.take(10)}…")
+            val teamId = s.teamId ?: continue
+            hooks.addNotification(teamId, s.teamName, repoId, method, path, "结构变更：$method $path → specHash ${hash.take(10)}…")
         }
     }
 

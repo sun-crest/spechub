@@ -157,57 +157,59 @@ ADR 未写死、但会影响实现细节的项，在 B0 一次拍板并记录。
 
 **Repository / Entity**
 
-- [ ] `TeamEntity` / `TeamRepository`：`findAllByOrgIdOrderByNameAsc`、`findByOrgIdAndName`、`findByIdAndOrgId`、`existsByOrgIdAndName`。
-- [ ] `TeamMemberEntity` / `TeamMemberRepository`：`findAllByTeamId`、`findByTeamIdAndUserId`、`findAllByUserId`、`deleteAllByTeamId`、`deleteAllByUserId`。
-- [ ] `SubscriptionEntity` 增加 `teamId`（`team` 列保留兼容快照）。
-- [ ] `NotificationEntity` 增加 `teamId`（`team` 列为名称快照）。
+- [x] `TeamEntity` / `TeamRepository`：`findAllByOrgIdOrderByNameAsc`、`findByOrgIdAndNameIgnoreCase`、`findByIdAndOrgId`。
+- [x] `TeamMemberEntity` / `TeamMemberRepository`：`findAllByTeamIdOrderByRoleAscUserIdAsc`、`findByTeamIdAndUserId`、`findAllByUserId`、`countByTeamId`、`countByTeamIdAndRole`、`deleteAllByTeamId`、`deleteAllByUserId`。
+- [x] `SubscriptionEntity` 增加 `teamId`（`team` 列保留兼容快照）。
+- [x] `NotificationEntity` 增加 `teamId`（`team` 列为名称快照）。
 
 **Service**
 
-- [ ] `TeamService`：
-  - `create(orgId, name, description)`：trim、长度、组织内重名校验（409，忽略大小写）；
-  - `rename/update(id, orgId, name?, description?)`：改名重名校验；
-  - `delete(id, orgId)`：有订阅 → 409；事务内清 `team_member` 再删团队；
-  - `roleInTeam(userId, teamId): String?`、`isLead`、`teamsOf(userId)`、`membersOf(teamId)`；
-  - `ensureMember` / `setMemberRole` / `removeMember`：成员必须是组织 active 成员；最后一个 lead 保护；
-  - `resolveOrCreate(orgId, name)`：B2/B4 过渡期按旧 `team` 文本解析团队（不存在则创建），保证新写入都有 `team_id`；
+- [x] `TeamService`：
+  - `create(orgId, name, description, actor)`：trim、长度、组织内重名校验（忽略大小写）；
+  - `update(id, orgId, name?, description?, actor)`：改名重名校验；
+  - `delete(id, orgId, actor)`：有订阅 → 拒绝；事务内清 `team_member` 再删团队；
+  - `roleInTeam(userId, teamId): String?`、`isLead`、`teamsOf(userId)`、`membersOf(teamId)`、`memberCount`、`subscriptionCount`；
+  - `addMember` / `removeMember`：成员必须是组织 active 成员；最后一个 lead 保护；
+  - `resolveOrCreate(orgId, name)`：B2/B4 过渡期按旧 `team` 文本解析团队（不存在则创建），保证新写入都有 `team_id`；并发由唯一键兜底（后到请求失败，不做事务内重查）；
   - 所有查询带 `orgId`，跨组织视为不存在。
-- [ ] `AuthService` 增加团队判定薄封装：`requireTeamMember(req, teamId, op)`、`requireTeamLead(req, teamId, op)`；`org_admin` 视同 lead；dev 免登录放行。
-- [ ] `Records.kt`：
-  - `SubscriptionRecord` 增加 `teamId: Long`、`teamName: String`（`team` 字段保留兼容，值同 `teamName`）；
+- [x] `AuthService` 增加团队判定薄封装：`requireTeam`、`requireTeamMember`、`requireTeamLead`；`org_admin` 视同 lead；dev 免登录放行；非成员 404、非 lead 403。
+- [x] `Records.kt`：
+  - `SubscriptionRecord` 增加 `teamId: Long?`、`teamName: String`（`team` 字段保留兼容，值同 `teamName`）；
   - `NotificationRecord` 增加 `teamId: Long?`、`teamName: String`（`team` 保留兼容）。
-- [ ] `SubscriptionService`：
-  - 写入路径从 B2 起必须填 `teamId`：保留旧 `team: String` 入参做兼容，`teamId == null` 时由 `TeamService.resolveOrCreate(orgId, name)` 解析/创建；
-  - 幂等键改为 `(repoId, method, path, teamId)`（V5 生效后由数据库唯一键兜底）；
-  - `list*` 返回 `teamName` 时优先取团队当前名（批量查团队，避免 N+1）；
+- [x] `SubscriptionService`：
+  - 写入路径从 B2 起填 `teamId`：保留旧 `team: String` 入参做兼容，`teamId == null` 时由 `TeamService.resolveOrCreate(orgId, name)` 解析/创建；
+  - 幂等键改为 `(repoId, method, path, teamId)`（V5 后由数据库唯一键兜底）；
+  - `list*` 返回 `teamName` 时批量取团队当前名（避免 N+1），历史行退回名称快照；
   - `addNotification(teamId, teamName, repoId, method, path, summary)`。
-- [ ] `IngestHooks` / `KernelConfig`：`addNotification` 签名加 `teamId`；`subscriptionsForEndpoint` 返回值已带 `teamId`。
-- [ ] `UserService.deleteUser`：先 `teamMemberRepository.deleteAllByUserId(id)`，再删组织/项目关系。
-- [ ] changelog：`team.create` / `team.update` / `team.delete` / `team.member.add` / `team.member.role` / `team.member.delete`（`repo_id=null`，带 `org_id`）。
+- [x] `IngestHooks` / `KernelConfig`：`addNotification` 签名加 `teamId` / `teamName`；`Ingestor` 跳过无 `teamId` 的历史订阅。
+- [x] `UserService.deleteUser`：先 `teamMemberRepository.deleteAllByUserId(id)`，再删组织/项目关系。
+- [x] changelog：`team.create` / `team.update` / `team.delete` / `team.member.add` / `team.member.role` / `team.member.delete`（`repo_id=null`，带 `org_id`）。
 
 **V5 收紧迁移（B2 末，写入路径生效后）**
 
 迁移文件：`modules/server/src/main/resources/db/migration/{postgresql,mysql}/V5__team_binding_tighten.sql`。
 
-- [ ] 回填 B1→B2 窗口内新增的 `subscription.team_id IS NULL` 行：按 `subscription.team` 在当前 org 查找/创建 team 并回填；
-- [ ] 按 `(repo_id, method, path, team_id)` 去重，保留 `id` 最大的一条（通知历史不动）；
-- [ ] 删除旧唯一键 `uk_subscription_endpoint`，新增 `UNIQUE (repo_id, method, path, team_id)`；
-- [ ] `subscription.team_id SET NOT NULL`；旧 `team` 列改可空（保留名称快照）；
-- [ ] 验收：V4 有重复/NULL 数据 → V5 后无 NULL、无重复；插入同 `(repo_id, method, path, team_id)` 失败；
-- [ ] 迁移测试：V3 → V4 → V5 连续迁移（含过渡期 NULL 与重复订阅）。
+- [x] `team_member` 增加代理主键 `id`（Spring Data JDBC 单列 `@Id`），原 `(team_id, user_id)` 改为唯一键；MySQL 先补 FK 索引再删复合主键。
+- [x] 回填 B1→B2 窗口内新增的 `subscription.team_id IS NULL` 行：按 `subscription.team` 在当前 org 查找/创建 team 并回填；
+- [x] 同窗口内 `notification.team_id IS NULL` 的通知也按团队名回填（匹配不到保留 NULL）；
+- [x] 按 `(repo_id, method, path, team_id)` 去重，保留 `id` 最大的一条（通知历史不动）；
+- [x] 删除旧唯一键 `uk_subscription_endpoint`，新增 `UNIQUE (repo_id, method, path, team_id)`；
+- [x] `subscription.team_id SET NOT NULL`；旧 `team` 列改可空（保留名称快照）；
+- [x] 验收：V4 有重复/NULL 数据 → V5 后无 NULL、无重复；插入同 `(repo_id, method, path, team_id)` 失败；
+- [x] 迁移测试：V3 → V4 → V5 分段验证（过渡期保留 vs 收紧后去重）。
 
 **纪律**
 
-- [ ] 团队 + 成员多表写用 `@Transactional`；通知逐条独立写（沿用 I7 的既有例外）。
-- [ ] 团队名读取走批量查询，禁止在列表循环里逐条查团队。
+- [x] 团队 + 成员多表写用 `@Transactional`；通知逐条独立写（沿用 I7 的既有例外）。
+- [x] 团队名读取走批量查询，禁止在列表循环里逐条查团队。
 
 **测试**
 
-- [ ] `TeamServiceTest`：创建 / 重名 / 改名 / 删除有订阅 409 / 成员增删改 / 最后一个 lead 保护 / 跨 org 不可见。
-- [ ] `UserService` 删除用户清理 `team_member`。
-- [ ] `ManagementDbMigrationTest` 增加 V4 → V5 收紧用例。
+- [x] `TeamServiceTest`：创建 / 重名 / 改名 / 删除有订阅拒绝 / 成员增删改 / 最后一个 lead 保护 / 跨 org 不可见 / `resolveOrCreate` 幂等。
+- [x] `UserService` 删除用户清理 `team_member`（`TeamServiceTest` 覆盖）。
+- [x] `ManagementDbMigrationTest` 增加 V4 → V5 收紧用例；V3 → V4 保留过渡期断言。
 
-**状态**：⬜ 待开始。
+**状态**：✅ 2026-11-19 完成；PostgreSQL / MySQL 全量 `:server:test` 与 `:server:ktlintCheck` 通过。
 
 ---
 

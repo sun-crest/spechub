@@ -43,8 +43,9 @@ class SubscriptionServiceTest : TestDbIsolation() {
         assertEquals(s1.id, s2.id, "同 repo+method+path+team 幂等")
         assertEquals(1, subscriptionService.list(repo.id).size)
 
-        subscriptionService.addNotification("pay-team", repo.id, "GET", "/pets", "结构变更 a")
-        subscriptionService.addNotification("pay-team", repo.id, "GET", "/pets", "结构变更 b")
+        val teamId = checkNotNull(s1.teamId) { "订阅应带 teamId" }
+        subscriptionService.addNotification(teamId, "pay-team", repo.id, "GET", "/pets", "结构变更 a")
+        subscriptionService.addNotification(teamId, "pay-team", repo.id, "GET", "/pets", "结构变更 b")
         assertEquals(2, subscriptionService.listNotifications("pay-team").size)
         assertEquals(1, subscriptionService.subscriptionsForEndpoint(repo.id, "GET", "/pets").size)
 
