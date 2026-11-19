@@ -30,7 +30,8 @@ scripts/backup-db.sh [输出目录]        # 默认 ./backups
 
 - PostgreSQL 输出 `management-postgres-<UTC时间>.dump`（`pg_dump -Fc`）；
 - MySQL 输出 `management-mysql-<UTC时间>.sql`（`mysqldump --single-transaction`）；
-- 建议：每日全量 + 大版本/迁移前手动备份；管理库很小（表结构 10 张 + 小数据量），RPO 24h 通常足够。
+- 建议：每日全量 + 大版本/迁移前手动备份；管理库很小（表结构随 Flyway V1–V5 演进，当前 17 张 + 小数据量），RPO 24h 通常足够。
+- 团队与订阅是管理数据（`team` / `team_member` / `subscription.team_id` / `notification.team_id`），随管理库一起备份；投影重建不会影响它们。
 
 ### 2.2 恢复
 
@@ -85,6 +86,7 @@ docker compose -f compose/docker-compose.yml start backend
    ```
 2. **MySQL 9.7 LTS**（2026-04 GA）：升级路径 8.4 → 9.7（不可跳 LTS）；先在 spike/测试环境验证 Flyway 与 Connector/J，再切镜像与驱动。
 3. **迁移脚本**：只追加 `V<n>__*.sql`（PG/MySQL 两份），不修改已应用的历史版本；Flyway 启动自动执行，失败即启动失败。
+4. **阶段 B 团队迁移（V4/V5）**：V4 建 `team` / `team_member` 并把旧 `subscription.team` 文本按同组织同名合并回填 `team_id`（过渡期保留旧唯一键与可空 `team_id`）；V5 在团队写入路径上线后回填过渡期 NULL、去重、切换唯一键、`team_id NOT NULL` 并给 `team_member` 加代理主键。从 V3 直接升级到最新版会连续执行，无需手工干预。若 V4 因空团队名/无法确定 `org_id` 失败，先修 `subscription.team` / `org_id` 再重启。
 
 ---
 
@@ -96,6 +98,9 @@ docker compose -f compose/docker-compose.yml start backend
 | 投影查询为空 | 触发 reindex 重建投影；检查 `repo.sync_status=error` 的仓库日志 |
 | 管理库误删/损坏 | 停后端 → `restore-db.sh` → 启动；投影可重建，无需恢复 |
 | token 全部失效 | 检查 `SPECHUB_ADMIN_TOKEN` 是否变化（启动会刷新 admin 用户 token hash） |
+| 删除团队返回 409 | 团队仍有订阅：先取消订阅（`DELETE /api/subscriptions/{id}`）再删；通知历史保留（`team_id` 置 NULL） |
+| 团队改名后订阅仍有效但显示旧名 | 订阅以 `team_id` 为真源；重新拉取 `/api/subscriptions`，检查前端缓存 |
+| V4/V5 团队迁移失败 | 检查 `subscription.team` / `org_id`；空团队名或无法确定组织的行需先修复。Flyway 失败会回滚本次迁移，修复后重启 |
 | MySQL 时间偏移 8 小时 | 确认 JVM `-Duser.timezone=UTC`（Dockerfile 已固定）与连接参数 `connectionTimeZone=UTC` |
 
 ---

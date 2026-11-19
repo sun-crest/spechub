@@ -117,6 +117,34 @@ curl -s "http://localhost:8080/api/apis?projectId=$PID&stage=draft"
 - **成员**：org_admin 在「成员与角色」创建组织用户并加入项目；项目角色 viewer / editor / admin / owner（owner 只能通过转移接口变更）。
 - **灰度开关**：A‑1 安全底座（`ReadIsolationTest`）在开放多项目 UI 前已通过，阶段 A 未引入 `spechub.multi-project.enabled`；如后续需要灰度，可在 `SpecHubProperties` 增加并仅隐藏项目切换入口。
 
+### 团队与跨团队订阅（阶段 B）
+
+团队是**组织级**实体（`org → team`），与项目成员独立：项目角色管「谁能写这个仓」，团队管「哪个消费团队订阅了哪些接口、变更通知发给谁」。团队角色为 `lead` / `member`。
+
+```bash
+# 1) 创建团队（org_admin；dev 免登录放行），创建者自动成为 lead
+TID=$(curl -s -X POST http://localhost:8080/api/teams -H 'Content-Type: application/json' \
+  -d '{"name":"支付团队","description":"消费方"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+
+# 2) 加成员（team lead / org_admin；成员必须是组织用户）
+curl -s -X POST http://localhost:8080/api/teams/$TID/members -H 'Content-Type: application/json' \
+  -d '{"username":"alice","role":"lead"}'
+
+# 3) 以团队身份订阅接口（team lead / org_admin；仍需对 repo 可见）
+curl -s -X POST http://localhost:8080/api/subscriptions -H 'Content-Type: application/json' \
+  -d "{\"repoId\":1,\"method\":\"GET\",\"path\":\"/pets\",\"teamId\":$TID}"
+
+# 4) 团队成员查看通知（不传 teamId = 我的全部团队；org_admin = 全组织审计视角）
+curl -s "http://localhost:8080/api/subscriptions/notifications?teamId=$TID"
+```
+
+- **权限**：创建/删除团队 `org_admin`；改名、成员管理、订阅/取消订阅 `team lead` / `org_admin`；普通成员只看自己团队的通知。
+- **通知可见性**：通知按 `team_id` 投递；非成员指定 `teamId` 返回 404；`org_admin` 可审计全组织通知；历史 `team_id` 为空的行仅 `org_admin` 可见。
+- **改名**：团队改名不影响订阅（订阅只认 `team_id`），订阅列表显示当前团队名；历史通知保留投递时名称快照。
+- **删除保护**：有订阅的团队不能删除（409），先取消订阅；团队删除后历史通知保留（`team_id` 置 NULL）。
+- **旧数据**：V4/V5 迁移把旧 `subscription.team` 文本按同组织同名合并为 `team` 行并回填 `team_id`；旧列保留为只读快照，D1 清理。
+- **Web**：账号菜单 →「团队管理」创建团队、管理成员；接口详情 →「订阅」Tab 选择团队订阅；通知面板按「我的团队」展示并可按团队筛选。
+
 **质量门禁（R12）**：`./gradlew check`（ktlintCheck + Jackson 2 源码校验 + 全量测试）；CI 见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。单独跑格式检查/修复：`./gradlew ktlintCheck` / `./gradlew ktlintFormat`。
 
 **可选端**：MCP `cd apps/mcp && npm install && npm run build && node dist/index.js`（连 backend 走 HTTP）；CLI `cd apps/cli && go build`（或 `scripts/build-release.sh` 交叉编译四平台）。

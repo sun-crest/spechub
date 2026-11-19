@@ -28,7 +28,7 @@
 | 层 | 载体 | 内容 | 生命周期 |
 |---|---|---|---|
 | 内容真源 | git | `specs/` 下 OpenAPI、`docs/` 下 Markdown | 永久、可 diff/回滚/评审 |
-| 平台管理数据 | 管理 DB（durable） | 用户、角色、token hash、项目、仓库注册、评论、订阅、通知、评审、mock 规则、changelog、发布状态（release 标记） | 持久，必须备份；**本阶段存量数据重置，不迁移** |
+| 平台管理数据 | 管理 DB（durable） | 用户、角色、token hash、项目、仓库注册、团队与成员、评论、订阅、通知、评审、mock 规则、changelog、发布状态（release 标记） | 持久，必须备份；**本阶段存量数据重置，不迁移** |
 | 可重建投影 | 投影 DB（disposable） | `api` / `schema` / `doc` 投影、FTS、版本快照、draft/release 投影副本 | 可随时清空，从 git + 管理库（repo 列表 / release 标记）重扫 |
 
 ### 2.2 关键边界
@@ -38,6 +38,7 @@
 - **发布状态归管理库**：release 标记（`repo_id + path + spec_hash`）无法从 git 重建，必须落管理库；投影层 `version.stage` 与 release 投影副本是重建时按 release 记录重放的派生结果。
 - 管理数据引用内容时使用**稳定键**：`repo_id + path`、`repo_id + method + path`、`repo_id + name`。
 - **管理库内部保留外键**（user ↔ membership、project ↔ repo 等），默认 `ON DELETE RESTRICT`，删除由 Service 显式编排。
+- **团队归管理库**：`team` / `team_member` 是组织级实体，与项目 `membership` 独立；`subscription.team_id` 为订阅归属（FK `RESTRICT`），`notification.team_id` 为投递目标（FK `SET NULL`，名称快照保留）。
 - 投影表引用管理表的 `project_id` / `repo_id` 使用逻辑引用（不建跨库外键）。
 
 ---
@@ -174,6 +175,13 @@ modules/mock/
 - 布尔：PG `BOOLEAN`，MySQL `TINYINT(1)`；由迁移脚本定义，ORM 只做映射。
 - 大文本：`TEXT` / `LONGTEXT`；JPA/Spring Data JDBC 不生成 DDL。
 
+**阶段 B 团队表（V4/V5）**
+
+- `team(id, org_id, name, description, created_at)`：`UNIQUE (org_id, name)`，名称查重忽略大小写；`org_id` FK `RESTRICT`。
+- `team_member(id, team_id, user_id, role, created_at)`：V4 复合主键 → V5 增加代理主键 `id`，原 `(team_id, user_id)` 改唯一键；`role ∈ lead|member`；`team_id` FK `CASCADE`、`user_id` FK `RESTRICT`。
+- `subscription.team_id`：V4 过渡期可空 + 保留旧唯一键；V5 回填过渡期数据、去重后收紧为 `NOT NULL`，唯一键 `(repo_id, method, path, team_id)`。旧 `team` 文本列保留为名称快照，D1 清理。
+- `notification.team_id`：可空，FK `SET NULL`；`team` 列为投递时名称快照；`team_id IS NULL` 的历史行仅 `org_admin` 可见。
+
 ### 7.2 查询
 
 - 默认不做跨表 SQL JOIN；关联数据用批量查询：
@@ -282,6 +290,12 @@ modules/mock/
 - [x] CI 双库 Testcontainers 矩阵。✅ 2026-11-17：`.github/workflows/ci.yml`（`postgresql` / `mysql` matrix + bootJar）。
 - [x] 备份/恢复演练；支持矩阵文档。✅ 2026-11-17：`scripts/backup-db.sh` / `restore-db.sh`；本地演练（备份 → 删除 → 恢复，数据一致）；[运维手册](SpecHub-运维手册.md)。
 - [x] 监控：连接池、慢查询、迁移状态。✅ 2026-11-17：actuator 暴露 `health/metrics/flyway`；compose PG 慢查询日志参数。
+
+### Phase 5 · 阶段 B 团队（2026-11-19）
+- [x] `V4__teams.sql`（双 vendor）：`team` / `team_member`；`subscription.team_id` 过渡回填（旧 `team` 文本按同组织同名合并）；`notification.team_id` 回填。
+- [x] `V5__team_binding_tighten.sql`：`team_member` 代理主键；B1→B2 窗口 NULL 回填、重复订阅去重、唯一键切换 `(repo_id, method, path, team_id)`、`team_id NOT NULL`、旧 `team` 列可空。
+- [x] `TeamService` / `TeamController` / 订阅 `teamId` 契约 / 通知团队可见性。
+- [x] 双库迁移/全量测试与 `apps/web` 构建通过（PostgreSQL `check`、MySQL 113 项、ktlint）。
 
 ---
 
