@@ -117,6 +117,7 @@ class WebApiTest : TestDbIsolation() {
             HttpRequest
                 .newBuilder(URI("http://localhost:$port$path"))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
+                .header("Authorization", "Bearer test-admin-token")
                 .header("Content-Type", "application/json")
                 .build(),
             HttpResponse.BodyHandlers.ofString(),
@@ -124,7 +125,11 @@ class WebApiTest : TestDbIsolation() {
 
     private fun get(path: String): HttpResponse<String> =
         client.send(
-            HttpRequest.newBuilder(URI("http://localhost:$port$path")).GET().build(),
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port$path"))
+                .GET()
+                .header("Authorization", "Bearer test-admin-token")
+                .build(),
             HttpResponse.BodyHandlers.ofString(),
         )
 
@@ -144,6 +149,7 @@ class WebApiTest : TestDbIsolation() {
             HttpRequest
                 .newBuilder(URI("http://localhost:$port$path"))
                 .PUT(HttpRequest.BodyPublishers.ofString(body))
+                .header("Authorization", "Bearer test-admin-token")
                 .header("Content-Type", "application/json")
                 .build(),
             HttpResponse.BodyHandlers.ofString(),
@@ -184,7 +190,12 @@ class WebApiTest : TestDbIsolation() {
         assertEquals(200, resp.statusCode(), resp.body())
         val r = json.readTree(resp.body())
         assertEquals("specs/pet/openapi.yaml", r.at("/path").asString())
-        assertTrue(r.at("/commit").asString().length >= 40, "应有完整 commit hash")
+        assertEquals("pending", r.at("/status").asString(), "所有环境写操作皆审")
+        val reviewId = r.at("/reviewId").asLong()
+
+        // org_admin 自批（自身提交允许 org_admin 排障），批准后才落真源
+        val approve = post("/api/reviews/$reviewId/approve", "{}")
+        assertEquals(200, approve.statusCode(), approve.body())
 
         // 写回后摄取 → 投影含 removePet
         val apis = json.readTree(get("/api/repos/$repoId/apis").body())

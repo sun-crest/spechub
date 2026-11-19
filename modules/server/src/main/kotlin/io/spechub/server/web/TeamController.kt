@@ -85,7 +85,7 @@ class TeamController(
 
     @GetMapping
     fun list(request: HttpServletRequest): List<TeamView> {
-        val user = auth.requireAuthenticated(request, "查看团队")
+        val user = auth.requireHuman(request, "查看团队")
         val orgId = auth.currentOrgId(request)
         return teams.list(orgId).map { team ->
             val id = checkNotNull(team.id) { "team 必有 id" }
@@ -99,7 +99,7 @@ class TeamController(
         @PathVariable id: Long,
         request: HttpServletRequest,
     ): TeamView {
-        val user = auth.requireAuthenticated(request, "查看团队")
+        val user = auth.requireHuman(request, "查看团队")
         val team = auth.requireTeam(request, id, "查看团队")
         val role = myRole(user, id)
         return toView(team, role, canManage(user, team.orgId, role))
@@ -225,7 +225,7 @@ class TeamController(
         user: UserRecord,
         orgId: Long,
         role: String?,
-    ): Boolean = !auth.authEnabled || auth.isOrgAdmin(user, orgId) || role == TeamService.ROLE_LEAD
+    ): Boolean = auth.isOrgAdmin(user, orgId) || role == TeamService.ROLE_LEAD
 
     private fun toView(
         team: TeamEntity,

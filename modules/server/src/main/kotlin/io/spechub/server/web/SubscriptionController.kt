@@ -59,6 +59,7 @@ class SubscriptionController(
             body.teamId
                 ?: throw ApiException(ApiErrorCode.VALIDATION, "teamId 必填（旧 team 字段已移除）")
         auth.requireRepoVisible(request, body.repoId, Stage.RELEASE)
+        auth.requireHuman(request, "订阅")
         auth.requireTeamLead(request, teamId, "订阅")
         // api_id 尽力关联（method+path 命中当前投影则填，便于详情展示；非 FK）
         val apiId =
@@ -91,6 +92,7 @@ class SubscriptionController(
         @RequestParam repoId: Long? = null,
         @RequestParam teamId: Long? = null,
     ): List<SubscriptionRecord> {
+        auth.requireHuman(request, "查看订阅")
         if (repoId != null) {
             auth.requireRepoVisible(request, repoId, Stage.RELEASE)
             return subscriptionService.list(repoId, teamId)
@@ -106,6 +108,7 @@ class SubscriptionController(
     ) {
         val sub = subscriptionService.get(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "订阅 $id 不存在")
         auth.requireRepoVisible(request, sub.repoId, Stage.RELEASE)
+        auth.requireHuman(request, "取消订阅")
         val teamId = sub.teamId ?: throw ApiException(ApiErrorCode.CONFLICT, "订阅缺少团队归属")
         auth.requireTeamLead(request, teamId, "取消订阅")
         subscriptionService.unsubscribe(id)
@@ -123,12 +126,7 @@ class SubscriptionController(
         }
         val safeLimit = limit.coerceIn(1, 200)
         val repoIds = auth.visibleRepoIds(request, Stage.RELEASE)
-        // dev 免登录：保持可见 repo 全量通知（不按团队过滤）
-        if (!auth.authEnabled) {
-            return subscriptionService.listNotifications(teamId, repoIds, safeLimit)
-        }
-
-        val user = auth.requireAuthenticated(request, "查看变更通知")
+        val user = auth.requireHuman(request, "查看变更通知")
         val orgId = auth.currentOrgId(request)
         if (teamId != null) {
             // 团队成员 / org_admin；非成员按 404（不暴露团队通知）

@@ -61,7 +61,7 @@ class UserOrgMembershipTest : TestDbIsolation() {
                     .toString()
                     .replace("-", "")
                     .take(12)
-        val user = users.createUserWithMembership(username, "", "hash-$username", null, "viewer")
+        val user = users.createUserWithMembership(username, "", null, "viewer")
         val userId = assertNotNull(user.id)
         assertEquals(OrgService.ROLE_MEMBER, orgs.orgRole(userId, orgs.defaultOrgId()))
 

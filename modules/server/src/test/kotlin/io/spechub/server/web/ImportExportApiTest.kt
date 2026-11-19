@@ -116,6 +116,7 @@ class ImportExportApiTest : TestDbIsolation() {
             HttpRequest
                 .newBuilder(URI("http://localhost:$port$path"))
                 .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
+        b.header("Authorization", "Bearer test-admin-token")
         if (body != null) b.header("Content-Type", "application/json")
         return client.send(b.build(), HttpResponse.BodyHandlers.ofString())
     }

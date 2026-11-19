@@ -1,6 +1,7 @@
 package io.spechub.server.web
 
 import org.springframework.test.context.DynamicPropertyRegistry
+import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.MySQLContainer
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
@@ -45,6 +46,13 @@ object TestManagementDb {
             .apply { start() }
     }
 
+    /** 阶段 C：Spring Session / 登录限流共享一个 Redis（每测试类独立 namespace 由 C9 处理）。 */
+    private val redis: GenericContainer<*> by lazy {
+        GenericContainer(DockerImageName.parse("redis:7.4.2-alpine"))
+            .withExposedPorts(6379)
+            .apply { start() }
+    }
+
     fun register(
         registry: DynamicPropertyRegistry,
         schema: String,
@@ -59,6 +67,10 @@ object TestManagementDb {
             registry.add("spring.flyway.default-schema") { schema }
         }
         registry.add("spring.datasource.hikari.maximum-pool-size") { "2" }
+        registry.add("spring.data.redis.url") { "redis://${redis.host}:${redis.getMappedPort(6379)}" }
+        // 每测试类独立 session namespace，避免跨类会话 / principal 索引串扰
+        registry.add("spring.session.data.redis.namespace") { "spechub:session:$schema" }
+        registry.add("spechub.session-cookie-secure") { "false" }
     }
 
     /** 创建独立 schema/database 并返回连接目标（幂等）。 */

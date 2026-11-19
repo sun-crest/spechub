@@ -11,8 +11,8 @@ import java.nio.file.Path
  * E1 —— `SPECHUB_*` 环境变量 → 绑定（Spring relaxed binding：SPECHUB_GIT_SOURCE_DIR → spechub.git-source-dir → gitSourceDir）。
  * 默认值对应 compose/docker-compose.yml 的卷挂载点约定（见 A4）。
  *
- * R10：加 `@Validated` + 声明式必填校验；`require-admin-token` 由 prod profile 置 true，
- * 缺失/空串 admin-token 在配置绑定阶段即启动失败（不会运行期静默降级为「鉴权关闭」）。
+ * 阶段 C：所有环境都必须真实登录（`require-admin-token` 恒 true）；admin-token 只用于
+ * bootstrap / break-glass，不再是「启用鉴权」的开关。缺失/空串在配置绑定阶段即启动失败。
  */
 
 @Validated
@@ -32,14 +32,18 @@ data class SpecHubProperties(
     @field:Min(1) val pollingIntervalMs: Long = 60_000,
     /** 默认扫描分支 */
     @field:NotBlank val defaultBranch: String = "main",
-    /** admin 种子令牌（P1 H6 UI 化前，提供命令行/环境注入） */
+    /** bootstrap / break-glass admin 令牌（所有环境必填；不再代表“是否启用鉴权”） */
     val adminToken: String? = null,
-    /** prod profile 置 true：admin token 缺失/空串即启动失败（R10） */
-    val requireAdminToken: Boolean = false,
+    /** 阶段 C 起恒 true：未配置 admin-token 启动失败（与 profile 无关） */
+    val requireAdminToken: Boolean = true,
+    /** 会话 Cookie 是否加 Secure（prod 必须 true；dev HTTP 可配 false） */
+    val sessionCookieSecure: Boolean = true,
+    /** 会话绝对超时（秒），默认 7 天；空闲超时由 spring.session.timeout 控制 */
+    @field:Min(60) val sessionAbsoluteTimeoutSeconds: Long = 7L * 24 * 3600,
     /** binding flip 后旧 binding 的回滚窗口（天）：窗口内禁止删除 retired binding（ADR §4.4） */
     @field:Min(0) val repoBindingRollbackDays: Long = 30,
     // R11 文档端点是否公开：dev 默认 true，放行 api-docs / doc.html / webjars；
-    // prod 置 false 并关闭 springdoc/knife4j，文档仍受 TokenAuthFilter 保护（401）。
+    // prod 置 false 并关闭 springdoc/knife4j，文档仍受鉴权保护（401）。
     val openapiPublic: Boolean = true,
 ) {
     fun gitSourcePath(): Path = Path.of(gitSourceDir)
@@ -48,9 +52,9 @@ data class SpecHubProperties(
 
     fun artifactsPath(): Path = Path.of(artifactsDir)
 
-    /** 生产安全项校验：dev 允许缺省（鉴权关闭），prod 必须显式提供非空 token。 */
-    @AssertTrue(message = "生产环境必须显式配置 spechub.admin-token（SPECHUB_ADMIN_TOKEN），否则鉴权关闭")
-    fun isAdminTokenConfiguredWhenRequired(): Boolean = !requireAdminToken || !adminToken.isNullOrBlank()
+    /** 所有环境都必须显式配置非空 admin-token。 */
+    @AssertTrue(message = "必须显式配置 spechub.admin-token（SPECHUB_ADMIN_TOKEN），用于首次 bootstrap / break-glass")
+    fun isAdminTokenConfigured(): Boolean = !adminToken.isNullOrBlank()
 
     companion object {
         private fun defaultDir(name: String) = "${System.getProperty("user.dir")}/.spechub/$name"

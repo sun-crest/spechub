@@ -87,6 +87,7 @@ class DocController(
         request: HttpServletRequest,
     ): List<DocCommentView> {
         val doc = projection.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
+        auth.requireHuman(request, "查看文档评论")
         auth.requireRepoMember(request, doc.repoId, "查看文档评论")
         // 投影重建后 doc.id 会变：按 repo + path 稳定寻址，返回时以当前 doc.id 覆盖快照列
         return commentService.listForDoc(doc.repoId, doc.path).map { toView(it).copy(docId = doc.id) }
@@ -99,7 +100,8 @@ class DocController(
         request: HttpServletRequest,
     ): DocCommentView {
         val doc = projection.getDoc(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "doc $id 不存在")
-        val user = auth.requireRepoMember(request, doc.repoId, "发表文档评论")
+        val user = auth.requireHuman(request, "发表文档评论")
+        auth.requireRepoMember(request, doc.repoId, "发表文档评论")
         val comment = commentService.add(doc.repoId, apiId = null, docId = doc.id, method = "", path = doc.path, author = user.username, body = body.body.trim())
         changelogService.add(doc.repoId, null, user.username, "doc.comment", "评论文档 ${doc.title}：${body.body.trim().take(40)}")
         return toView(comment)

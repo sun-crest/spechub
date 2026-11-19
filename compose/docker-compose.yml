@@ -64,6 +64,19 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    # 阶段 C：Spring Session Data Redis（dev / prod 同一实现，只换连接串）
+    image: redis:7.4.2-alpine
+    container_name: spechub-redis
+    restart: unless-stopped
+    ports:
+      - "${SPECHUB_REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     container_name: spechub-backend
     restart: unless-stopped
@@ -82,7 +95,9 @@ services:
       SPECHUB_DB_URL: jdbc:postgresql://db:5432/spechub
       SPECHUB_DB_USER: spechub
       SPECHUB_DB_PASSWORD: ${SPECHUB_DB_PASSWORD:-spechub}
-      # profile：默认 dev（鉴权关闭）；prod 时必须同时注入 SPECHUB_ADMIN_TOKEN（缺失→启动失败）
+      # Spring Session Data Redis（阶段 C：所有环境同一种会话实现）
+      SPECHUB_REDIS_URL: redis://redis:6379
+      # profile：dev / prod 都要求真实登录；SPECHUB_ADMIN_TOKEN 缺失/空串 → 启动失败
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
       SPECHUB_ADMIN_TOKEN: ${SPECHUB_ADMIN_TOKEN:-}
     ports:
@@ -95,6 +110,8 @@ services:
       gitea:
         condition: service_healthy
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]

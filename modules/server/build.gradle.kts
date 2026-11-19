@@ -22,6 +22,13 @@ dependencies {
     // Phase 2：管理库（PostgreSQL / MySQL）——Spring Data JDBC + Flyway per vendor
     implementation("org.springframework.boot:spring-boot-starter-data-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
+    // Phase C：Spring Security 双链 + Spring Session Data Redis + OIDC + Argon2id
+    implementation("org.springframework.boot:spring-boot-starter-security")
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    // Boot 4 拆分了 session 自动配置：必须用 starter（裸 spring-session-data-redis 不触发）
+    implementation("org.springframework.boot:spring-boot-starter-session-data-redis")
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-client")
+    implementation(libs.bcprov)
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("org.flywaydb:flyway-mysql")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
@@ -38,6 +45,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter) // 版本由 BOM（6.0.3）管
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.security:spring-security-test")
     testImplementation(platform("org.testcontainers:testcontainers-bom:2.0.5"))
     testImplementation("org.testcontainers:testcontainers")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
@@ -69,6 +77,8 @@ tasks.test {
     maxParallelForks = 1
     // 管理库矩阵：默认 PostgreSQL；`-Dspechub.test.db=mysql` 跑 MySQL 8.4
     systemProperty("spechub.test.db", System.getProperty("spechub.test.db", "postgresql"))
+    // 阶段 C：所有测试都必须真实登录；显式 @SpringBootTest properties 仍可覆盖
+    environment("SPECHUB_ADMIN_TOKEN", "test-admin-token")
     // MySQL DATETIME(6) ↔ Instant 正确往返依赖 JVM UTC（选型文档 §8.2）
     systemProperty("user.timezone", "UTC")
 }

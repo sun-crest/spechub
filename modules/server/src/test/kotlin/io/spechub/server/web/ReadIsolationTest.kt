@@ -146,7 +146,7 @@ class ReadIsolationTest {
 
         val rawToken = "user-token-$suffix"
         val username = "reader-$suffix"
-        users.createUserWithMembership(username, "", AuthService.sha256(rawToken), projectAId, Role.VIEWER)
+        users.createUserWithMembershipAndToken(username, "", rawToken, projectAId, Role.VIEWER)
 
         return Fixture(
             token = rawToken,

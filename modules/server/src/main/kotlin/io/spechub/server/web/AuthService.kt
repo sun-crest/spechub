@@ -1,9 +1,9 @@
 package io.spechub.server.web
 
-import io.spechub.server.config.SpecHubProperties
-import io.spechub.server.repository.OrgEntity
 import io.spechub.server.repository.ProjectEntity
-import io.spechub.server.repository.TeamEntity
+import io.spechub.server.repository.UserStatus
+import io.spechub.server.security.AppUserPrincipal
+import io.spechub.server.security.ServicePrincipal
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.ProjectService
 import io.spechub.server.service.RepoService
@@ -15,22 +15,21 @@ import io.spechub.spec.index.Role
 import io.spechub.spec.index.Stage
 import io.spechub.spec.index.UserRecord
 import jakarta.servlet.http.HttpServletRequest
+import org.springframework.security.authentication.AnonymousAuthenticationToken
+import org.springframework.security.core.Authentication
+import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Service
-import java.security.MessageDigest
-import java.security.SecureRandom
 
 /*
- * I4 / 阶段 A —— RBAC 认证与权限判定（ADR §4.2 / §4.3 / §7）。
+ * 阶段 C —— RBAC 认证与域授权（ADR §4.2 / §4.3 / §6.1 / §7）。
  *
- * 模型：
- * - 用户 = `app_user`（全局身份，token 只存 SHA-256 hash）。
- * - 组织 = `org_membership`（org_admin / org_member）；阶段 A 只有默认组织。
- * - 项目 = `membership`（owner/admin/editor/viewer）。
- * - 可见性 = `project.visibility`（private/internal/public）+ stage（draft/release）。
- * - 未配置 admin-token → 不启用鉴权：全放行（本地开发 / 最小部署）。
+ * 身份由 Spring Security 解析：
+ * - Web 链：Spring Session 中的 AppUserPrincipal；
+ * - Bearer 链：AppUserPrincipal（用户令牌）或 ServicePrincipal（服务账号）。
  *
- * 角色优先级：平台 admin → org_admin → 项目 membership。
- * 组织管理员在该组织所有项目上视为 owner（阶段 A 的兼容策略）。
+ * 域授权仍集中在本服务：每次请求按库内 membership / org_membership 判定，
+ * 不把 org / project 角色写进 authorities，保证角色变更立即生效。
+ * 服务账号只在其 projectId 内有效；跨项目读 404 / 写 403，绝不退化为全量。
  */
 @Service
 class AuthService(
@@ -39,98 +38,84 @@ class AuthService(
     private val users: UserService,
     private val orgs: OrgService,
     private val teams: TeamService,
-    private val props: SpecHubProperties,
 ) {
-    /** 请求属性名：鉴权后放当前用户 / 当前组织 */
     companion object {
-        const val REQ_USER = "spechub.auth.user"
-        const val REQ_USERNAME = "spechub.auth.username"
-        const val REQ_ORG = "spechub.auth.org"
-
         /** 平台 admin 用户名（与 UserService.ADMIN_USERNAME 一致） */
         const val ADMIN_USERNAME = UserService.ADMIN_USERNAME
+        const val SERVICE_ACTOR_PREFIX = "service:"
+    }
 
-        fun sha256(text: String): String =
-            MessageDigest
-                .getInstance("SHA-256")
-                .digest(text.toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) }
+    // ── 当前身份 ─────────────────────────────────────────────────────────
 
-        fun generateToken(): String {
-            val bytes = ByteArray(24)
-            SecureRandom().nextBytes(bytes)
-            return bytes.joinToString("") { "%02x".format(it) }
+    fun currentAuthentication(): Authentication? =
+        SecurityContextHolder.getContext().authentication?.takeIf {
+            it.isAuthenticated && it !is AnonymousAuthenticationToken
         }
+
+    /** 服务账号 principal（用户 / 匿名返回 null）。 */
+    fun currentService(): ServicePrincipal? = currentAuthentication()?.principal as? ServicePrincipal
+
+    /** 人类用户（服务账号 / 匿名返回 null）；每请求校验 status，禁用立即 401。 */
+    fun currentUser(req: HttpServletRequest? = null): UserRecord? {
+        val principal = currentAuthentication()?.principal as? AppUserPrincipal ?: return null
+        val user =
+            users.findById(principal.userId)
+                ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "账号不存在或已被删除")
+        if (user.status !in UserStatus.LOGINNABLE) {
+            throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "账号已禁用")
+        }
+        return user
     }
 
-    val authEnabled: Boolean get() = props.adminToken != null
+    /** 人类用户 id（服务账号 / 匿名返回 null）。 */
+    fun currentUserId(): Long? = (currentAuthentication()?.principal as? AppUserPrincipal)?.userId
 
-    /** 启动时 bootstrap 平台 admin（幂等；token_hash 由 admin-token 派生） */
-    fun bootstrapAdmin(): UserRecord? {
-        val token = props.adminToken ?: return null
-        return users.bootstrapAdmin(sha256(token))
+    /** 当前组织：服务账号取账号 org；人类取第一个 active org_membership。 */
+    fun currentOrg(req: HttpServletRequest? = null): io.spechub.server.repository.OrgEntity {
+        currentService()?.let { service ->
+            return orgs.get(service.orgId) ?: orgs.defaultOrg()
+        }
+        val user = currentUser(req) ?: return orgs.defaultOrg()
+        return orgForUser(user)
     }
 
-    /** Bearer → 当前用户（未启用鉴权返回 null 表示「无用户但已放行」） */
-    fun userForToken(token: String?): UserRecord? {
-        if (token == null || token.isBlank()) return null
-        return users.findByTokenHash(sha256(token))
-    }
+    fun currentOrgId(req: HttpServletRequest? = null): Long = checkNotNull(currentOrg(req).id) { "org 必有 id" }
 
-    /** request 上由 TokenAuthFilter 填充的当前用户 */
-    fun currentUser(req: HttpServletRequest): UserRecord? = req.getAttribute(REQ_USER) as? UserRecord
-
-    /** request 上的当前组织（阶段 A 为默认组织；filter 命中用户时预填） */
-    fun currentOrg(req: HttpServletRequest): OrgEntity = req.getAttribute(REQ_ORG) as? OrgEntity ?: orgs.defaultOrg()
-
-    fun currentOrgId(req: HttpServletRequest): Long = checkNotNull(currentOrg(req).id) { "org 必有 id" }
-
-    /** 用户当前组织：阶段 A 取第一个 active 的 org_membership，兜底默认组织。 */
-    fun orgForUser(user: UserRecord): OrgEntity {
+    /** 用户当前组织：第一个 active 的 org_membership，兜底默认组织。 */
+    fun orgForUser(user: UserRecord): io.spechub.server.repository.OrgEntity {
         val uid = user.id ?: return orgs.defaultOrg()
-        val membership =
-            orgs
-                .membershipsOf(uid)
-                .firstOrNull { it.status == OrgService.STATUS_ACTIVE }
+        val membership = orgs.membershipsOf(uid).firstOrNull { it.status == OrgService.STATUS_ACTIVE }
         return membership?.let { orgs.get(it.orgId) } ?: orgs.defaultOrg()
     }
 
-    /** request 上的操作者用户名（filter 已填充）；无则回退 anonymous */
-    fun currentActor(req: HttpServletRequest): String = req.getAttribute(REQ_USERNAME) as? String ?: "anonymous"
+    /** 审计 / changelog 操作者：用户名或 `service:<name>`；无身份回退 anonymous。 */
+    fun currentActor(req: HttpServletRequest? = null): String =
+        currentService()?.let { SERVICE_ACTOR_PREFIX + it.name }
+            ?: (currentAuthentication()?.principal as? AppUserPrincipal)?.username
+            ?: "anonymous"
 
-    /** 组织级角色（平台 admin 恒 org_admin）。 */
+    // ── 组织 / 项目角色 ──────────────────────────────────────────────────
+
     fun orgRole(
         user: UserRecord,
         orgId: Long,
-    ): String? {
-        if (user.isPlatformAdmin) return OrgService.ROLE_ADMIN
-        val uid = user.id ?: return null
-        return orgs.orgRole(uid, orgId)
-    }
+    ): String? = user.id?.let { orgs.orgRole(it, orgId) }
 
     fun isOrgAdmin(
         user: UserRecord,
         orgId: Long,
-    ): Boolean = user.isPlatformAdmin || orgs.isOrgAdmin(user.id ?: return false, orgId)
+    ): Boolean = user.id?.let { orgs.isOrgAdmin(it, orgId) } ?: false
 
-    /**
-     * 判定用户对某 repo（project）的角色。
-     * 平台 admin / org_admin 恒 owner；普通用户按项目 membership。
-     */
-    fun roleForRepo(
-        req: HttpServletRequest,
-        repoId: Long,
-    ): String? {
-        val user = currentUser(req) ?: return null
-        return effectiveRole(user, repoService.getRepo(repoId)?.projectId)
-    }
+    fun isOrgAdminById(
+        userId: Long,
+        orgId: Long,
+    ): Boolean = orgs.isOrgAdmin(userId, orgId)
 
-    /** 平台 admin / org_admin 恒 owner；普通用户按项目 membership。无 projectId 视为无权限。 */
+    /** 人类用户对项目的有效角色：org_admin 恒 owner；其余按 membership。 */
     fun effectiveRole(
         user: UserRecord,
         projectId: Long?,
     ): String? {
-        if (user.isPlatformAdmin) return Role.OWNER
         val uid = user.id ?: return null
         val project = projectId?.let { projectService.get(it) } ?: return null
         val orgId = project.orgId ?: orgs.defaultOrgId()
@@ -138,7 +123,23 @@ class AuthService(
         return projectId.let { users.membershipRole(uid, it) }
     }
 
-    /** 项目可读判定：成员可读 draft/release；同组织非成员仅 internal/public 的 release；匿名仅 public release。 */
+    /** 人 / 服务账号统一有效角色；服务账号只在其 projectId 返回自身角色。 */
+    fun effectiveRoleFor(
+        principal: Any?,
+        projectId: Long?,
+    ): String? =
+        when (principal) {
+            is ServicePrincipal -> if (projectId != null && principal.projectId == projectId) principal.role else null
+            is AppUserPrincipal -> users.findById(principal.userId)?.let { effectiveRole(it, projectId) }
+            else -> null
+        }
+
+    fun roleForRepo(
+        req: HttpServletRequest,
+        repoId: Long,
+    ): String? = effectiveRoleFor(currentAuthentication()?.principal, repoService.getRepo(repoId)?.projectId)
+
+    /** 项目可读判定（人类）：成员可读 draft/release；同组织非成员仅 internal/public release；匿名仅 public release。 */
     fun canReadProject(
         user: UserRecord?,
         project: ProjectEntity,
@@ -147,7 +148,6 @@ class AuthService(
         if (user == null) {
             return project.visibility == ProjectService.VISIBILITY_PUBLIC && stage == Stage.RELEASE
         }
-        if (user.isPlatformAdmin) return true
         val uid = user.id ?: return false
         val orgId = project.orgId ?: orgs.defaultOrgId()
         if (orgs.isOrgAdmin(uid, orgId)) return true
@@ -159,27 +159,38 @@ class AuthService(
             stage == Stage.RELEASE
     }
 
+    /** 当前身份是否可读项目：服务账号只认自身项目。 */
+    fun canReadProject(
+        project: ProjectEntity,
+        stage: String,
+    ): Boolean {
+        currentService()?.let { return project.id == it.projectId }
+        return canReadProject(currentUser(), project, stage)
+    }
+
     /** 可管理项目：org_admin 或项目 admin+。 */
     fun canManageProject(
         user: UserRecord,
         project: ProjectEntity,
     ): Boolean = Role.rank(effectiveRole(user, project.id)) >= Role.rank(Role.ADMIN)
 
-    /** 当前组织内、当前用户可见的项目（release 视角；dev 免登录返回全部）。 */
-    fun visibleProjects(req: HttpServletRequest): List<ProjectEntity> {
+    // ── 可见集合（列表 / 搜索 / 导出） ────────────────────────────────────
+
+    fun visibleProjects(req: HttpServletRequest? = null): List<ProjectEntity> {
+        currentService()?.let { service ->
+            return projectService.get(service.projectId)?.let { listOf(it) } ?: emptyList()
+        }
         val projects = projectService.list(currentOrgId(req))
-        if (!authEnabled) return projects
         val user = currentUser(req)
         return projects.filter { canReadProject(user, it, Stage.RELEASE) }
     }
 
-    /** 指定 stage 下可见项目 id；空集合表示什么都看不到。 */
     fun visibleProjectIds(
         req: HttpServletRequest,
         stage: String,
     ): Set<Long> {
+        currentService()?.let { return setOf(it.projectId) }
         val projects = projectService.list(currentOrgId(req))
-        if (!authEnabled) return projects.mapNotNull { it.id }.toSet()
         val user = currentUser(req)
         return projects.filter { canReadProject(user, it, stage) }.mapNotNull { it.id }.toSet()
     }
@@ -189,7 +200,9 @@ class AuthService(
         req: HttpServletRequest,
         stage: String,
     ): Set<Long> {
-        if (!authEnabled) return repoService.listReposByOrgId(currentOrgId(req)).map { it.id }.toSet()
+        currentService()?.let { service ->
+            return repoService.listReposByProjectIds(listOf(service.projectId)).map { it.id }.toSet()
+        }
         val projectIds = visibleProjectIds(req, stage)
         return if (projectIds.isEmpty()) {
             emptySet()
@@ -198,10 +211,7 @@ class AuthService(
         }
     }
 
-    /**
-     * 指定项目下的可见 repo id（A8 前端按项目拉取 repos/apis/docs）。
-     * 项目不可见统一 404；返回集合已与用户可见 repo 求交，空集合表示该无内容。
-     */
+    /** 指定项目下的可见 repo id；项目不可见统一 404。 */
     fun visibleRepoIds(
         req: HttpServletRequest,
         stage: String,
@@ -209,27 +219,24 @@ class AuthService(
     ): Set<Long> {
         requireProjectVisible(req, projectId, stage)
         val inProject = repoService.listReposByProjectIds(listOf(projectId)).map { it.id }.toSet()
-        if (!authEnabled) return inProject
         return inProject intersect visibleRepoIds(req, stage)
     }
 
-    /** 用户是成员（含 org_admin）的项目 id；评审/评论/变更记录等内部视图使用。 */
+    /** 当前身份可进入内部视图（评审 / 评论 / 变更记录）的项目 id。 */
     fun memberProjectIds(req: HttpServletRequest): Set<Long> {
-        val projects = projectService.list(currentOrgId(req))
-        if (!authEnabled) return projects.mapNotNull { it.id }.toSet()
+        currentService()?.let { return setOf(it.projectId) }
         val user = currentUser(req) ?: return emptySet()
         val uid = user.id ?: return emptySet()
         val orgId = currentOrgId(req)
-        if (user.isPlatformAdmin || orgs.isOrgAdmin(uid, orgId)) return projects.mapNotNull { it.id }.toSet()
+        val projects = projectService.list(orgId)
+        if (orgs.isOrgAdmin(uid, orgId)) return projects.mapNotNull { it.id }.toSet()
         return projects
             .filter { project -> project.id?.let { users.membershipRole(uid, it) != null } == true }
             .mapNotNull { it.id }
             .toSet()
     }
 
-    /** 用户是成员（含 org_admin）的 repo id；评审/评论/变更记录等内部视图使用。 */
     fun memberRepoIds(req: HttpServletRequest): Set<Long> {
-        if (!authEnabled) return repoService.listReposByOrgId(currentOrgId(req)).map { it.id }.toSet()
         val projectIds = memberProjectIds(req)
         return if (projectIds.isEmpty()) {
             emptySet()
@@ -238,28 +245,68 @@ class AuthService(
         }
     }
 
-    /** 内部视图入口：必须是项目成员或 org_admin；不可见统一 404。 */
+    // ── require：认证 / 人类 / 组织 ───────────────────────────────────────
+
+    /** 人类登录用户；服务账号拒绝（评论 / 订阅 / 团队 / 评审审批等协作操作）。 */
+    fun requireHuman(
+        req: HttpServletRequest,
+        op: String,
+    ): UserRecord {
+        if (currentService() != null) {
+            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 仅限人类用户（服务账号不可用）")
+        }
+        return currentUser(req) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
+    }
+
+    /** 任一已认证身份：人类或服务账号。 */
+    fun requireAuthenticated(
+        req: HttpServletRequest,
+        op: String,
+    ): UserRecord {
+        currentService()?.let { return it.toSyntheticUser() }
+        return currentUser(req) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
+    }
+
+    /** 组织级管理：仅人类 org_admin（服务账号 403）。 */
+    fun requireOrgAdmin(
+        req: HttpServletRequest,
+        op: String,
+    ): UserRecord {
+        if (currentService() != null) {
+            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要组织管理员（服务账号不可用）")
+        }
+        val user =
+            currentUser(req)
+                ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
+        val orgId = currentOrgId(req)
+        if (isOrgAdmin(user, orgId)) return user
+        throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要组织管理员")
+    }
+
+    // ── require：项目 / 仓库 ──────────────────────────────────────────────
+
+    /** 内部视图入口：项目成员或 org_admin；服务账号仅限自身项目；不可见统一 404。 */
     fun requireProjectMember(
         req: HttpServletRequest,
         projectId: Long,
         op: String,
     ): UserRecord {
-        if (!authEnabled) {
-            return currentUser(req) ?: UserRecord(id = -1, username = "anonymous", tokenHash = "")
+        currentService()?.let { service ->
+            if (service.projectId != projectId) throw ApiException(ApiErrorCode.NOT_FOUND, "project $projectId 不存在")
+            return service.toSyntheticUser()
         }
         val user =
             currentUser(req)
                 ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
-        val uid = user.id ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
         val project =
             projectService.get(projectId)
                 ?: throw ApiException(ApiErrorCode.NOT_FOUND, "project $projectId 不存在")
+        val uid = user.id ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
         val orgId = project.orgId ?: orgs.defaultOrgId()
-        if (user.isPlatformAdmin || orgs.isOrgAdmin(uid, orgId) || users.membershipRole(uid, projectId) != null) return user
+        if (orgs.isOrgAdmin(uid, orgId) || users.membershipRole(uid, projectId) != null) return user
         throw ApiException(ApiErrorCode.NOT_FOUND, "project $projectId 不存在")
     }
 
-    /** 内部视图入口（按 repo）：必须是项目成员或 org_admin；不可见统一 404。 */
     fun requireRepoMember(
         req: HttpServletRequest,
         repoId: Long,
@@ -271,10 +318,7 @@ class AuthService(
         return requireProjectMember(req, repo.projectId, op)
     }
 
-    /**
-     * 读端点入口：项目不存在或不可见统一 404（不暴露资源是否存在）。
-     * @return 可见项目（供调用方继续取 projectId / orgId）。
-     */
+    /** 读端点入口：项目不存在或不可见统一 404。 */
     fun requireProjectVisible(
         req: HttpServletRequest,
         projectId: Long,
@@ -283,14 +327,16 @@ class AuthService(
         val project =
             projectService.get(projectId)
                 ?: throw ApiException(ApiErrorCode.NOT_FOUND, "project $projectId 不存在")
-        if (!authEnabled) return project
+        currentService()?.let { service ->
+            if (service.projectId != projectId) throw ApiException(ApiErrorCode.NOT_FOUND, "project $projectId 不存在")
+            return project
+        }
         if (!canReadProject(currentUser(req), project, stage)) {
             throw ApiException(ApiErrorCode.NOT_FOUND, "project $projectId 不存在")
         }
         return project
     }
 
-    /** 读端点入口：repo 不存在或不可见统一 404。 */
     fun requireRepoVisible(
         req: HttpServletRequest,
         repoId: Long,
@@ -303,31 +349,34 @@ class AuthService(
         repo
     }
 
-    /** require：写端点入口校验，未达标抛 401/403（带操作名）；未启用鉴权放行 */
+    /** 写端点入口：人类按项目角色；服务账号仅自身项目，跨项目 404、角色不足 403。 */
     fun requireRepoRole(
         req: HttpServletRequest,
         repoId: Long,
         min: String,
         op: String,
     ) {
-        if (!authEnabled) return
-        val user =
-            currentUser(req)
-                ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
-        val role = roleForRepo(req, repoId)
-        if (role == null || Role.rank(role) < Role.rank(min)) {
-            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要 $min 及以上角色（当前 ${role ?: "无项目权限"}）")
-        }
+        val repo =
+            repoService.getRepo(repoId)
+                ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $repoId 不存在")
+        requireProjectRole(req, repo.projectId, min, op)
     }
 
-    /** require：面向项目（注册仓库等尚无 repoId 的场景）；未启用鉴权放行 */
     fun requireProjectRole(
         req: HttpServletRequest,
         projectId: Long?,
         min: String,
         op: String,
     ) {
-        if (!authEnabled) return
+        currentService()?.let { service ->
+            if (projectId == null || service.projectId != projectId) {
+                throw ApiException(ApiErrorCode.NOT_FOUND, "project ${projectId ?: "-"} 不存在")
+            }
+            if (Role.rank(service.role) < Role.rank(min)) {
+                throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要 $min 及以上角色（服务账号当前 ${service.role}）")
+            }
+            return
+        }
         val user =
             currentUser(req)
                 ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
@@ -337,59 +386,33 @@ class AuthService(
         }
     }
 
-    /** require：管理端点（成员/角色管理），需要目标 repo 所在项目 admin+ 或 org_admin */
     fun requireAdmin(
         req: HttpServletRequest,
         repoId: Long,
         op: String,
     ) = requireRepoRole(req, repoId, Role.ADMIN, op)
 
-    /** require：组织级管理（创建项目等），需要 org_admin / 平台 admin；dev 免登录放行。 */
-    fun requireOrgAdmin(
-        req: HttpServletRequest,
-        op: String,
-    ): UserRecord {
-        if (!authEnabled) {
-            return currentUser(req) ?: UserRecord(id = -1, username = "anonymous", tokenHash = "")
-        }
-        val user =
-            currentUser(req)
-                ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
-        val uid = user.id ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
-        val orgId = currentOrgId(req)
-        if (user.isPlatformAdmin || orgs.isOrgAdmin(uid, orgId)) return user
-        throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 需要组织管理员")
-    }
+    // ── require：团队（仅人类） ───────────────────────────────────────────
 
-    /** require：轻交互（评论等）需「有登录用户」即可，不必 editor+；未启用鉴权放行 */
-    fun requireAuthenticated(
-        req: HttpServletRequest,
-        op: String,
-    ): UserRecord {
-        if (!authEnabled) {
-            return anonymousUser(req)
-        }
-        return currentUser(req) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
-    }
-
-    /** 团队读入口：团队不存在 / 跨组织统一 404；dev 免登录放行。 */
     fun requireTeam(
         req: HttpServletRequest,
         teamId: Long,
         op: String,
-    ): TeamEntity =
-        teams.get(teamId, currentOrgId(req))
+    ): io.spechub.server.repository.TeamEntity {
+        if (currentService() != null) {
+            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "$op 仅限人类用户（服务账号不可用）")
+        }
+        return teams.get(teamId, currentOrgId(req))
             ?: throw ApiException(ApiErrorCode.NOT_FOUND, "team $teamId 不存在（$op）")
+    }
 
-    /** 团队成员入口（org_admin 视同成员）；非成员统一 404，不暴露团队关系。 */
     fun requireTeamMember(
         req: HttpServletRequest,
         teamId: Long,
         op: String,
     ): UserRecord {
         val team = requireTeam(req, teamId, op)
-        if (!authEnabled) return anonymousUser(req)
-        val user = requireAuthenticated(req, op)
+        val user = requireHuman(req, op)
         val uid = user.id ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
         if (isOrgAdmin(user, team.orgId)) return user
         if (teams.roleInTeam(uid, teamId) == null) {
@@ -398,15 +421,13 @@ class AuthService(
         return user
     }
 
-    /** 团队 lead 入口（org_admin 视同 lead）；可见但非 lead → 403。 */
     fun requireTeamLead(
         req: HttpServletRequest,
         teamId: Long,
         op: String,
     ): UserRecord {
         val team = requireTeam(req, teamId, op)
-        if (!authEnabled) return anonymousUser(req)
-        val user = requireAuthenticated(req, op)
+        val user = requireHuman(req, op)
         val uid = user.id ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "$op 需要登录")
         if (isOrgAdmin(user, team.orgId)) return user
         if (teams.roleInTeam(uid, teamId) != TeamService.ROLE_LEAD) {
@@ -415,5 +436,10 @@ class AuthService(
         return user
     }
 
-    private fun anonymousUser(req: HttpServletRequest): UserRecord = currentUser(req) ?: UserRecord(id = -1, username = "anonymous", tokenHash = "", isPlatformAdmin = false)
+    private fun ServicePrincipal.toSyntheticUser(): UserRecord =
+        UserRecord(
+            username = SERVICE_ACTOR_PREFIX + name,
+            displayName = name,
+            status = "active",
+        )
 }

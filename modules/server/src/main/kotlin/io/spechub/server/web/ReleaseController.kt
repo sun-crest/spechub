@@ -54,6 +54,7 @@ class ReleaseController(
         @RequestBody @Valid req: PromoteRequest,
         request: jakarta.servlet.http.HttpServletRequest,
     ): PromoteResponse {
+        auth.requireHuman(request, "发布 release")
         auth.requireRepoRole(request, id, io.spechub.spec.index.Role.EDITOR, "发布 release")
         val path = req.path.trim()
         val latest =
@@ -108,7 +109,7 @@ class ReleaseController(
     ) = run {
         val user = auth.currentUser(request)
         val orgId = auth.currentOrgId(request)
-        val isOrgAdmin = !auth.authEnabled || (user != null && auth.isOrgAdmin(user, orgId))
+        val isOrgAdmin = user != null && auth.isOrgAdmin(user, orgId)
         if (isOrgAdmin) {
             changelogService.listByOrg(orgId, limit)
         } else {

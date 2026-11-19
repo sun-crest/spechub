@@ -1,6 +1,5 @@
 package io.spechub.server.service
 
-import io.spechub.server.web.AuthService
 import io.spechub.server.web.TestDbIsolation
 import io.spechub.server.web.TestManagementDb
 import io.spechub.spec.index.Role
@@ -64,7 +63,6 @@ class TeamServiceTest : TestDbIsolation() {
                 .createUserWithMembership(
                     uniqueName("member"),
                     "",
-                    AuthService.sha256(UUID.randomUUID().toString()),
                     null,
                     Role.VIEWER,
                 ).id,

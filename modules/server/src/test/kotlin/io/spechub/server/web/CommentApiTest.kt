@@ -122,6 +122,7 @@ class CommentApiTest : TestDbIsolation() {
             HttpRequest
                 .newBuilder(URI("http://localhost:$port$path"))
                 .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
+        b.header("Authorization", "Bearer test-admin-token")
         if (body != null) b.header("Content-Type", "application/json")
         return client.send(b.build(), HttpResponse.BodyHandlers.ofString())
     }
@@ -164,7 +165,7 @@ class CommentApiTest : TestDbIsolation() {
         val list = json.readTree(get("/api/apis/$apiId/comments").body())
         assertEquals(2, list.size(), "两条评论")
         assertEquals("这个字段需要说明", list.get(0)?.at("/body")?.asText(), "评论正序")
-        assertEquals("anonymous", list.get(0)?.at("/author")?.asText(), "未启用鉴权作者兜底 anonymous")
+        assertEquals("admin", list.get(0)?.at("/author")?.asText(), "当前登录用户为作者")
         assertEquals(repoId, list.get(0)?.at("/repoId")?.asLong(), "repoId 回显")
 
         val cid = list.get(0)?.at("/id")?.asLong() ?: throw AssertionError("无 comment id")
@@ -190,38 +191,40 @@ class CommentApiTest : TestDbIsolation() {
 
         // 第一次写回（无 HEAD^ → diff 为空），第二次写回应有 diff 摘要
         val v1 = spec.replace("title: Pet Store", "title: Pet Store beta")
-        assertEquals(
-            200,
+        val r1 =
             req(
                 "PUT",
                 "/api/repos/$repoId/spec",
                 json.writeValueAsString(mapOf("path" to "specs/pet/openapi.yaml", "content" to v1)),
-            ).statusCode(),
-        )
+            )
+        assertEquals(200, r1.statusCode(), r1.body())
+        approve(json.readTree(r1.body()).at("/reviewId").asLong())
         val v2 = spec.replace("title: Pet Store", "title: Pet Store v2")
-        assertEquals(
-            200,
+        val r2 =
             req(
                 "PUT",
                 "/api/repos/$repoId/spec",
                 json.writeValueAsString(mapOf("path" to "specs/pet/openapi.yaml", "content" to v2)),
-            ).statusCode(),
-        )
+            )
+        assertEquals(200, r2.statusCode(), r2.body())
+        approve(json.readTree(r2.body()).at("/reviewId").asLong())
 
         // 最新一条 spec.write 的 detail 应含 diff 摘要（+1/-1 specs/...）
         val log = json.readTree(get("/api/repos/$repoId/changelog").body())
-        assertTrue(log.get(0)?.at("/action")?.asText() == "spec.write", "最新一条为 spec.write：$log")
-        assertTrue(
-            log
-                .get(0)
-                ?.at("/detail")
-                ?.asText()
-                ?.contains("diff +") == true,
-            "detail 含 diff 摘要：${log.get(0)}",
-        )
+        val specWrite =
+            (0 until log.size())
+                .mapNotNull { log.get(it) }
+                .firstOrNull { it.at("/action").asText() == "spec.write" }
+                ?: throw AssertionError("变更流应含 spec.write：$log")
+        assertTrue(specWrite.at("/detail").asText().contains("diff +"), "detail 含 diff 摘要：$specWrite")
 
         // 全局变更流（跨 repo）应包含该写操作
         val global = json.readTree(get("/api/changelog?limit=50").body())
         assertTrue(global.size() > 0 && global.toString().contains("spec.write"), "全局变更流含 spec.write")
+    }
+
+    private fun approve(reviewId: Long) {
+        val resp = req("POST", "/api/reviews/$reviewId/approve")
+        assertEquals(200, resp.statusCode(), resp.body())
     }
 }

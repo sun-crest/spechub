@@ -19,6 +19,8 @@ ktlintEngine = "1.8.0"
 # kernel（零 Spring）自声明 platform 以独立解析；两处一致则全局单版本。
 jackson = "3.1.7"
 sqliteJdbc = "3.54.1.0"
+# Argon2PasswordEncoder 运行期依赖（Boot 4 BOM 不管理 BC 版本）
+bouncycastle = "1.87"
 
 [libraries]
 # ── Jackson 3 单运行时（tools.jackson，见记忆 spechub-jackson3-coords 实证坐标）──
@@ -29,6 +31,9 @@ jackson-kotlin   = { module = "tools.jackson.module:jackson-module-kotlin" }    
 
 # ── SQLite 索引 ──
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqliteJdbc" }
+
+# ── 密码哈希（Argon2id）──
+bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 
 # ── R11 文档层（运行时 starter + 编译期注解；Jackson 2 只允许由 starter 运行时传递）──
 knife4j-boot4 = { module = "com.baizhukui:knife4j-openapi3-boot4-spring-boot-starter", version.ref = "knife4jNext" }

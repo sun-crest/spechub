@@ -12,7 +12,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** R10：配置绑定期校验——dev 允许缺省 admin-token，prod 缺失必须启动失败（而非运行期降级）。 */
+/** 阶段 C：所有 profile 都必须配置 admin-token（不再有「未配置=鉴权关闭」）。 */
 class SpecHubPropertiesValidationTest {
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(SpecHubProperties::class)
@@ -29,25 +29,34 @@ class SpecHubPropertiesValidationTest {
             ).withUserConfiguration(PropsConfig::class.java)
 
     @Test
-    fun `dev profile 未配置 admin token 可启动`() {
-        runner
-            .withPropertyValues(
-                "spring.profiles.active=dev",
-                "spechub.admin-token=",
-            ).run { context ->
-                assertNull(context.startupFailure, "dev 不应因缺省 admin token 启动失败")
-                assertNotNull(context.getBean(SpecHubProperties::class.java))
-            }
+    fun `dev profile 未配置 admin token 启动失败`() {
+        assertMissingTokenFails("dev")
     }
 
     @Test
     fun `prod profile 未配置 admin token 启动失败`() {
+        assertMissingTokenFails("prod")
+    }
+
+    @Test
+    fun `配置 admin token 后可启动`() {
         runner
             .withPropertyValues(
-                "spring.profiles.active=prod",
+                "spring.profiles.active=dev",
+                "spechub.admin-token=test-admin-token",
+            ).run { context ->
+                assertNull(context.startupFailure, "配置了 admin token 不应启动失败")
+                assertNotNull(context.getBean(SpecHubProperties::class.java))
+            }
+    }
+
+    private fun assertMissingTokenFails(profile: String) {
+        runner
+            .withPropertyValues(
+                "spring.profiles.active=$profile",
                 "spechub.admin-token=",
             ).run { context ->
-                val failure = assertNotNull(context.startupFailure, "prod 缺 admin token 应启动失败")
+                val failure = assertNotNull(context.startupFailure, "$profile 缺 admin token 应启动失败")
                 val messages =
                     generateSequence(failure) { it.cause }
                         .mapNotNull { it.message }

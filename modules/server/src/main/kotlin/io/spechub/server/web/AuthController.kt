@@ -5,6 +5,7 @@ import io.spechub.server.service.OrgService
 import io.spechub.server.service.ProjectService
 import io.spechub.server.service.TeamService
 import io.spechub.server.service.UserService
+import io.spechub.server.service.UserTokenService
 import io.spechub.server.web.common.ApiErrorBody
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
@@ -14,6 +15,7 @@ import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import org.springframework.http.HttpStatus
+import org.springframework.security.web.csrf.CsrfToken
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -22,19 +24,19 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import java.time.Duration
+import java.time.Instant
 
 /*
- * I4 / 阶段 A —— 认证与组织用户管理（ADR §4.2 / §7）。
- * - GET  /api/auth/status          启用与当前认证状态
- * - POST /api/auth/login           用户名 + token
- * - GET  /api/auth/me              当前用户 + 组织上下文 + 各项目角色
+ * 阶段 C —— 认证状态与组织用户管理（ADR §4.2 / §7）。
+ * - POST /api/auth/login 由 Spring Security JSON filter 接管（本控制器不注册）。
+ * - GET  /api/auth/status          认证状态 / OIDC 探测
+ * - GET  /api/auth/me              当前主体 + 组织上下文 + 项目角色 + CSRF
  * - GET  /api/auth/users           组织用户目录（org_admin）
- * - POST /api/auth/users           创建组织用户（org_admin，默认 org_member）
+ * - POST /api/auth/users           创建组织用户（org_admin）
  * - POST /api/auth/users/{id}/role 改组织角色（org_admin）
- * - POST /api/auth/users/{id}/token 重置 token（org_admin）
+ * - POST /api/auth/users/{id}/token 兼容端点：吊销旧令牌并签发新 API 令牌
  * - DELETE /api/auth/users/{id}    删除组织用户（org_admin）
- *
- * 项目成员与项目角色由 `/api/projects/{id}/members` 管理，本控制器不再硬编码 default 项目。
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -45,16 +47,15 @@ class AuthController(
     private val orgs: OrgService,
     private val teams: TeamService,
     private val auth: AuthService,
+    private val userTokens: UserTokenService,
 ) {
-    data class LoginRequest(
-        val username: String? = null,
-        @field:NotBlank val token: String,
-    )
-
     data class StatusResponse(
         val authEnabled: Boolean,
         val authenticated: Boolean,
+        val authMethod: String? = null,
         val username: String? = null,
+        val oidcEnabled: Boolean = false,
+        val oidcLoginUrl: String? = null,
     )
 
     data class OrgView(
@@ -73,20 +74,27 @@ class AuthController(
     data class MeResponse(
         val authenticated: Boolean,
         val authEnabled: Boolean,
+        val authMethod: String? = null,
         val username: String? = null,
         val displayName: String? = null,
-        val platformAdmin: Boolean = false,
-        /** 组织管理员（含平台 admin 兼容） */
+        val email: String? = null,
+        val status: String? = null,
+        val csrfToken: String? = null,
+        val mustChangePassword: Boolean = false,
+        val hasPassword: Boolean = false,
+        /** 组织管理员是唯一组织管理标识（不再有 platformAdmin） */
         val orgAdmin: Boolean = false,
-        /** 当前用户的组织列表（阶段 A 只有一个默认组织） */
+        val oidcEnabled: Boolean = false,
+        val oidcLoginUrl: String? = null,
+        /** 当前用户的组织列表（阶段 C 仍为单组织） */
         val orgs: List<OrgView> = emptyList(),
         val currentOrgId: Long? = null,
         val currentOrgSlug: String? = null,
         /** 兼容字段：阶段 A 起不再返回 default 项目角色，前端用 projectRoles。 */
         val role: String? = null,
-        /** projectId → 当前用户在该项目的角色 */
+        /** projectId → 当前主体在该项目的角色 */
         val projectRoles: Map<Long, String> = emptyMap(),
-        /** 当前用户所在的团队（B3；org_admin 不自动列出全部团队） */
+        /** 当前用户所在的团队（服务账号不返回团队） */
         val teams: List<MeTeamView> = emptyList(),
         /** 全局角色视图：org_admin 或任一项目 admin+ 视为可管理 */
         val canManage: Boolean = false,
@@ -96,7 +104,9 @@ class AuthController(
         val id: Long,
         val username: String,
         val displayName: String,
-        val platformAdmin: Boolean,
+        val email: String? = null,
+        val status: String = "active",
+        val mustChangePassword: Boolean = false,
         /** 项目角色（org 目录接口不再返回；项目成员端点返回） */
         val role: String? = null,
         /** 组织角色：org_admin / org_member */
@@ -107,6 +117,7 @@ class AuthController(
     data class CreateUserRequest(
         @field:NotBlank val username: String,
         val displayName: String = "",
+        val email: String? = null,
         val orgRole: String = OrgService.ROLE_MEMBER,
     )
 
@@ -121,33 +132,34 @@ class AuthController(
 
     @GetMapping("/status")
     fun status(req: HttpServletRequest): StatusResponse {
-        val user = auth.currentUser(req)
-        return StatusResponse(auth.authEnabled, user != null, user?.username)
-    }
-
-    @PostMapping("/login")
-    fun login(
-        @RequestBody @Valid body: LoginRequest,
-    ): StatusResponse {
-        if (!auth.authEnabled) {
-            throw ApiException(ApiErrorCode.AUTH_NOT_ENABLED, "后端未启用鉴权（未配 spechub.admin-token），无需登录")
-        }
-        // 兼容 H6：只传 token → 视为 admin 登录
-        val user =
-            auth.userForToken(body.token)
-                ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "令牌无效")
-        if (body.username != null && body.username.isNotBlank() && body.username != user.username) {
-            throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "用户名与令牌不匹配")
-        }
-        return StatusResponse(true, true, user.username)
+        val authenticated = auth.currentAuthentication() != null
+        return StatusResponse(
+            authEnabled = true,
+            authenticated = authenticated,
+            authMethod = authMethod(req),
+            username = auth.currentService()?.name ?: auth.currentUser(req)?.username,
+        )
     }
 
     @GetMapping("/me")
     fun me(req: HttpServletRequest): MeResponse {
-        val user = auth.currentUser(req)
-        if (user == null || !auth.authEnabled) {
-            return MeResponse(authenticated = user != null, authEnabled = auth.authEnabled)
+        val service = auth.currentService()
+        if (service != null) {
+            val org = orgs.get(service.orgId)
+            return MeResponse(
+                authenticated = true,
+                authEnabled = true,
+                authMethod = "bearer",
+                displayName = service.name,
+                status = "active",
+                currentOrgId = org?.id,
+                currentOrgSlug = org?.slug,
+                projectRoles = mapOf(service.projectId to service.role),
+                canManage = false,
+            )
         }
+
+        val user = auth.currentUser(req) ?: return MeResponse(authenticated = false, authEnabled = true)
         val currentOrg = auth.currentOrg(req)
         val orgId = checkNotNull(currentOrg.id) { "org 必有 id" }
         val orgAdmin = auth.isOrgAdmin(user, orgId)
@@ -180,12 +192,18 @@ class AuthController(
                         membership.team.id?.let { MeTeamView(it, membership.team.name, membership.role) }
                     }
             } ?: emptyList()
+        val csrfToken = (req.getAttribute(CsrfToken::class.java.name) as? CsrfToken)?.token
         return MeResponse(
             authenticated = true,
             authEnabled = true,
+            authMethod = authMethod(req),
             username = user.username,
             displayName = user.displayName,
-            platformAdmin = user.isPlatformAdmin,
+            email = user.email,
+            status = user.status,
+            csrfToken = csrfToken,
+            mustChangePassword = user.mustChangePassword,
+            hasPassword = user.hasPassword,
             orgAdmin = orgAdmin,
             orgs = orgViews,
             currentOrgId = orgId,
@@ -220,8 +238,9 @@ class AuthController(
         if (users.findByUsername(username) != null) {
             throw ApiException(ApiErrorCode.CONFLICT, "用户 $username 已存在")
         }
-        val token = AuthService.generateToken()
-        val user = users.createOrgUser(username, body.displayName, AuthService.sha256(token), body.orgRole)
+        val user = users.createOrgUser(username, body.displayName, body.email, body.orgRole)
+        val userId = checkNotNull(user.id) { "用户创建后应有 id" }
+        val issued = userTokens.issue(userId, "initial", UserTokenService.PURPOSE_API, Instant.now().plus(Duration.ofDays(90)))
         changelogService.add(
             repoId = null,
             apiId = null,
@@ -230,7 +249,7 @@ class AuthController(
             detail = "创建组织用户 $username（${body.orgRole}）",
             orgId = auth.currentOrgId(req),
         )
-        return CreateUserResponse(toView(user, body.orgRole), token)
+        return CreateUserResponse(toView(user, body.orgRole), issued.raw)
     }
 
     @PostMapping("/users/{id}/role")
@@ -242,7 +261,6 @@ class AuthController(
         auth.requireOrgAdmin(req, "改组织角色")
         validateOrgRole(body.role, "role")
         val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
-        if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "平台 admin 角色不可改")
         val orgId = auth.currentOrgId(req)
         orgs.ensureMembership(id, orgId, body.role)
         changelogService.add(
@@ -256,6 +274,7 @@ class AuthController(
         return toView(user, body.role)
     }
 
+    /** 兼容端点：吊销该用户全部令牌并签发一条新的 API 令牌（明文只返回一次）。 */
     @PostMapping("/users/{id}/token")
     fun resetToken(
         req: HttpServletRequest,
@@ -263,10 +282,10 @@ class AuthController(
     ): CreateUserResponse {
         auth.requireOrgAdmin(req, "重置令牌")
         val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
-        val token = AuthService.generateToken()
-        users.updateToken(id, AuthService.sha256(token))
+        userTokens.revokeAll(id)
+        val issued = userTokens.issue(id, "reset", UserTokenService.PURPOSE_API, Instant.now().plus(Duration.ofDays(90)))
         val orgRole = orgs.orgRole(id, auth.currentOrgId(req))
-        return CreateUserResponse(toView(user, orgRole), token)
+        return CreateUserResponse(toView(user, orgRole), issued.raw)
     }
 
     @DeleteMapping("/users/{id}")
@@ -277,7 +296,6 @@ class AuthController(
     ) {
         val actor = auth.requireOrgAdmin(req, "删除用户")
         val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
-        if (user.isPlatformAdmin) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除平台 admin")
         if (actor.id == id) throw ApiException(ApiErrorCode.BAD_REQUEST, "不能删除自己")
         users.deleteUser(id)
         changelogService.add(
@@ -289,6 +307,9 @@ class AuthController(
             orgId = auth.currentOrgId(req),
         )
     }
+
+    /** session：浏览器会话（Spring Session）；bearer：Authorization: Bearer（用户令牌 / 服务账号）。 */
+    private fun authMethod(req: HttpServletRequest): String = if (req.getHeader("Authorization")?.startsWith("Bearer ", ignoreCase = true) == true) "bearer" else "session"
 
     private fun validateOrgRole(
         role: String,
@@ -312,7 +333,9 @@ class AuthController(
             id = checkNotNull(user.id) { "user 必有 id" },
             username = user.username,
             displayName = user.displayName,
-            platformAdmin = user.isPlatformAdmin,
+            email = user.email,
+            status = user.status,
+            mustChangePassword = user.mustChangePassword,
             orgRole = orgRole,
             createdAt = user.createdAt,
         )

@@ -71,7 +71,7 @@ class ProjectApiTest {
     private fun createUser(): TestUser {
         val suffix = uniqueSuffix()
         val rawToken = "proj-user-$suffix"
-        val user = users.createUserWithMembership("proj-$suffix", "", AuthService.sha256(rawToken), null, Role.VIEWER)
+        val user = users.createUserWithMembershipAndToken("proj-$suffix", "", rawToken, null, Role.VIEWER)
         return TestUser(assertNotNull(user.id), rawToken)
     }
 

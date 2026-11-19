@@ -43,8 +43,8 @@ class SpecWriteService(
     private val log = LoggerFactory.getLogger(javaClass)
 
     /**
-     * 写回入口：未启用鉴权 → 直写 + 摄取；启用鉴权 → 入评审队列（不碰真源）。
-     * [actor] 为当前操作者用户名（匿名/未启用时可为 anonymous）。
+     * 写回入口：所有环境都鉴权，「写操作皆审」（§6.4 决策 3）→ 先入评审队列，approve 后才落真源。
+     * [actor] 为当前操作者（用户名或 `service:<name>`）。
      */
     fun writeOrQueue(
         repo: RepoRecord,
@@ -52,27 +52,7 @@ class SpecWriteService(
         content: String,
         actor: String,
     ): WriteOutcome {
-        if (!auth.authEnabled) {
-            val written = writer.writeSpec(repo, path, content)
-            val ing = ingestor.ingest(repo, urlTokens.get(repo.id))
-            log.info(
-                "spec 直写 repo={} path={} commit={} apiCount={}",
-                repo.id,
-                path,
-                written.commit.take(8),
-                ing.apiCount,
-            )
-            return WriteOutcome(
-                repoId = repo.id,
-                path = path,
-                commit = written.commit,
-                branch = written.branch,
-                apiCount = ing.apiCount,
-                message = "已提交 ${written.commit.take(8)}",
-            )
-        }
-
-        // 启鉴权 →「写操作皆审」（§6.4 决策 3）：先入评审队列，approve 后才落真源
+        // 「写操作皆审」：先入评审队列，approve 后才落真源
         val review =
             reviewService.create(
                 repoId = repo.id,
@@ -112,7 +92,7 @@ class SpecWriteService(
     ): ReviewRecord {
         val review = requirePending(reviewId)
         val reviewer = requireReviewer(actor, review.repoId, "审批评审")
-        requireOtherReviewer(reviewer.username, review.requester, reviewer.isPlatformAdmin)
+        requireOtherReviewer(reviewer, review.requester, review.repoId)
 
         val repo =
             repoService.getRepo(review.repoId)
@@ -150,7 +130,7 @@ class SpecWriteService(
     ) {
         val review = requirePending(reviewId)
         val reviewer = requireReviewer(actor, review.repoId, "打回评审")
-        requireOtherReviewer(reviewer.username, review.requester, reviewer.isPlatformAdmin)
+        requireOtherReviewer(reviewer, review.requester, review.repoId)
         if (!reviewService.resolve(reviewId, ReviewStatus.REJECTED, reviewer.username, reason)) {
             throw ApiException(ApiErrorCode.CONFLICT, "评审已被处理，请刷新")
         }
@@ -238,14 +218,18 @@ class SpecWriteService(
         return reviewer
     }
 
-    /** 评审人必须他人：requester 本人不可批/打回自己的提交（平台 admin 可自批排障） */
+    /** 评审人必须他人：requester 本人不可批/打回自己的提交（org_admin 可自批排障） */
     private fun requireOtherReviewer(
-        actor: String,
+        reviewer: UserRecord,
         requester: String,
-        isAdmin: Boolean,
+        repoId: Long,
     ) {
-        if (actor == requester && !isAdmin) {
-            throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "需其他成员评审（不能批自己的提交）")
+        if (reviewer.username == requester) {
+            val orgId = repoService.orgIdOf(repoId)
+            val isAdmin = orgId != null && auth.isOrgAdmin(reviewer, orgId)
+            if (!isAdmin) {
+                throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "需其他成员评审（不能批自己的提交）")
+            }
         }
     }
 

@@ -126,9 +126,9 @@ class ReviewController(
         request: HttpServletRequest,
     ): ReviewView {
         val r = requirePending(id)
+        val actor = auth.requireHuman(request, "审批评审")
         auth.requireRepoRole(request, r.repoId, Role.EDITOR, "审批评审")
-        val actor = auth.currentUser(request) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "审批需要登录")
-        requireOtherReviewer(actor.username, r.requester, actor.isPlatformAdmin)
+        requireOtherReviewer(actor.username, r.requester, auth.isOrgAdmin(actor, auth.currentOrgId(request)))
 
         val repo = repoService.getRepo(r.repoId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo ${r.repoId} 不存在")
         val written = writer.writeSpec(repo, r.path, r.newContent)
@@ -154,9 +154,9 @@ class ReviewController(
         @RequestBody(required = false) body: RejectRequest?,
     ) {
         val r = requirePending(id)
+        val actor = auth.requireHuman(request, "打回评审")
         auth.requireRepoRole(request, r.repoId, Role.EDITOR, "打回评审")
-        val actor = auth.currentUser(request) ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "打回需要登录")
-        requireOtherReviewer(actor.username, r.requester, actor.isPlatformAdmin)
+        requireOtherReviewer(actor.username, r.requester, auth.isOrgAdmin(actor, auth.currentOrgId(request)))
         if (!reviewService.resolve(r.id!!, ReviewStatus.REJECTED, actor.username, body?.reason)) {
             throw ApiException(ApiErrorCode.CONFLICT, "评审已被处理，请刷新")
         }

@@ -59,6 +59,7 @@ class CommentController(
         request: HttpServletRequest,
     ): List<CommentView> {
         val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
+        auth.requireHuman(request, "查看评论")
         auth.requireRepoMember(request, api.repoId, "查看评论")
         return commentService.listForEndpoint(api.repoId, api.method, api.path).map(::toView)
     }
@@ -70,7 +71,8 @@ class CommentController(
         request: HttpServletRequest,
     ): CommentView {
         val api = projection.getApiById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "api $id 不存在")
-        val user = auth.requireRepoMember(request, api.repoId, "发表评论")
+        val user = auth.requireHuman(request, "发表评论")
+        auth.requireRepoMember(request, api.repoId, "发表评论")
         val comment = commentService.add(api.repoId, api.id, null, api.method, api.path, user.username, body.body.trim())
         changelogService.add(api.repoId, api.id, user.username, "comment", "评论 ${api.method} ${api.path}：${body.body.trim().take(60)}")
         return toView(comment)
@@ -82,13 +84,13 @@ class CommentController(
         @PathVariable id: Long,
         request: HttpServletRequest,
     ) {
-        val actor = auth.requireAuthenticated(request, "删除评论")
+        val actor = auth.requireHuman(request, "删除评论")
         val comment = commentService.get(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "评论 $id 不存在")
         val projectId = repoService.getRepo(comment.repoId)?.projectId
         val role = auth.effectiveRole(actor, projectId)
         val isAuthor = actor.username == comment.author
         val isManager = Role.rank(role) >= Role.rank(Role.ADMIN)
-        if (!isAuthor && !isManager && !actor.isPlatformAdmin) {
+        if (!isAuthor && !isManager) {
             throw ApiException(ApiErrorCode.AUTH_FORBIDDEN, "只能删除自己的评论或需 admin 及以上")
         }
         commentService.delete(id)

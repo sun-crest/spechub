@@ -380,7 +380,7 @@ class RepoBindingApiTest {
         val repoId = registerRepo(projectId, seedOrigin("/pets"))
         val suffix = uniqueSuffix()
         val editorToken = "bind-editor-token-$suffix"
-        users.createUserWithMembership("bind-editor-$suffix", "", AuthService.sha256(editorToken), projectId, Role.EDITOR)
+        users.createUserWithMembershipAndToken("bind-editor-$suffix", "", editorToken, projectId, Role.EDITOR)
         val candidate = createCandidate(repoId, seedOrigin("/cats"))
 
         // editor 可读列表，但不能创建/切换绑定

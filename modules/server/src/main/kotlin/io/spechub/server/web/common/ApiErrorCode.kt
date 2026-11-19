@@ -27,6 +27,9 @@ enum class ApiErrorCode(
     /** 已认证但角色不足 */
     AUTH_FORBIDDEN(403),
 
+    /** 已认证但 CSRF token 缺失 / 非法（Web Session 链） */
+    AUTH_CSRF(403),
+
     /** 鉴权未启用的操作冲突（如登录） */
     AUTH_NOT_ENABLED(409),
 

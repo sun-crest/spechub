@@ -101,7 +101,7 @@ class TeamApiTest {
     private fun createUser(): TestUser {
         val suffix = uniqueSuffix()
         val rawToken = "team-user-$suffix"
-        val user = users.createUserWithMembership("team-$suffix", "", AuthService.sha256(rawToken), null, Role.VIEWER)
+        val user = users.createUserWithMembershipAndToken("team-$suffix", "", rawToken, null, Role.VIEWER)
         return TestUser(assertNotNull(user.id), rawToken)
     }
 

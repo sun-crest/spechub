@@ -1,6 +1,5 @@
 package io.spechub.server.web
 
-import io.spechub.server.ingest.Ingestor
 import io.spechub.server.service.ChangelogService
 import io.spechub.server.service.RepoService
 import io.spechub.server.service.ReviewService
@@ -31,8 +30,6 @@ class ApiQueryController(
     private val repoService: RepoService,
     private val reviewService: ReviewService,
     private val writer: SpecWriter,
-    private val ingestor: Ingestor,
-    private val urlTokens: UrlTokenStore,
     private val auth: AuthService,
 ) {
     // ── 只读 · F 组 list_projects / get_api ───────────────────────────────
@@ -128,15 +125,8 @@ class ApiQueryController(
         val repo = repoService.getRepo(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "repo $id 不存在")
         val path = req.path.trim()
 
-        // 未启用鉴权：本地/最小部署直写（保存即提交，现状；评审流只在团队启用鉴权后生效）
-        if (!auth.authEnabled) {
-            val written = writer.writeSpec(repo, path, req.content)
-            val ing = ingestor.ingest(repo, urlTokens.get(id))
-            return WriteSpecResponse(repo.id, path, written.commit, written.branch, ing.apiCount, message = "已提交 ${written.commit.take(8)}")
-        }
-
-        // 启鉴权 →「写操作皆审」（§6.4 决策 3）：先入评审队列，approve 后才落真源
-        val actor = auth.currentUser(request)?.username ?: "anonymous"
+        // 「写操作皆审」（§6.4 决策 3）：先入评审队列，approve 后才落真源（人类 / 服务账号同一规则）
+        val actor = auth.currentActor(request)
         val review =
             reviewService.create(
                 repoId = id,

@@ -66,7 +66,7 @@ class AuthVisibilityTest : TestDbIsolation() {
                 .toString()
                 .replace("-", "")
                 .take(12)
-        val user = users.createUserWithMembership("u-$suffix", "", "hash-$suffix", null, Role.VIEWER)
+        val user = users.createUserWithMembership("u-$suffix", "", null, Role.VIEWER)
         return assertNotNull(users.findById(assertNotNull(user.id)))
     }
 

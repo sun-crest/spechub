@@ -8,8 +8,10 @@ interface UserRepository : CrudRepository<UserEntity, Long> {
     @Query("SELECT * FROM app_user WHERE lower(username) = lower(:username)")
     fun findByUsername(username: String): UserEntity?
 
-    fun findByTokenHash(tokenHash: String): UserEntity?
+    /** 邮箱不敏感匹配（C1 唯一索引 lower(email)）。 */
+    @Query("SELECT * FROM app_user WHERE email IS NOT NULL AND lower(email) = lower(:email)")
+    fun findByEmail(email: String): UserEntity?
 
-    @Query("SELECT * FROM app_user ORDER BY is_platform_admin DESC, id")
+    @Query("SELECT * FROM app_user ORDER BY id")
     fun findAllOrdered(): List<UserEntity>
 }

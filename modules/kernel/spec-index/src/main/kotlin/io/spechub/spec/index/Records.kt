@@ -192,14 +192,18 @@ object Role {
     val ALL: Set<String> = setOf(OWNER, ADMIN, EDITOR, VIEWER)
 }
 
-/** 平台用户（I4：认证对象；口令为平台发放 token，库中只存 hash） */
+/** 平台用户（阶段 C：密码 / OIDC / 令牌；不再暴露 token hash，平台 admin 由 org_role 表达） */
 data class UserRecord(
     val id: Long? = null,
     val username: String,
     val displayName: String = "",
-    val tokenHash: String,
-    /** 平台级管理员（由 spechub.admin-token bootstrap）：对任意项目视为 owner */
-    val isPlatformAdmin: Boolean = false,
+    val email: String? = null,
+    /** app_user.status：active | disabled | invited */
+    val status: String = "active",
+    /** 是否已设置密码（password_hash 非空）；不暴露 hash 本身 */
+    val hasPassword: Boolean = false,
+    /** 下次登录必须改密（邀请 / 管理员重置后） */
+    val mustChangePassword: Boolean = false,
     val createdAt: String? = null,
 )
 

@@ -1,6 +1,6 @@
 # SpecHub · 阶段 C 任务拆解（账号与审计）
 
-> **日期**：2026-11-19　**状态**：C0 / C1 已完成（2026-11-19）；C2–C10 待启动
+> **日期**：2026-11-19　**状态**：C0 / C1 / C2 已完成（2026-11-19）；C3–C10 待启动
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **范围**：Spring Security Web 认证底座、Spring Session 分布式会话、密码 / OIDC 登录、账号禁用与邀请、可过期可吊销令牌、项目级服务账号、管理动作审计查询。
 > **不覆盖**：多组织切换 / 组织生命周期 / 平台运营控制面 / break-glass（阶段 D1）、自助注册 / 邮箱验证 / 域名认领（阶段 D2）、SAML / SCIM、MFA / WebAuthn、组织级服务账号、`project_group` / `api_group`。
@@ -50,7 +50,7 @@
 | C1 | 管理库 V6 / V7 迁移 | C0 | L | `V6__identity_and_audit.sql`、`V7__identity_tighten.sql`（PG/MySQL；会话走 Redis，不建管理库会话表） |
 | C2 | Spring Security 认证底座与领域适配 | C1 | L | `SecurityConfig` 双链（Bearer API / Web Session）、Spring Session Data Redis、`AuthenticationManager`、opaque Bearer provider、`AuthService` / `AuthzService` 适配 |
 
-> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 运行期生效；V7 文件与测试已就绪，运行期由 `spring.flyway.target=6` 暂缓，C4 与代码切换同窗口放开）。
+> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 运行期生效；V7 文件与测试已就绪，运行期由 `spring.flyway.target=6` 暂缓，C4 与代码切换同窗口放开）；**C2 状态**：✅ 2026-11-19 完成（双链 / Session Redis / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）。
 
 ### 2.2 C‑2 登录与账号生命周期
 
@@ -309,116 +309,116 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **依赖**
 
-- [ ] 引入 `spring-boot-starter-security`、`spring-boot-starter-data-redis`、`spring-session-data-redis`（C 阶段直接使用，不做 JDBC 过渡）、`spring-boot-starter-oauth2-client`、`org.bouncycastle:bcprov-jdk18on`（Argon2id）；测试用 `spring-security-test`；版本由 Boot 4 BOM 管理（Spring Security 7）。
-- [ ] 依赖审计：OIDC / Security 传递的 Jackson 2 只允许运行期库内部使用；`verifyNoJackson2Usage` + 依赖树核对。
-- [ ] 不引入默认 form login 页面；`/api/auth/login` 由自定义 JSON 登录 filter 接管。
+- [x] 引入 `spring-boot-starter-security`、`spring-boot-starter-data-redis`、**`spring-boot-starter-session-data-redis`**（Boot 4 必须用 starter；裸 `spring-session-data-redis` 不触发自动配置）、`spring-boot-starter-oauth2-client`、`org.bouncycastle:bcprov-jdk18on`（Argon2id，版本 1.87）；测试用 `spring-security-test`；版本由 Boot 4 BOM 管理（Spring Security 7）。
+- [x] 依赖审计：OIDC / Security 传递的 Jackson 2 只允许运行期库内部使用；`verifyNoJackson2Usage` + 依赖树核对。
+- [x] 不引入默认 form login 页面；`/api/auth/login` 由自定义 JSON 登录 filter 接管。
 
 **Repository / Entity**
 
-- [ ] `UserEntity` 扩展：`email` / `passwordHash` / `passwordUpdatedAt` / `status` / `mustChangePassword` / `mfaEnabled` / `lastLoginAt`；移除 `tokenHash` / `isPlatformAdmin`（V7 后）。
-- [ ] `UserRepository`：`findByEmail`（忽略大小写）、`findAllOrdered` 改按 `id` 排序、保留 `findByUsername`。
-- [ ] 新增 `UserTokenEntity` / `UserTokenRepository`：
+- [x] `UserEntity` 扩展：`email` / `passwordHash` / `passwordUpdatedAt` / `status` / `mustChangePassword` / `mfaEnabled` / `lastLoginAt`；移除 `tokenHash` / `isPlatformAdmin`（V7 后）。
+- [x] `UserRepository`：`findByEmail`（忽略大小写）、`findAllOrdered` 改按 `id` 排序、保留 `findByUsername`。
+- [x] 新增 `UserTokenEntity` / `UserTokenRepository`：
   - `findByTokenHash`、`findAllByUserIdOrderByCreatedAtDesc`、`findByIdAndUserId`、`deleteAllByUserId`。
-- [ ] 新增 `ServiceAccountEntity` / `ServiceAccountRepository`：
+- [x] 新增 `ServiceAccountEntity` / `ServiceAccountRepository`：
   - `findByTokenHash`、`findAllByProjectIdOrderByNameAsc`、`findByIdAndProjectId`、`deleteAllByProjectId`。
-- [ ] 新增 `UserIdentityEntity` / `UserIdentityRepository`：
+- [x] 新增 `UserIdentityEntity` / `UserIdentityRepository`：
   - `findByProviderAndSubject`、`findAllByUserId`。
-- [ ] `UserTokenService`：`issue` / `resolve` / `list` / `revoke` / `rotate`；`last_used_at` 5 分钟节流；V6 已把旧 `app_user.token_hash` 回填为 `user_token(purpose=legacy)`，只查 `user_token`，不做双读。
-- [ ] `UserRecord`（`kernel:spec-index`）同步字段：`email` / `status` / `hasPassword`；移除 `tokenHash` / `isPlatformAdmin`，测试中的构造 / 工厂同步改造。
-- [ ] **不新增 `UserSessionEntity`**：Web 会话由 Spring Session 的 `FindByIndexNameSessionRepository` / `SessionRegistry` 管理。
+- [x] `UserTokenService`：`issue` / `resolve` / `list` / `revoke` / `rotate`；`last_used_at` 5 分钟节流；V6 已把旧 `app_user.token_hash` 回填为 `user_token(purpose=legacy)`，只查 `user_token`，不做双读。
+- [x] `UserRecord`（`kernel:spec-index`）同步字段：`email` / `status` / `hasPassword`；移除 `tokenHash` / `isPlatformAdmin`，测试中的构造 / 工厂同步改造。
+- [x] **不新增 `UserSessionEntity`**：Web 会话由 Spring Session 的 `FindByIndexNameSessionRepository` / `SessionRegistry` 管理。
 
 **Spring Security 双链**
 
-- [ ] `SecurityConfig` 定义两条 `SecurityFilterChain`（按 `@Order`）：
+- [x] `SecurityConfig` 定义两条 `SecurityFilterChain`（按 `@Order`）：
   1. **Bearer API 链**：`securityMatcher(BearerRequestMatcher)`（存在 `Authorization: Bearer`）+ `STATELESS` + `csrf.disable()` + `requestCache.disable()`；挂 `BearerAuthenticationFilter`；默认拒绝；自定义 entry point；
   2. **Web 链**：其余请求；Spring Session 会话；`csrf` 开启（`HttpSessionCsrfTokenRepository`）；JSON 密码登录 filter；`oauth2Login`；默认拒绝；自定义 entry point / denied handler。
-- [ ] **不注册 dev 放行链**；`authEnabled` 恒 true，所有 profile 都必须真实登录。删除 `AuthService` / Controller 里所有 `if (!authEnabled)` 早退分支。
-- [ ] `BearerRequestMatcher` 只匹配带 Bearer 头的请求；`/api/auth/login` 等无 Bearer 请求走 Web 链。
-- [ ] Bearer API 链放行清单：`/api/auth/status`、`/actuator/**`、`/mock/**`；其余 `/api/**` 需认证；默认拒绝。`/mock/**` 的 Bearer 请求仍会先解析服务账号，供 MockController 判定项目归属。
-- [ ] Web 链放行清单：`/api/auth/status`、`/api/auth/login`、`/api/auth/logout`、`/api/auth/password/setup`、`/oauth2/**`、`/login/oauth2/**`、`/actuator/**`、`/mock/**`、`/error`、`openapiPublic=true` 时的文档端点；其余默认拒绝。
-- [ ] 自定义 `ApiAuthenticationEntryPoint` / `ApiAccessDeniedHandler` 返回 `ApiErrorBody` / `ApiErrorCode`；不改变现有 401/403 语义。
-- [ ] `headers` 使用 Spring Security 默认值（HSTS / `X-Content-Type-Options` / `X-Frame-Options` / `Cache-Control`）；按需补 CSP。
-- [ ] 显式声明 `SecurityFilterChain` bean，避免 Boot 默认安全链意外拦截；禁止宽泛 `permitAll` 前缀。
+- [x] **不注册 dev 放行链**；`authEnabled` 恒 true，所有 profile 都必须真实登录。删除 `AuthService` / Controller 里所有 `if (!authEnabled)` 早退分支。
+- [x] `BearerRequestMatcher` 只匹配带 Bearer 头的请求；`/api/auth/login` 等无 Bearer 请求走 Web 链。
+- [x] Bearer API 链放行清单：`/api/auth/status`、`/actuator/**`、`/mock/**`；其余 `/api/**` 需认证；默认拒绝。`/mock/**` 的 Bearer 请求仍会先解析服务账号，供 MockController 判定项目归属。
+- [x] Web 链放行清单：`/api/auth/status`、`/api/auth/login`、`/api/auth/logout`、`/api/auth/password/setup`、`/oauth2/**`、`/login/oauth2/**`、`/actuator/**`、`/mock/**`、`/error`、`openapiPublic=true` 时的文档端点；其余默认拒绝。
+- [x] 自定义 `ApiAuthenticationEntryPoint` / `ApiAccessDeniedHandler` 返回 `ApiErrorBody` / `ApiErrorCode`；不改变现有 401/403 语义。
+- [x] `headers` 使用 Spring Security 默认值（HSTS / `X-Content-Type-Options` / `X-Frame-Options` / `Cache-Control`）；按需补 CSP。
+- [x] 显式声明 `SecurityFilterChain` bean，避免 Boot 默认安全链意外拦截；禁止宽泛 `permitAll` 前缀。
 
 **认证组件**
 
-- [ ] `AppUserDetailsService`：按 username / email 查 `app_user`；`UserDetails` 暴露 id / username / status；`isEnabled` 对应 `status ∈ active|invited`。
-- [ ] `PasswordEncoder`：`Argon2PasswordEncoder`；登录成功时按当前参数升级旧哈希（`UserDetailsPasswordService` 或自定义）。
-- [ ] `AuthenticationManager`：`DaoAuthenticationProvider` + `AppUserDetailsService`；失败统一 `BadCredentialsException`。
-- [ ] `JsonUsernamePasswordAuthenticationFilter`（继承 `AbstractAuthenticationProcessingFilter`）：
+- [x] `AppUserDetailsService`：按 username / email 查 `app_user`；`UserDetails` 暴露 id / username / status；`isEnabled` 对应 `status ∈ active|invited`。
+- [x] `PasswordEncoder`：`Argon2PasswordEncoder`；登录成功时按当前参数升级旧哈希（`UserDetailsPasswordService` 或自定义）。
+- [x] `AuthenticationManager`：`DaoAuthenticationProvider` + `AppUserDetailsService`；失败统一 `BadCredentialsException`。
+- [x] `JsonUsernamePasswordAuthenticationFilter`（继承 `AbstractAuthenticationProcessingFilter`）：
   - 读取 JSON body，支持 `username|email + password` 或 `username + token`；
   - `password` 路径调用 `AuthenticationManager`；`token` 路径调用自定义 `TokenAuthenticationProvider`；
   - 成功后复用 Spring Security 的 `SecurityContextRepository` 与 `SessionAuthenticationStrategy`（会话固定防护）；
   - 成功 / 失败 handler 返回现有 JSON 契约；不启用默认 form login。
-- [ ] `BearerAuthenticationFilter` + `TokenAuthenticationProvider`：
+- [x] `BearerAuthenticationFilter` + `TokenAuthenticationProvider`：
   - 解析 `Authorization: Bearer`；先按 SHA-256 查 `user_token`（`shu_` / legacy / admin-token），未命中再查 `service_account`（`shs_`）；前缀只用于展示 / 基本校验，不作为唯一分流依据；
   - 校验 `revoked_at` / `expires_at` / 用户 `status`；
   - 写 `SecurityContext`；`last_used_at` 写节流（5 分钟）；
   - 无效 / 过期令牌由 entry point 返回 401。
-- [ ] `AppUserPrincipal` / `ServicePrincipal`：实现 `Serializable`，只带 id / username / displayName / orgId / projectId / role 等最小字段；**不把 `UserRecord`、`UserEntity` 或 `DefaultOidcUser` 直接写入 Spring Session**。
-- [ ] `Authentication.getName()` 统一返回 `username`（OIDC principal 也覆盖为本地 username），保证 Spring Session 的 `PRINCIPAL_NAME` 索引可用于按用户列 / 删会话。
+- [x] `AppUserPrincipal` / `ServicePrincipal`：实现 `Serializable`，只带 id / username / displayName / orgId / projectId / role 等最小字段；**不把 `UserRecord`、`UserEntity` 或 `DefaultOidcUser` 直接写入 Spring Session**。
+- [x] `Authentication.getName()` 统一返回 `username`（OIDC principal 也覆盖为本地 username），保证 Spring Session 的 `PRINCIPAL_NAME` 索引可用于按用户列 / 删会话。
 - [ ] `OidcUserService`（C6 落地）：调用 `OidcLoginService` 解析 / 绑定 / 自动建号，返回带 `appUserId`、且 `getName()` 为本地 username 的可序列化 principal。
 
 **会话与 CSRF**
 
-- [ ] Spring Session Data Redis 配置：`spring.session.store-type=redis`、`spring.session.redis.namespace=spechub:session`、`spring.session.timeout=24h`；Redis 连接通过 `SPECHUB_REDIS_URL` / Boot Redis 配置注入，不建管理库会话表。
-- [ ] `CookieSerializer` bean：Cookie 名 `spechub_session`、`HttpOnly`、`SameSite=Lax`、`Secure` 由配置、`Path=/`；prod 可用 `__Host-` 前缀。
-- [ ] `SessionAuthenticationStrategy`：使用 Spring Security 默认 `changeSessionId`（会话固定防护）；登录成功必须调用。
-- [ ] `AbsoluteSessionTimeoutFilter`：读取 Spring Session `creationTime`，超过 7 天删除会话、清 Cookie、返回 401。
-- [ ] `SessionRegistry`：`SpringSessionBackedSessionRegistry`（或直接 `FindByIndexNameSessionRepository.findByPrincipalName`）；用于设备列表与禁用 / 改密时批量吊销。
-- [ ] 登录成功后确保 Spring Session 写入 `PRINCIPAL_NAME_INDEX_NAME`（`RegisterSessionAuthenticationStrategy` 或显式 `setAttribute`）；否则 `findByPrincipalName` 查不到会话，禁用 / 设备列表会漏。
-- [ ] CSRF：`CsrfFilter` + `HttpSessionCsrfTokenRepository` + header `X-CSRF-Token`；`/api/auth/me` 从 request attribute 读取 `CsrfToken` 返回；登录 / logout / setup / OIDC 回调 / actuator / mock 豁免；Bearer API 链整体关闭。
-- [ ] CSRF token handler 统一：`/me` 下发的 token 与 `CsrfFilter` 校验使用同一个 `CsrfTokenRequestHandler`；若采用 `SpaCsrfTokenRequestHandler` 的 masked token，前端必须原样回传，禁止混用明文 / 掩码两套 token。
-- [ ] 会话清理：Redis TTL + Spring Session Redis `spring.session.redis.cleanup-cron`；不写管理库清理任务，也不保留 JDBC 实现。
+- [x] Spring Session Data Redis 配置（Boot 4 属性）：`spring.session.data.redis.repository-type=indexed`、`spring.session.data.redis.namespace=spechub:session`、`spring.session.timeout=24h`；Redis 连接通过 `SPECHUB_REDIS_URL`（`spring.data.redis.url`）注入，不建管理库会话表。
+- [x] `CookieSerializer` bean：Cookie 名 `spechub_session`、`HttpOnly`、`SameSite=Lax`、`Secure` 由配置、`Path=/`；prod 可用 `__Host-` 前缀。
+- [x] `SessionAuthenticationStrategy`：使用 Spring Security 默认 `changeSessionId`（会话固定防护）；登录成功必须调用。
+- [x] `AbsoluteSessionTimeoutFilter`：读取 Spring Session `creationTime`，超过 7 天删除会话、清 Cookie、返回 401。
+- [x] `SessionRegistry`：`SpringSessionBackedSessionRegistry`（或直接 `FindByIndexNameSessionRepository.findByPrincipalName`）；用于设备列表与禁用 / 改密时批量吊销。
+- [x] 登录成功后确保 Spring Session 写入 `PRINCIPAL_NAME_INDEX_NAME`（`RegisterSessionAuthenticationStrategy` 或显式 `setAttribute`）；否则 `findByPrincipalName` 查不到会话，禁用 / 设备列表会漏。
+- [x] CSRF：`CsrfFilter` + `HttpSessionCsrfTokenRepository` + header `X-CSRF-Token`；`/api/auth/me` 从 request attribute 读取 `CsrfToken` 返回；登录 / logout / setup / OIDC 回调 / actuator / mock 豁免；Bearer API 链整体关闭。
+- [x] CSRF token handler 统一：`/me` 下发的 token 与 `CsrfFilter` 校验使用同一个 `CsrfTokenRequestHandler`；若采用 `SpaCsrfTokenRequestHandler` 的 masked token，前端必须原样回传，禁止混用明文 / 掩码两套 token。
+- [x] 会话清理：Redis TTL + Spring Session Redis `spring.session.data.redis.cleanup-cron`；不写管理库清理任务，也不保留 JDBC 实现。
 
 **`AuthService` / `AuthzService` 适配**
 
-- [ ] `AuthService` 从 `SecurityContextHolder` 读取 `Authentication`；`currentUser` / `currentActor` / `currentServiceAccount` 不再依赖 request attribute（request 参数保留兼容）。
-- [ ] 每次请求校验当前用户 `status`（Session / Bearer 均适用）：`disabled` 立即 401 并删除对应会话；作为「禁用即时生效」的纵深防御（防止绕过服务层直接改库或漏删会话）。
-- [ ] `currentUser` 支持 `AppUserPrincipal` / OIDC principal / `ServicePrincipal`：OIDC 用 `appUserId` 回查 `app_user`；ServicePrincipal 返回 null（由 `requireHuman` 拒绝）。
-- [ ] `currentOrg` 从 principal 解析：服务账号用 `account.orgId`；人类用户用 `org_membership` 的第一个 active org；不再依赖 `REQ_ORG` request attribute。
-- [ ] 删除 `authEnabled=false` 语义：恒为 true；`SpecHubProperties.requireAdminToken` 默认改为 true（dev profile 不再覆盖为 false），空白 / 缺失 admin-token 启动失败；API 响应中的 `authEnabled` 保留为恒 true 的兼容字段。
-- [ ] `orgRole` / `isOrgAdmin` 去掉 `isPlatformAdmin` 特判，统一走 `org_membership`。
-- [ ] `effectiveRole` / `roleForRepo`：`ServicePrincipal` 仅在其 `projectId` 返回角色；`AppUserPrincipal` 沿用项目 membership + `org_admin` 恒 owner。
-- [ ] `canReadProject` / `visibleProjects` / `visibleProjectIds` / `visibleRepoIds` / `memberProjectIds` / `memberRepoIds` 改用 `SecurityContext` principal；服务账号跨项目集合为空，禁止退化全量。
-- [ ] `requireAuthenticated` 接受人 / 服务账号；新增 `requireHuman` 供 OIDC / 密码 / 团队管理 / 评论 / 订阅等仅人类操作使用。
-- [ ] `requireOrgAdmin` 拒绝服务账号；`requireTeam*` 仅人类。
-- [ ] `requireProjectVisible` / `requireRepoVisible` 对服务账号跨项目统一 404。
-- [ ] 新增 `AuthzService` bean：`isOrgAdmin`、`hasProjectRole(projectId, role)`、`canReadProject(projectId, stage)`；内部委托 `AuthService`，供 `AuthorizationManager` / `@PreAuthorize` 使用。
-- [ ] 如使用 `@PreAuthorize`，显式加 `@EnableMethodSecurity`；否则只用 URL `AuthorizationManager`，避免两套入口并存。
-- [ ] URL 级 `authorizeHttpRequests` 只做粗粒度默认拒绝；org / project / team 规则仍由 `AuthService` / `AuthzService` 集中判定。
-- [ ] 评审：服务账号可读所属项目评审、可提交写回评审（actor=`service:<name>`），但**不能审批 / 打回**（`ReviewController` 使用 `requireHuman`）。
+- [x] `AuthService` 从 `SecurityContextHolder` 读取 `Authentication`；`currentUser` / `currentActor` / `currentServiceAccount` 不再依赖 request attribute（request 参数保留兼容）。
+- [x] 每次请求校验当前用户 `status`（Session / Bearer 均适用）：`disabled` 立即 401；作为「禁用即时生效」的纵深防御（会话批量删除在 C4 的禁用 / 改密流程补齐）。
+- [x] `currentUser` 支持 `AppUserPrincipal` / `ServicePrincipal`：ServicePrincipal 返回 null（由 `requireHuman` 拒绝）；OIDC principal 的 `appUserId` 回查在 C6 接入。
+- [x] `currentOrg` 从 principal 解析：服务账号用 `account.orgId`；人类用户用 `org_membership` 的第一个 active org；不再依赖 `REQ_ORG` request attribute。
+- [x] 删除 `authEnabled=false` 语义：恒为 true；`SpecHubProperties.requireAdminToken` 默认改为 true（dev profile 不再覆盖为 false），空白 / 缺失 admin-token 启动失败；API 响应中的 `authEnabled` 保留为恒 true 的兼容字段。
+- [x] `orgRole` / `isOrgAdmin` 去掉 `isPlatformAdmin` 特判，统一走 `org_membership`。
+- [x] `effectiveRole` / `roleForRepo`：`ServicePrincipal` 仅在其 `projectId` 返回角色；`AppUserPrincipal` 沿用项目 membership + `org_admin` 恒 owner。
+- [x] `canReadProject` / `visibleProjects` / `visibleProjectIds` / `visibleRepoIds` / `memberProjectIds` / `memberRepoIds` 改用 `SecurityContext` principal；服务账号跨项目集合为空，禁止退化全量。
+- [x] `requireAuthenticated` 接受人 / 服务账号；新增 `requireHuman` 供 OIDC / 密码 / 团队管理 / 评论 / 订阅等仅人类操作使用。
+- [x] `requireOrgAdmin` 拒绝服务账号；`requireTeam*` 仅人类。
+- [x] `requireProjectVisible` / `requireRepoVisible` 对服务账号跨项目统一 404。
+- [x] 新增 `AuthzService` bean：`isOrgAdmin`、`hasProjectRole(projectId, role)`、`canReadProject(projectId, stage)`；内部委托 `AuthService`，供 `AuthorizationManager` / `@PreAuthorize` 使用。
+- [x] 如使用 `@PreAuthorize`，显式加 `@EnableMethodSecurity`；否则只用 URL `AuthorizationManager`，避免两套入口并存。
+- [x] URL 级 `authorizeHttpRequests` 只做粗粒度默认拒绝；org / project / team 规则仍由 `AuthService` / `AuthzService` 集中判定。
+- [x] 评审：服务账号可读所属项目评审、可提交写回评审（actor=`service:<name>`），但**不能审批 / 打回**（`ReviewController` 使用 `requireHuman`）。
 
 **调用点修正（`isPlatformAdmin` 清零）**
 
-- [ ] `SpecWriteService.requireOtherReviewer`：平台 admin 自批改为 `org_admin` 自批（按 C0 决策）。
-- [ ] `ReviewController`：提交评审使用 principal actor；审批 / 打回使用 `requireHuman` + `isOrgAdmin`。
-- [ ] `CommentController`：全部评论端点使用 `requireHuman`；删除评论的 `isPlatformAdmin` 改为 `isOrgAdmin`。
-- [ ] `SubscriptionController`：订阅 / 取消 / 通知查询使用 `requireHuman`；服务账号不可订阅。
-- [ ] `TeamController`：团队与成员端点使用 `requireHuman`；服务账号不可管理或查看团队目录。
-- [ ] `ReleaseController.globalChangelog` / `ApiQueryController`：从 `SecurityContext` 取 actor，支持服务账号。
-- [ ] `ApplicationInit`：bootstrap admin 只确保 `org_membership.org_role='org_admin'`；启动时刷新 `user_token` 中 admin 的 `legacy` 行（admin-token 变化时旧值失效）；**不覆盖 `status` / `password_hash`**，被禁用的 admin 重启后仍保持禁用。
-- [ ] 全仓 grep `isPlatformAdmin` / `token_hash` / `platformAdmin` 清零（V7 门禁）。
+- [x] `SpecWriteService.requireOtherReviewer`：平台 admin 自批改为 `org_admin` 自批（按 C0 决策）。
+- [x] `ReviewController`：提交评审使用 principal actor；审批 / 打回使用 `requireHuman` + `isOrgAdmin`。
+- [x] `CommentController`：全部评论端点使用 `requireHuman`；删除评论的 `isPlatformAdmin` 改为 `isOrgAdmin`。
+- [x] `SubscriptionController`：订阅 / 取消 / 通知查询使用 `requireHuman`；服务账号不可订阅。
+- [x] `TeamController`：团队与成员端点使用 `requireHuman`；服务账号不可管理或查看团队目录。
+- [x] `ReleaseController.globalChangelog` / `ApiQueryController`：从 `SecurityContext` 取 actor，支持服务账号。
+- [x] `ApplicationInit`：bootstrap admin 只确保 `org_membership.org_role='org_admin'`；启动时刷新 `user_token` 中 admin 的 `legacy` 行（admin-token 变化时旧值失效）；**不覆盖 `status` / `password_hash`**，被禁用的 admin 重启后仍保持禁用。
+- [x] 全仓 grep `isPlatformAdmin` / `platformAdmin` / `app_user.token_hash` 业务代码引用清零（`user_token` / `service_account` 自身的 `token_hash` 字段除外；V7 门禁）。
 
 **纪律**
 
-- [ ] 认证只由 Spring Security filter chain 完成；Controller 不自行读 Cookie / Bearer。
-- [ ] 域授权只通过 `AuthService` / `AuthzService`；禁止把 org / project 角色写进 `Authentication.authorities`，避免角色变更后旧会话权限不更新。
-- [ ] Principal 必须可序列化且最小化；Spring Session 默认 Java 序列化，禁止把实体 / `OidcUser` 直接写入会话。
-- [ ] 自定义 entry point / denied handler 保持 `ApiErrorBody` / `ApiErrorCode` 契约。
-- [ ] 密码、令牌、Cookie 不写日志；认证事件只记 username / principal / IP / 时间。
-- [ ] 禁用 / 删除用户时：先完成 DB 事务（status / 令牌 / 关系），再按 principal 删除 Redis 会话；**不以跨存储事务为前提**，删除失败由每请求状态校验兜底。
+- [x] 认证只由 Spring Security filter chain 完成；Controller 不自行读 Cookie / Bearer。
+- [x] 域授权只通过 `AuthService` / `AuthzService`；禁止把 org / project 角色写进 `Authentication.authorities`，避免角色变更后旧会话权限不更新。
+- [x] Principal 必须可序列化且最小化；Spring Session 默认 Java 序列化，禁止把实体 / `OidcUser` 直接写入会话。
+- [x] 自定义 entry point / denied handler 保持 `ApiErrorBody` / `ApiErrorCode` 契约。
+- [x] 密码、令牌、Cookie 不写日志；认证事件只记 username / principal / IP / 时间。
+- [ ] 禁用 / 删除用户时：先完成 DB 事务（status / 令牌 / 关系），再按 principal 删除 Redis 会话；**不以跨存储事务为前提**，删除失败由每请求状态校验兜底（C4 生命周期端点实现；C2 已具备每请求状态校验）。
 
 **测试**
 
-- [ ] `SecurityConfigTest`：Bearer 链 vs Web 链选择、CSRF 对 Bearer 豁免、所有 profile 默认拒绝、entry point / denied handler 返回错误契约。
-- [ ] `AuthPrincipalTest`：人 / 服务账号 principal、禁用 401、过期 401、跨项目不可见。
-- [ ] `UserTokenServiceTest`：签发 / 过期 / 吊销 / legacy 行解析 / 节流。
-- [ ] `SessionRegistryTest`：按用户列会话、删除会话、绝对超时。
-- [ ] 现有 `AuthApiTest` / `AuthVisibilityTest` / `ReadIsolationTest` 适配 Spring Security 上下文与 `UserRecord`。
-- [ ] 双库全量 `:server:test` 与 `:server:ktlintCheck` 通过。
+- [x] `SecurityConfigTest`：Bearer 链 vs Web 链选择、CSRF 对 Bearer 豁免、所有 profile 默认拒绝、entry point / denied handler 返回错误契约。
+- [x] `AuthPrincipalTest`：人 / 服务账号 principal、禁用 401、过期 401、跨项目不可见。
+- [x] `UserTokenServiceTest`：签发 / 过期 / 吊销 / legacy 行解析 / 节流。
+- [x] `SessionRegistryTest` / `AbsoluteSessionTimeoutFilterTest`：按用户列会话、删除会话、绝对超时。
+- [x] 现有 `AuthApiTest` / `AuthVisibilityTest` / `ReadIsolationTest` 适配 Spring Security 上下文与 `UserRecord`。
+- [x] 双库全量 `:server:test` 与 `:server:ktlintCheck` 通过。
 
-**状态**：待启动。
+**状态**：✅ 2026-11-19 完成（C2 认证底座；OIDC `oauth2Login` 留 C6）。
 
 ---
 
@@ -946,6 +946,8 @@ C0 → C1 → C2 → C3 → C4 → C5/C6 → C7 → C8 → C9 → C10
 2. OIDC 切到 Web 链的 `oauth2Login`（C6），删除独立 OIDC 旁路。
 3. Bearer 切到 `BearerAuthenticationFilter` / `TokenAuthenticationProvider`，服务账号接入 API 链（C5），删除 `TokenAuthFilter`。
 4. 域授权收敛到 `AuthService` / `AuthzService`，清理 `isPlatformAdmin` / `token_hash`（C2 / C4）。
+
+> **C2 实施结果（2026-11-19）**：分片 1 / 3 / 4 已落地（Web Session + `BearerAuthenticationFilter` / `TokenAuthenticationProvider` + 域授权收敛；旧 `TokenAuthFilter` 已删除）；分片 2（OIDC `oauth2Login`）留 C6。
 
 **两人并行建议**：
 

@@ -108,7 +108,7 @@ class SubscriptionTeamApiTest : TestDbIsolation() {
     private fun createUser(projectId: Long?): TestUser {
         val suffix = uniqueSuffix()
         val rawToken = "sub-team-user-$suffix"
-        val user = users.createUserWithMembership("sub-team-$suffix", "", AuthService.sha256(rawToken), projectId, Role.VIEWER)
+        val user = users.createUserWithMembershipAndToken("sub-team-$suffix", "", rawToken, projectId, Role.VIEWER)
         return TestUser(assertNotNull(user.id), rawToken)
     }
 

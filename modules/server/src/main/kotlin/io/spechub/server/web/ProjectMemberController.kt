@@ -60,6 +60,7 @@ class ProjectMemberController(
         @PathVariable projectId: Long,
         request: HttpServletRequest,
     ): List<MemberView> {
+        auth.requireHuman(request, "查看项目成员")
         auth.requireProjectMember(request, projectId, "查看项目成员")
         val project = requireProject(projectId)
         val roles = users.membersOfProject(projectId)
@@ -87,6 +88,7 @@ class ProjectMemberController(
         @RequestBody @Valid body: AddMemberRequest,
         request: HttpServletRequest,
     ): MemberView {
+        auth.requireHuman(request, "添加项目成员")
         auth.requireProjectRole(request, projectId, Role.ADMIN, "添加项目成员")
         val project = requireProject(projectId)
         validateMemberRole(body.role)
@@ -116,6 +118,7 @@ class ProjectMemberController(
         @RequestBody @Valid body: UpdateMemberRequest,
         request: HttpServletRequest,
     ): MemberView {
+        auth.requireHuman(request, "修改项目成员")
         auth.requireProjectRole(request, projectId, Role.ADMIN, "修改项目成员")
         val project = requireProject(projectId)
         validateMemberRole(body.role)
@@ -138,6 +141,7 @@ class ProjectMemberController(
         @PathVariable userId: Long,
         request: HttpServletRequest,
     ) {
+        auth.requireHuman(request, "移除项目成员")
         auth.requireProjectRole(request, projectId, Role.ADMIN, "移除项目成员")
         val project = requireProject(projectId)
         val currentRole =

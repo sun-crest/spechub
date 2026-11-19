@@ -170,13 +170,13 @@
 
 > **详细任务拆解**：[SpecHub-阶段C任务拆解.md](SpecHub-阶段C任务拆解.md)（C0–C10，含依赖、文件落点、安全门禁、手动 e2e 清单）
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
-> **状态**：C0 / C1 已完成（2026-11-19）；C2–C10 待启动
+> **状态**：C0 / C1 / C2 已完成（2026-11-19）；C3–C10 待启动
 > **认证基线**：阶段 C 起本地与生产使用同一套真实登录（admin-token / 密码 / OIDC + Spring Session Data Redis，机器用 Bearer）；不保留 dev 免登录或放行链，不做 JDBC 会话过渡。
 > **C0 结论**：Spring Security 双链 + Spring Session Data Redis + Redis 登录限流；全环境真实登录；Argon2id；项目级服务账号；OIDC `oauth2Login`；独立 `audit_event`。
 
 - [x] C0 前置对齐与决策（Spring Security 双链 / Spring Session Data Redis dev+prod / 全环境真实登录 / Argon2id / 令牌前缀与迁移 / 服务账号 / OIDC / 审计存储）✅ 2026-11-19 已确认
 - [x] C1 管理库 V6 / V7 迁移（`app_user` 身份列、`user_token`、`service_account`、`user_identity`、`audit_event`；会话走 Redis，不建管理库会话表；V7 删 `token_hash` / `is_platform_admin`）✅ 2026-11-19（V6 运行期生效；V7 文件与双库测试就绪，`spring.flyway.target=6` 暂缓，C4 同窗口放开）
-- [ ] C2 Spring Security 认证底座与领域适配（Web Session / Bearer API 双链、全环境真实登录、Spring Session Data Redis、`AuthenticationManager`、opaque Bearer provider、`AuthService` / `AuthzService`、CSRF、会话固定防护）
+- [x] C2 Spring Security 认证底座与领域适配（Web Session / Bearer API 双链、全环境真实登录、Spring Session Data Redis、`AuthenticationManager`、opaque Bearer provider、`AuthService` / `AuthzService`、CSRF、会话固定防护）✅ 2026-11-19（双链 / 会话 / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）
 - [ ] C3 密码登录与会话端点（JSON 登录 filter、`LogoutFilter`、`/me`、密码管理、CSRF、Redis 登录限流）
 - [ ] C4 账号生命周期与令牌管理（禁用 / 启用 / 邀请 / 重置、Redis 会话列表与吊销、用户令牌 CRUD、最后 org_admin 保护、V7 收紧）
 - [ ] C5 项目级服务账号（`ServiceAccountAuthenticationProvider`、CRUD / 轮换 / 跨项目隔离、MCP / CLI 文档）
