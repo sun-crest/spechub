@@ -14,9 +14,10 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * A9 迁移矩阵（PostgreSQL / MySQL 由 `-Dspechub.test.db` 选择）：
- * - V2 有数据 → V3：org / project / repo / repo_binding / 租户列全部回填，单主约束生效；
- * - 空库 V1 → V3：三版一次性迁移成功，bootstrap 默认组织就绪。
+ * A9/B1 迁移矩阵（PostgreSQL / MySQL 由 `-Dspechub.test.db` 选择）：
+ * - V2 有数据 → V4：org / project / repo / repo_binding / 租户列 / 团队与订阅归属全部回填；
+ * - V3 有数据 → V4：同 org 同名团队合并、跨 org 同名隔离、成员启发式回填；
+ * - 空库 V1 → V4：四版一次性迁移成功，bootstrap 默认组织就绪。
  *
  * 不走 Spring：直接 Testcontainers 目标库 + Flyway 编程式迁移，避免 @SpringBootTest 的 Flyway 自动装配。
  */
@@ -48,7 +49,7 @@ class ManagementDbMigrationTest {
         return cfg.load()
     }
 
-    // ── V2 → V3 ────────────────────────────────────────────────────────────
+    // ── V2 → V4 ────────────────────────────────────────────────────────────
 
     private data class Seed(
         val adminId: Long,
@@ -156,13 +157,13 @@ class ManagementDbMigrationTest {
         }
 
     @Test
-    fun `V2 有数据升级到 V3 - 组织项目仓库绑定与租户列全部回填`() {
+    fun `V2 有数据升级到 V4 - 组织项目仓库绑定与团队订阅全部回填`() {
         val db = newTarget("v2")
         flyway(db, "2").migrate()
         val seed = seedV2(db)
 
         val result = flyway(db, null).migrate()
-        assertTrue(result.migrationsExecuted >= 1, "V3 应被执行：${result.migrationsExecuted}")
+        assertTrue(result.migrationsExecuted >= 2, "V3/V4 应被执行：${result.migrationsExecuted}")
 
         DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
             val orgId = one(c, "SELECT id FROM org WHERE slug = 'default'")["id"] as Long
@@ -221,14 +222,174 @@ class ManagementDbMigrationTest {
                     )
                 }
             }
+
+            // B1：旧 team 文本建团队，订阅/通知回填 team_id；旧列保留为快照
+            val team = one(c, "SELECT id, name FROM team WHERE org_id = ?", orgId)
+            assertEquals("core", (team["name"] as String).lowercase(), "旧 team 文本建团队")
+            assertEquals(
+                team["id"],
+                one(c, "SELECT team_id FROM subscription WHERE repo_id = ?", seed.repoAId)["team_id"],
+                "subscription.team_id 回填",
+            )
+            assertEquals(
+                team["id"],
+                one(c, "SELECT team_id FROM notification WHERE repo_id = ?", seed.repoAId)["team_id"],
+                "notification.team_id 回填",
+            )
+            assertEquals("core", one(c, "SELECT team FROM subscription WHERE repo_id = ?", seed.repoAId)["team"], "旧 team 文本保留")
+            assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM team_member"), "用户名与团队名不同，不回填成员")
+
+            // 过渡期保留旧唯一键：同 endpoint + 同旧 team 文本的重复订阅仍被拒绝（V5 再切换为 team_id）
+            assertFailsWith<SQLException> {
+                c.createStatement().use {
+                    it.executeUpdate(
+                        "INSERT INTO subscription (repo_id, org_id, method, path, team, team_id, notify_url) " +
+                            "VALUES (${seed.repoAId}, $orgId, 'GET', '/pets', 'core', ${team["id"]}, '')",
+                    )
+                }
+            }
         }
     }
 
+    // ── V3 → V4 ────────────────────────────────────────────────────────────
+
     @Test
-    fun `空库从 V1 直接迁移到 V3`() {
+    fun `V3 有数据升级到 V4 - 同名合并跨组织隔离与成员回填`() {
+        val db = newTarget("v3")
+        flyway(db, "3").migrate()
+
+        val seed =
+            DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
+                val defaultOrgId = one(c, "SELECT id FROM org WHERE slug = 'default'")["id"] as Long
+                val acmeOrgId = insert(c, "INSERT INTO org (name, slug, status) VALUES ('acme', 'acme', 'active')")
+                val coreUserId =
+                    insert(
+                        c,
+                        "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES (?, ?, ?, ?)",
+                        "core",
+                        "Core User",
+                        "hash-core",
+                        false,
+                    )
+                insert(c, "INSERT INTO org_membership (user_id, org_id, org_role, status) VALUES (?, ?, 'org_member', 'active')", coreUserId, acmeOrgId)
+
+                val defaultProject =
+                    insert(
+                        c,
+                        "INSERT INTO project (name, org_id, slug, visibility, archived) VALUES (?, ?, ?, ?, ?)",
+                        "legacy-default",
+                        defaultOrgId,
+                        "legacy-default",
+                        "private",
+                        false,
+                    )
+                val acmeProject =
+                    insert(
+                        c,
+                        "INSERT INTO project (name, org_id, slug, visibility, archived) VALUES (?, ?, ?, ?, ?)",
+                        "legacy-acme",
+                        acmeOrgId,
+                        "legacy-acme",
+                        "private",
+                        false,
+                    )
+                val defaultRepo =
+                    insert(
+                        c,
+                        "INSERT INTO repo (project_id, url, branch, sync_status, org_id, external_repo_id) VALUES (?, ?, ?, ?, ?, ?)",
+                        defaultProject,
+                        "file:///legacy/default.git",
+                        "main",
+                        "ok",
+                        defaultOrgId,
+                        "ext-default",
+                    )
+                val acmeRepo =
+                    insert(
+                        c,
+                        "INSERT INTO repo (project_id, url, branch, sync_status, org_id, external_repo_id) VALUES (?, ?, ?, ?, ?, ?)",
+                        acmeProject,
+                        "file:///legacy/acme.git",
+                        "main",
+                        "ok",
+                        acmeOrgId,
+                        "ext-acme",
+                    )
+
+                // 同 org 内 'core' / ' Core ' 合并；跨 org 同名各自建团队
+                val subA = insert(c, "INSERT INTO subscription (repo_id, org_id, method, path, team, notify_url) VALUES (?, NULL, 'GET', '/pets', 'core', '')", defaultRepo)
+                val subB = insert(c, "INSERT INTO subscription (repo_id, org_id, method, path, team, notify_url) VALUES (?, ?, 'GET', '/pets', ' Core ', '')", defaultRepo, defaultOrgId)
+                val subC = insert(c, "INSERT INTO subscription (repo_id, org_id, method, path, team, notify_url) VALUES (?, ?, 'GET', '/pets', 'core', '')", acmeRepo, acmeOrgId)
+                // 可匹配的历史通知 + 无法匹配的 ghost 团队
+                val notifA = insert(c, "INSERT INTO notification (team, repo_id, org_id, method, path, summary) VALUES ('core', ?, ?, 'GET', '/pets', '旧通知')", defaultRepo, defaultOrgId)
+                val notifGhost = insert(c, "INSERT INTO notification (team, repo_id, org_id, method, path, summary) VALUES ('ghost', ?, ?, 'GET', '/pets', '幽灵通知')", defaultRepo, defaultOrgId)
+
+                SeedV3(defaultOrgId, acmeOrgId, defaultRepo, coreUserId, subA, subB, subC, notifA, notifGhost)
+            }
+
+        val result = flyway(db, null).migrate()
+        assertTrue(result.migrationsExecuted >= 1, "V4 应被执行：${result.migrationsExecuted}")
+
+        DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
+            // 同 org 同名合并为一行；跨 org 同名各自一行
+            assertEquals(1, count(c, "SELECT COUNT(*) AS c FROM team WHERE org_id = ?", seed.defaultOrgId), "同 org 同名合并")
+            assertEquals(1, count(c, "SELECT COUNT(*) AS c FROM team WHERE org_id = ?", seed.acmeOrgId), "跨 org 同名隔离")
+            val defaultTeam = one(c, "SELECT id, name FROM team WHERE org_id = ?", seed.defaultOrgId)
+            val acmeTeam = one(c, "SELECT id, name FROM team WHERE org_id = ?", seed.acmeOrgId)
+            assertEquals("core", (defaultTeam["name"] as String).lowercase(), "合并后团队名")
+            assertEquals("core", (acmeTeam["name"] as String).lowercase(), "跨 org 团队名")
+            assertTrue(defaultTeam["id"] != acmeTeam["id"], "不同 org 的团队 id 不同")
+
+            // 过渡期两条同 org 订阅都保留（V5 再按 team_id 去重）；均指向合并后的 default team
+            assertEquals(defaultTeam["id"], one(c, "SELECT team_id FROM subscription WHERE id = ?", seed.subA)["team_id"])
+            assertEquals(defaultTeam["id"], one(c, "SELECT team_id FROM subscription WHERE id = ?", seed.subB)["team_id"])
+            assertEquals(acmeTeam["id"], one(c, "SELECT team_id FROM subscription WHERE id = ?", seed.subC)["team_id"])
+            assertEquals(3, count(c, "SELECT COUNT(*) AS c FROM subscription"), "过渡期保留重复订阅")
+            assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM subscription WHERE team_id IS NULL"), "订阅 team_id 全部回填")
+
+            // 通知：可匹配的填 team_id，ghost 保留 NULL 且旧文本快照不丢
+            assertEquals(defaultTeam["id"], one(c, "SELECT team_id FROM notification WHERE id = ?", seed.notifA)["team_id"])
+            assertEquals(null, one(c, "SELECT team_id FROM notification WHERE id = ?", seed.notifGhost)["team_id"], "无法匹配的历史通知保留 NULL")
+            assertEquals("ghost", one(c, "SELECT team FROM notification WHERE id = ?", seed.notifGhost)["team"])
+
+            // 成员回填：用户名 'core' 是 acme 组织成员 → acme 团队 lead；default 团队无成员
+            val acmeLead = one(c, "SELECT user_id, role FROM team_member WHERE team_id = ?", acmeTeam["id"])
+            assertEquals(seed.coreUserId, acmeLead["user_id"], "团队名 = 用户名 → lead")
+            assertEquals("lead", acmeLead["role"])
+            assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM team_member WHERE team_id = ?", defaultTeam["id"]), "不同组织不参与回填")
+
+            // 过渡期旧唯一键仍生效；有订阅的团队不能删除（FK RESTRICT）
+            assertFailsWith<SQLException> {
+                c.createStatement().use {
+                    it.executeUpdate(
+                        "INSERT INTO subscription (repo_id, org_id, method, path, team, team_id, notify_url) " +
+                            "VALUES (${seed.defaultRepo}, ${seed.defaultOrgId}, 'GET', '/pets', 'core', ${defaultTeam["id"]}, '')",
+                    )
+                }
+            }
+            assertFailsWith<SQLException> {
+                c.createStatement().use { it.executeUpdate("DELETE FROM team WHERE id = ${defaultTeam["id"]}") }
+            }
+        }
+    }
+
+    private data class SeedV3(
+        val defaultOrgId: Long,
+        val acmeOrgId: Long,
+        val defaultRepo: Long,
+        val coreUserId: Long,
+        val subA: Long,
+        val subB: Long,
+        val subC: Long,
+        val notifA: Long,
+        val notifGhost: Long,
+    )
+
+    @Test
+    fun `空库从 V1 直接迁移到 V4`() {
         val db = newTarget("empty")
         val result = flyway(db, null).migrate()
-        assertTrue(result.migrationsExecuted >= 3, "空库应执行 V1–V3：${result.migrationsExecuted}")
+        assertTrue(result.migrationsExecuted >= 4, "空库应执行 V1–V4：${result.migrationsExecuted}")
 
         DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
             assertEquals(1, count(c, "SELECT COUNT(*) AS c FROM org WHERE slug = 'default'"), "bootstrap 默认组织")
@@ -237,6 +398,8 @@ class ManagementDbMigrationTest {
             assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM repo_binding"))
             assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM git_connection"))
             assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM org_membership"))
+            assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM team"))
+            assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM team_member"))
         }
     }
 
