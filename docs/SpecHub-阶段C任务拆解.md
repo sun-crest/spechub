@@ -1,6 +1,6 @@
 # SpecHub · 阶段 C 任务拆解（账号与审计）
 
-> **日期**：2026-11-19　**状态**：待启动（C0–C10）
+> **日期**：2026-11-19　**状态**：C0 已确认（2026-11-19）；C1–C10 待启动
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **范围**：Spring Security Web 认证底座、Spring Session 分布式会话、密码 / OIDC 登录、账号禁用与邀请、可过期可吊销令牌、项目级服务账号、管理动作审计查询。
 > **不覆盖**：多组织切换 / 组织生命周期 / 平台运营控制面 / break-glass（阶段 D1）、自助注册 / 邮箱验证 / 域名认领（阶段 D2）、SAML / SCIM、MFA / WebAuthn、组织级服务账号、`project_group` / `api_group`。
@@ -48,6 +48,8 @@
 |---|---|---|---|---|
 | C0 | 前置对齐与决策 | — | S | 决策记录、ADR §13 回填 |
 | C1 | 管理库 V6 / V7 迁移 | C0 | L | `V6__identity_and_audit.sql`、`V7__identity_tighten.sql`（PG/MySQL；会话走 Redis，不建管理库会话表） |
+
+> **C0 状态**：✅ 2026-11-19 已确认；C1 起待启动。
 | C2 | Spring Security 认证底座与领域适配 | C1 | L | `SecurityConfig` 双链（Bearer API / Web Session）、Spring Session Data Redis、`AuthenticationManager`、opaque Bearer provider、`AuthService` / `AuthzService` 适配 |
 
 ### 2.2 C‑2 登录与账号生命周期
@@ -112,7 +114,7 @@
 
 ### C0 · 前置对齐与决策（S）
 
-ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。下表为**建议默认值**，未拍板前按默认执行：
+ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。下表已于 **2026-11-19 确认**，按此执行：
 
 | 决策项 | 建议默认 | 理由 / 影响 |
 |---|---|---|
@@ -148,12 +150,21 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 | 迁移节奏 | V6 加列 / 建表（身份 / 令牌 / 服务账号 / 审计）→ 分片切 Spring Security（Web Session → OIDC → Bearer provider → 域授权）→ V7 删旧列；Redis 会话不参与管理库迁移 | 每片可独立验收，避免 big-bang |
 | Jackson 2 | OIDC / Security 传递的 Jackson 2 只允许运行期库内部使用；`verifyNoJackson2Usage` + 依赖树核对 | 遵守 CLAUDE.md 边界 |
 
-- [ ] 输出决策记录（写入本文档 §6 与 ADR §13 开放问题）。
-- [ ] 确认 V6 / V7 版本号、Spring Session Data Redis 会话方案与两阶段迁移门禁。
-- [ ] 确认 Spring Security 双链设计（Bearer API / Web Session）与全环境真实登录 bootstrap。
-- [ ] 确认「最后一名 `org_admin` 不可禁用 / 降级 / 删除」保护（与团队最后一个 lead 保护同风格）。
+- [x] 输出决策记录（写入本文档 §6 与 ADR §13 开放问题）。
+- [x] 确认 V6 / V7 版本号、Spring Session Data Redis 会话方案与两阶段迁移门禁。
+- [x] 确认 Spring Security 双链设计（Bearer API / Web Session）与全环境真实登录 bootstrap。
+- [x] 确认 C 阶段直接使用 Spring Session Data Redis 与 Redis 登录限流，不做 JDBC / 内存过渡。
+- [x] 确认「最后一名 `org_admin` 不可禁用 / 降级 / 删除」保护（与团队最后一个 lead 保护同风格）。
 
-**状态**：待启动。
+> **C0 确认结论（2026-11-19）**
+>
+> - Spring Security 双链（Web Session / Bearer API）+ Spring Session Data Redis；不设 dev 放行链，所有环境真实登录。
+> - Redis 会话与 Redis 登录限流从 C 阶段直接使用，不做 JDBC / 内存过渡。
+> - Argon2id；旧 token 回填 `user_token` 后继续有效；V7 删 `token_hash` / `is_platform_admin`。
+> - 项目级服务账号（viewer / editor）、OIDC `oauth2Login`、独立 `audit_event` 审计表。
+> - `admin-token` 仅用于 bootstrap / break-glass；最后一名可登录 `org_admin` 保护。
+
+**状态**：✅ 2026-11-19 已确认（C0 完成；C1 起待启动）。
 
 ---
 
@@ -958,9 +969,9 @@ C0 → C1 → C2 → C3 → C4 → C5/C6 → C7 → C8 → C9 → C10
 
 ---
 
-## 6. 前置假设（C0 待确认）
+## 6. 前置假设（C0 已确认）
 
-> 下表为建议默认值；C0 拍板后回填结论与影响。
+> 2026-11-19 已按建议默认值确认；下表为确认结论。
 
 | 项 | 建议默认 | 影响 |
 |---|---|---|

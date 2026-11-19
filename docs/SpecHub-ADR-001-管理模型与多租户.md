@@ -734,6 +734,7 @@ waitlist（申请制） → 邀请 50 家 → 灰度 10% → 50% → 100%
 
 - [SpecHub-产品方案](SpecHub-产品方案.md) §5.3 / §6.3 / R1：管理模型、org/project/team 定义、托管形态与 binding 迁移、平台运营与组织开通。
 - [SpecHub-开发计划](SpecHub-开发计划.md)：新增阶段 A–D2 任务，I4 标注为「单项目最小版」。
+- [SpecHub-阶段C任务拆解](SpecHub-阶段C任务拆解.md)：C0 决策记录（Spring Security 双链 / Spring Session Data Redis / 全环境真实登录）、C1–C10 任务与门禁。
 - [SpecHub-管理数据持久化最终选型结论](SpecHub-管理数据持久化选型.md)：补 `org_id`、RLS、每租户索引、平台运营表。
 - [SpecHub-UI方案](SpecHub-UI方案.md)：补项目管理、团队管理、成员管理、设置页、平台控制台、自助注册页。
 - [SpecHub-运维手册](SpecHub-运维手册.md)：补多租户配置、KMS、租户备份/注销、平台运营与 break-glass、组织暂停/删除流程。
