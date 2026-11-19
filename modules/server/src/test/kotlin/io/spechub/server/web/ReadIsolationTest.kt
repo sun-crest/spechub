@@ -1,8 +1,12 @@
 package io.spechub.server.web
 
+import io.spechub.server.service.ChangelogService
+import io.spechub.server.service.CommentService
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.ProjectService
 import io.spechub.server.service.RepoService
+import io.spechub.server.service.ReviewService
+import io.spechub.server.service.SubscriptionService
 import io.spechub.server.service.UserService
 import io.spechub.spec.index.ApiRecord
 import io.spechub.spec.index.DocRecord
@@ -55,6 +59,18 @@ class ReadIsolationTest {
     lateinit var users: UserService
 
     @Autowired
+    lateinit var comments: CommentService
+
+    @Autowired
+    lateinit var reviewService: ReviewService
+
+    @Autowired
+    lateinit var subscriptions: SubscriptionService
+
+    @Autowired
+    lateinit var changelogService: ChangelogService
+
+    @Autowired
     lateinit var projection: ProjectionStore
 
     private val json = JsonMapper.builder().build()
@@ -83,6 +99,8 @@ class ReadIsolationTest {
         val apiB: Long,
         val docA: Long,
         val docB: Long,
+        val reviewB: Long,
+        val subscriptionB: Long,
     )
 
     private fun fixture(): Fixture {
@@ -113,6 +131,17 @@ class ReadIsolationTest {
             docs = listOf(DocRecord(repoId = repoB, path = "docs/b.md", title = "B iso doc", markdown = "iso B")),
         )
 
+        val apiA = assertNotNull(projection.listApis(repoA).single().id)
+        val apiB = assertNotNull(projection.listApis(repoB).single().id)
+
+        // 内部数据：评论 / 评审 / 订阅 / 通知 / 变更记录（只认 repo_id，隔离靠读端点过滤）
+        comments.add(repoA, apiA, null, "GET", "/pets", "author-a", "A 评论")
+        comments.add(repoB, apiB, null, "GET", "/pets", "author-b", "B 评论")
+        val reviewB = assertNotNull(reviewService.create(repoB, "specs/b.yaml", "openapi: 3.1.0", "", null, "author-b").id)
+        val subscriptionB = assertNotNull(subscriptions.subscribe(repoB, apiB, "GET", "/pets", "team-b", "").id)
+        subscriptions.addNotification("team-b", repoB, "GET", "/pets", "B 通知")
+        changelogService.add(repoB, apiB, "author-b", "comment", "B 变更记录")
+
         val rawToken = "user-token-$suffix"
         val username = "reader-$suffix"
         users.createUserWithMembership(username, "", AuthService.sha256(rawToken), projectAId, Role.VIEWER)
@@ -123,25 +152,43 @@ class ReadIsolationTest {
             projectB = projectBId,
             repoA = repoA,
             repoB = repoB,
-            apiA = assertNotNull(projection.listApis(repoA).single().id),
-            apiB = assertNotNull(projection.listApis(repoB).single().id),
+            apiA = apiA,
+            apiB = apiB,
             docA = assertNotNull(projection.listDocs(repoA).single().id),
             docB = assertNotNull(projection.listDocs(repoB).single().id),
+            reviewB = reviewB,
+            subscriptionB = subscriptionB,
         )
+    }
+
+    private fun send(
+        method: String,
+        path: String,
+        token: String,
+        body: String? = null,
+    ): HttpResponse<String> {
+        val builder =
+            HttpRequest
+                .newBuilder(URI.create("http://localhost:$port$path"))
+                .header("Authorization", "Bearer $token")
+        if (body != null) {
+            builder.header("Content-Type", "application/json").method(method, HttpRequest.BodyPublishers.ofString(body))
+        } else {
+            builder.method(method, HttpRequest.BodyPublishers.noBody())
+        }
+        return http.send(builder.build(), HttpResponse.BodyHandlers.ofString())
     }
 
     private fun get(
         path: String,
         token: String,
-    ): HttpResponse<String> {
-        val req =
-            HttpRequest
-                .newBuilder(URI.create("http://localhost:$port$path"))
-                .header("Authorization", "Bearer $token")
-                .GET()
-                .build()
-        return http.send(req, HttpResponse.BodyHandlers.ofString())
-    }
+    ): HttpResponse<String> = send("GET", path, token)
+
+    private fun post(
+        path: String,
+        token: String,
+        body: String,
+    ): HttpResponse<String> = send("POST", path, token, body)
 
     private fun codeOf(body: String): String? = json.readTree(body).get("code")?.asText()
 
@@ -205,6 +252,20 @@ class ReadIsolationTest {
         assertEquals(404, get("/api/repos/${f.repoB}/changelog", f.token).statusCode(), "B 变更记录应 404")
         assertEquals(404, get("/api/reviews?repoId=${f.repoB}", f.token).statusCode(), "B 评审队列应 404")
         assertEquals(404, get("/api/subscriptions?repoId=${f.repoB}", f.token).statusCode(), "B 订阅列表应 404")
+
+        // 评论 / 评审 / 订阅 / 通知 / 变更记录：内部视图同样不得出现 B
+        assertEquals(404, get("/api/apis/${f.apiB}/comments", f.token).statusCode(), "B 评论列表应 404")
+        assertEquals(404, post("/api/apis/${f.apiB}/comments", f.token, """{"body":"越权评论"}""").statusCode(), "B 评论写入应 404")
+        assertEquals(404, get("/api/reviews/${f.reviewB}", f.token).statusCode(), "B 评审详情应 404")
+        assertEquals(0, json.readTree(get("/api/reviews", f.token).body()).size(), "评审列表不含 B")
+        assertEquals(0, json.readTree(get("/api/subscriptions", f.token).body()).size(), "订阅列表不含 B")
+        assertEquals(404, send("DELETE", "/api/subscriptions/${f.subscriptionB}", f.token).statusCode(), "取消 B 订阅应 404")
+        assertEquals(0, json.readTree(get("/api/subscriptions/notifications?team=team-b", f.token).body()).size(), "通知不含 B")
+        assertTrue(get("/api/changelog", f.token).body().let { !it.contains("B 变更记录") }, "变更记录不含 B")
+
+        val commentsA = get("/api/apis/${f.apiA}/comments", f.token)
+        assertEquals(200, commentsA.statusCode(), commentsA.body())
+        assertTrue(commentsA.body().contains("A 评论"), "A 自身评论可读")
 
         val mockB = get("/mock/${f.repoB}/pets", f.token)
         assertEquals(404, mockB.statusCode())

@@ -265,12 +265,14 @@
 
 ### A9 · 测试矩阵与双库验证（L）
 
-- [ ] 迁移测试：PostgreSQL + MySQL 各跑「V1/V2 有数据 → V3」。
-- [ ] 新增：`ProjectApiTest`、`ProjectMembershipApiTest`、`RepoBindingApiTest`、`ReadIsolationTest`。
-- [ ] 更新：`AuthApiTest`、`WebApiTest`、`CommentApiTest`、`ReviewApiTest`、`SubscriptionApiTest`、`ImportExportApiTest` 中的默认项目假设。
-- [ ] e2e：两个项目、用户只在 A；列表/详情/搜索/导出/评论/评审/订阅全隔离。
-- [ ] 门禁：`./gradlew check`；`apps/web` 构建；dev 免登录回归。
-- [ ] 双库命令：`./gradlew :server:test -Dspechub.test.db=mysql`（见 [TestManagementDb.kt](modules/server/src/test/kotlin/io/spechub/server/web/TestManagementDb.kt)）。
+- [x] 迁移测试：`ManagementDbMigrationTest`（PostgreSQL + MySQL）：V1/V2 造数据 → V3 回填断言（org/project/repo/binding/租户列/单主约束）；空库 V1→V3。
+- [x] 新增：`ProjectApiTest`、`ProjectMembershipApiTest`、`RepoBindingApiTest`、`ReadIsolationTest`。
+- [x] 更新：`AuthApiTest`、`WebApiTest`、`CommentApiTest`、`ReviewApiTest`、`SubscriptionApiTest`、`ImportExportApiTest` 中的默认项目假设（A7 随 `projectId` 必填一并调整）。
+- [x] e2e：两个项目、用户只在 A；列表/详情/搜索/导出/评论/评审/订阅/通知/变更记录全隔离（`ReadIsolationTest` 扩展）。
+- [x] 门禁：`./gradlew check --rerun-tasks` 通过；`apps/web` 构建通过；dev 免登录回归（Doc/Comment/Web/Subscription/ImportExport 集成测试）通过。
+- [x] 双库命令：`./gradlew :server:test -Dspechub.test.db=mysql`（见 [TestManagementDb.kt](modules/server/src/test/kotlin/io/spechub/server/web/TestManagementDb.kt)），PostgreSQL / MySQL 各 91 项全绿。
+
+**状态**：✅ 2026-11-18 完成；顺带修复 A4 投影 API 变更后遗留的 `ProjectionStoreTest` 编译失败（`repoIds` 必填）。
 
 ### A10 · 文档、开关与收尾（S）
 

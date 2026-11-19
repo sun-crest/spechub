@@ -18,6 +18,16 @@ import java.sql.DriverManager
 object TestManagementDb {
     private val vendor: String = System.getProperty("spechub.test.db", "postgresql")
 
+    /** 独立库目标（Flyway 迁移测试等非 Spring 场景直接使用） */
+    data class DbTarget(
+        val jdbcUrl: String,
+        val username: String,
+        val password: String,
+        val vendor: String,
+        /** PostgreSQL 的隔离 schema；MySQL 为隔离 database（已在 URL 中） */
+        val schema: String?,
+    )
+
     private val pg: PostgreSQLContainer<*> by lazy {
         PostgreSQLContainer(DockerImageName.parse("postgres:18.6"))
             .withDatabaseName("spechub")
@@ -39,31 +49,37 @@ object TestManagementDb {
         registry: DynamicPropertyRegistry,
         schema: String,
     ) {
-        if (vendor == "mysql") registerMysql(registry, schema) else registerPg(registry, schema)
+        val target = target(schema)
+        registry.add("spring.datasource.url") { target.jdbcUrl }
+        registry.add("spring.datasource.username") { target.username }
+        registry.add("spring.datasource.password") { target.password }
+        registry.add("spring.flyway.locations") { "classpath:db/migration/{vendor}" }
+        if (target.vendor == "postgresql") {
+            registry.add("spring.flyway.schemas") { schema }
+            registry.add("spring.flyway.default-schema") { schema }
+        }
+        registry.add("spring.datasource.hikari.maximum-pool-size") { "2" }
     }
 
-    private fun registerPg(
-        registry: DynamicPropertyRegistry,
-        schema: String,
-    ) {
+    /** 创建独立 schema/database 并返回连接目标（幂等）。 */
+    fun target(schema: String): DbTarget = if (vendor == "mysql") mysqlTarget(schema) else pgTarget(schema)
+
+    private fun pgTarget(schema: String): DbTarget {
         val container = pg
         DriverManager.getConnection(container.jdbcUrl, container.username, container.password).use { conn ->
             conn.createStatement().use { it.execute("CREATE SCHEMA IF NOT EXISTS $schema") }
         }
         val sep = if (container.jdbcUrl.contains("?")) "&" else "?"
-        registry.add("spring.datasource.url") { container.jdbcUrl + sep + "currentSchema=$schema" }
-        registry.add("spring.datasource.username") { container.username }
-        registry.add("spring.datasource.password") { container.password }
-        registry.add("spring.flyway.locations") { "classpath:db/migration/{vendor}" }
-        registry.add("spring.flyway.schemas") { schema }
-        registry.add("spring.flyway.default-schema") { schema }
-        registry.add("spring.datasource.hikari.maximum-pool-size") { "2" }
+        return DbTarget(
+            jdbcUrl = container.jdbcUrl + sep + "currentSchema=$schema",
+            username = container.username,
+            password = container.password,
+            vendor = "postgresql",
+            schema = schema,
+        )
     }
 
-    private fun registerMysql(
-        registry: DynamicPropertyRegistry,
-        schema: String,
-    ) {
+    private fun mysqlTarget(schema: String): DbTarget {
         val container = mysql
         // 每类独立 database：容器内 root 创建并授权给容器用户（命中容器本地 root，不受远程 host 限制）
         val sql =
@@ -79,10 +95,12 @@ object TestManagementDb {
         val url =
             "$dbUrl?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true" +
                 "&allowPublicKeyRetrieval=true&useSSL=false"
-        registry.add("spring.datasource.url") { url }
-        registry.add("spring.datasource.username") { container.username }
-        registry.add("spring.datasource.password") { container.password }
-        registry.add("spring.flyway.locations") { "classpath:db/migration/{vendor}" }
-        registry.add("spring.datasource.hikari.maximum-pool-size") { "2" }
+        return DbTarget(
+            jdbcUrl = url,
+            username = container.username,
+            password = container.password,
+            vendor = "mysql",
+            schema = schema,
+        )
     }
 }

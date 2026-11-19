@@ -69,7 +69,7 @@ class ProjectionStoreTest {
         )
         assertEquals(1, projection.listApis(repoId, method = "GET").size)
         assertEquals(1, projection.listApis(repoId, keyword = "create").size)
-        assertEquals(1, projection.listAllApis(keyword = "list").size)
+        assertEquals(1, projection.listAllApis(listOf(repoId), keyword = "list").size)
     }
 
     @Test
@@ -163,14 +163,16 @@ class ProjectionStoreTest {
         )
 
         assertEquals(2, projection.listDocs(repoId).size)
-        val doc = projection.listDocs().first()
+        val doc = projection.listDocs(listOf(repoId)).first()
         assertEquals("接手分析", doc.title)
         assertEquals("docs/petstore/handover.md", doc.path)
         assertNotNull(projection.getDoc(doc.id!!))
 
-        // 中文子串检索（LIKE 兜底保证；FTS5 环境支持时亦可命中）
-        assertTrue(projection.searchDocs("处理器").isNotEmpty(), "中文子串应命中")
-        assertTrue(projection.searchDocs("扣减").isNotEmpty(), "正文子串命中")
-        assertTrue(projection.searchDocs("完全无关的词").isEmpty(), "无关词不命中")
+        // 中文子串检索（LIKE 兜底保证；FTS5 环境支持时亦可命中）；空 repo 集合不退化为全量
+        assertTrue(projection.searchDocs("处理器", listOf(repoId)).isNotEmpty(), "中文子串应命中")
+        assertTrue(projection.searchDocs("扣减", listOf(repoId)).isNotEmpty(), "正文子串命中")
+        assertTrue(projection.searchDocs("完全无关的词", listOf(repoId)).isEmpty(), "无关词不命中")
+        assertTrue(projection.searchDocs("处理器", emptyList()).isEmpty(), "空 repo 集合返回空")
+        assertTrue(projection.listDocs(emptyList()).isEmpty(), "空 repo 集合返回空")
     }
 }
