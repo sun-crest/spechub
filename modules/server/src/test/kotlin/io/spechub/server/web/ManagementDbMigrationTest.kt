@@ -1,6 +1,7 @@
 package io.spechub.server.web
 
 import org.flywaydb.core.Flyway
+import org.flywaydb.core.api.FlywayException
 import org.flywaydb.core.api.MigrationVersion
 import org.junit.jupiter.api.Test
 import java.security.MessageDigest
@@ -8,19 +9,27 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
 import java.sql.Statement
+import java.sql.Timestamp
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * A9/B1/B2 迁移矩阵（PostgreSQL / MySQL 由 `-Dspechub.test.db` 选择）：
- * - V2 有数据 → V5：org / project / repo / repo_binding / 租户列 / 团队与订阅归属全部回填；
+ * A9/B1/B2/C1 迁移矩阵（PostgreSQL / MySQL 由 `-Dspechub.test.db` 选择）：
+ * - V2 有数据 → V6：org / project / repo / repo_binding / 租户列 / 团队订阅回填 + 身份列与 legacy token；
  * - V3 有数据 → V4：过渡期同名团队合并、跨 org 同名隔离、成员启发式回填、旧唯一键保留；
  * - V4 有数据 → V5：过渡期 NULL 回填、重复订阅去重、唯一键切换与 NOT NULL 收紧；
- * - 空库 V1 → V5：五版一次性迁移成功，bootstrap 默认组织就绪。
+ * - V5 有数据 → V6：status 回填、旧 token 迁移 user_token(legacy)、新表约束、不建会话表；
+ * - V6 有数据 → V7：旧列删除、legacy token 仍可按 hash 定位；
+ * - 守卫：重复 token_hash 中止 V6；未回填 token 中止 V7；
+ * - 空库 V1 → V7：七版一次性迁移成功，bootstrap 默认组织就绪。
  *
  * 不走 Spring：直接 Testcontainers 目标库 + Flyway 编程式迁移，避免 @SpringBootTest 的 Flyway 自动装配。
+ * 运行期 `spring.flyway.target=6` 暂缓 V7（C2–C4 代码同窗口切换），本测试显式指定 target 验证 V6 / V7。
  */
 class ManagementDbMigrationTest {
     private fun newTarget(tag: String): TestManagementDb.DbTarget {
@@ -158,13 +167,13 @@ class ManagementDbMigrationTest {
         }
 
     @Test
-    fun `V2 有数据升级到 V5 - 组织项目仓库绑定与团队订阅全部回填`() {
+    fun `V2 有数据升级到 V6 - 组织项目仓库绑定与身份回填`() {
         val db = newTarget("v2")
         flyway(db, "2").migrate()
         val seed = seedV2(db)
 
-        val result = flyway(db, null).migrate()
-        assertTrue(result.migrationsExecuted >= 3, "V3–V5 应被执行：${result.migrationsExecuted}")
+        val result = flyway(db, "6").migrate()
+        assertTrue(result.migrationsExecuted >= 4, "V3–V6 应被执行：${result.migrationsExecuted}")
 
         DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
             val orgId = one(c, "SELECT id FROM org WHERE slug = 'default'")["id"] as Long
@@ -198,10 +207,23 @@ class ManagementDbMigrationTest {
                 assertEquals(1, count(c, "SELECT COUNT(*) AS c FROM repo_binding WHERE repo_id = ? AND status = 'active'", repoId))
             }
 
-            // 组织成员关系：平台 admin → org_admin，普通用户 → org_member
+            // 组织成员关系：平台 admin → org_admin，普通用户 → org_member（C1 再断言 admin 关系）
             assertEquals(2, count(c, "SELECT COUNT(*) AS c FROM org_membership"))
             assertEquals("org_admin", one(c, "SELECT org_role FROM org_membership WHERE user_id = ?", seed.adminId)["org_role"])
             assertEquals("org_member", one(c, "SELECT org_role FROM org_membership WHERE user_id = ?", seed.userId)["org_role"])
+
+            // V6：现有用户全部 active，旧 token 逐行回填为 user_token(purpose=legacy)
+            assertEquals(2, count(c, "SELECT COUNT(*) AS c FROM app_user WHERE status = 'active'"))
+            assertEquals(2, count(c, "SELECT COUNT(*) AS c FROM user_token WHERE purpose = 'legacy'"))
+            assertEquals(
+                "hash-admin",
+                one(c, "SELECT token_hash FROM user_token WHERE user_id = ? AND purpose = 'legacy'", seed.adminId)["token_hash"],
+            )
+            assertEquals(
+                "hash-user",
+                one(c, "SELECT token_hash FROM user_token WHERE user_id = ? AND purpose = 'legacy'", seed.userId)["token_hash"],
+            )
+            assertNull(one(c, "SELECT expires_at FROM user_token WHERE user_id = ?", seed.adminId)["expires_at"], "legacy 令牌不过期")
 
             // 租户冗余列回填
             for (table in listOf("comment", "subscription", "notification", "review", "mock_rule", "release_marker")) {
@@ -457,7 +479,7 @@ class ManagementDbMigrationTest {
                 SeedV4(orgId, repoId, coreTeam, userId, subOld, subNew, subLegacy, notifLegacy)
             }
 
-        val result = flyway(db, null).migrate()
+        val result = flyway(db, "5").migrate()
         assertTrue(result.migrationsExecuted >= 1, "V5 应被执行：${result.migrationsExecuted}")
 
         DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
@@ -516,11 +538,368 @@ class ManagementDbMigrationTest {
         val notifLegacy: Long,
     )
 
+    // ── V5 → V6 ────────────────────────────────────────────────────────────
+
+    private data class SeedV5(
+        val orgId: Long,
+        val projectId: Long,
+        val adminId: Long,
+        val memberId: Long,
+        val teamId: Long,
+    )
+
     @Test
-    fun `空库从 V1 直接迁移到 V5`() {
+    fun `V5 有数据升级到 V6 - 身份列回填与约束`() {
+        val db = newTarget("v5")
+        flyway(db, "5").migrate()
+
+        val seed =
+            DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
+                val orgId = one(c, "SELECT id FROM org WHERE slug = 'default'")["id"] as Long
+                val projectId =
+                    insert(
+                        c,
+                        "INSERT INTO project (name, org_id, slug, visibility) VALUES (?, ?, ?, 'private')",
+                        "legacy-v5",
+                        orgId,
+                        "legacy-v5",
+                    )
+                val adminId =
+                    insert(
+                        c,
+                        "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES (?, ?, ?, ?)",
+                        "v5-admin",
+                        "V5 Admin",
+                        "hash-v5-admin",
+                        true,
+                    )
+                insert(
+                    c,
+                    "INSERT INTO org_membership (user_id, org_id, org_role, status) VALUES (?, ?, 'org_admin', 'active')",
+                    adminId,
+                    orgId,
+                )
+                val memberId =
+                    insert(
+                        c,
+                        "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES (?, ?, ?, ?)",
+                        "v5-member",
+                        "V5 Member",
+                        "hash-v5-member",
+                        false,
+                    )
+                insert(
+                    c,
+                    "INSERT INTO org_membership (user_id, org_id, org_role, status) VALUES (?, ?, 'org_member', 'active')",
+                    memberId,
+                    orgId,
+                )
+                val teamId = insert(c, "INSERT INTO team (org_id, name, description) VALUES (?, 'core', '')", orgId)
+                insert(c, "INSERT INTO team_member (team_id, user_id, role) VALUES (?, ?, 'lead')", teamId, memberId)
+                SeedV5(orgId, projectId, adminId, memberId, teamId)
+            }
+
+        val result = flyway(db, "6").migrate()
+        assertTrue(result.migrationsExecuted >= 1, "V6 应被执行：${result.migrationsExecuted}")
+
+        DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
+            // 现有用户：status 回填 active，新身份列默认空 / false
+            for (userId in listOf(seed.adminId, seed.memberId)) {
+                val user =
+                    one(
+                        c,
+                        "SELECT email, password_hash, status, last_login_at, " +
+                            "CASE WHEN must_change_password THEN 1 ELSE 0 END AS must_change, " +
+                            "CASE WHEN mfa_enabled THEN 1 ELSE 0 END AS mfa FROM app_user WHERE id = ?",
+                        userId,
+                    )
+                assertNull(user["email"], "旧用户邮箱为空")
+                assertNull(user["password_hash"], "旧用户密码为空")
+                assertEquals("active", user["status"], "旧用户 status 回填 active")
+                assertNull(user["last_login_at"])
+                assertEquals(0, (user["must_change"] as Number).toInt())
+                assertEquals(0, (user["mfa"] as Number).toInt())
+            }
+            // C1 再断言一次：现有 admin 仍是默认组织 org_admin
+            assertEquals(
+                "org_admin",
+                one(c, "SELECT org_role FROM org_membership WHERE user_id = ?", seed.adminId)["org_role"],
+            )
+            // 团队数据不受影响
+            assertEquals(1, count(c, "SELECT COUNT(*) AS c FROM team_member WHERE team_id = ?", seed.teamId))
+
+            // 旧 token 逐行迁移到 user_token：legacy / 无过期 / 前缀空 / 时间保留
+            assertEquals(2, count(c, "SELECT COUNT(*) AS c FROM user_token WHERE purpose = 'legacy'"))
+            val legacy = one(c, "SELECT user_id, token_prefix, token_hash, purpose, expires_at FROM user_token WHERE user_id = ?", seed.adminId)
+            assertEquals(seed.adminId, legacy["user_id"])
+            assertEquals("", legacy["token_prefix"], "legacy 令牌无前缀信息")
+            assertEquals("hash-v5-admin", legacy["token_hash"])
+            assertEquals("legacy", legacy["purpose"])
+            assertNull(legacy["expires_at"], "legacy 令牌不过期")
+            assertEquals(
+                1,
+                count(
+                    c,
+                    "SELECT COUNT(*) AS c FROM user_token t JOIN app_user u ON u.id = t.user_id " +
+                        "WHERE t.user_id = ? AND t.created_at = u.created_at",
+                    seed.adminId,
+                ),
+                "legacy 行沿用原 created_at",
+            )
+
+            // 旧 token_hash 可空：C2 起创建的新用户不再写该列
+            val newUserId = insert(c, "INSERT INTO app_user (username, display_name) VALUES ('v5-no-token', 'V5 No Token')")
+            assertNull(one(c, "SELECT token_hash FROM app_user WHERE id = ?", newUserId)["token_hash"])
+            assertEquals("active", one(c, "SELECT status FROM app_user WHERE id = ?", newUserId)["status"])
+
+            // 邮箱唯一、忽略大小写
+            c.prepareStatement("UPDATE app_user SET email = ? WHERE id = ?").use { ps ->
+                ps.setString(1, "Admin@Example.com")
+                ps.setLong(2, seed.adminId)
+                ps.executeUpdate()
+            }
+            assertFailsWith<SQLException>("大小写不同的重复邮箱应被拒绝") {
+                c.prepareStatement("UPDATE app_user SET email = ? WHERE id = ?").use { ps ->
+                    ps.setString(1, "admin@example.com")
+                    ps.setLong(2, seed.memberId)
+                    ps.executeUpdate()
+                }
+            }
+
+            // user_token：api / invite / password_reset 必须有过期时间；hash 唯一
+            assertFailsWith<SQLException>("非 legacy 令牌缺少过期时间应被拒绝") {
+                insert(
+                    c,
+                    "INSERT INTO user_token (user_id, name, token_prefix, token_hash, purpose) " +
+                        "VALUES (?, 'ci', 'shu_abcd1234', 'hash-api-no-expiry', 'api')",
+                    seed.memberId,
+                )
+            }
+            insert(
+                c,
+                "INSERT INTO user_token (user_id, name, token_prefix, token_hash, purpose) " +
+                    "VALUES (?, 'legacy-2', '', 'hash-legacy-2', 'legacy')",
+                seed.memberId,
+            )
+            assertFailsWith<SQLException>("token_hash 应唯一") {
+                insert(
+                    c,
+                    "INSERT INTO user_token (user_id, name, token_prefix, token_hash, purpose) " +
+                        "VALUES (?, 'dup', '', 'hash-v5-admin', 'legacy')",
+                    seed.memberId,
+                )
+            }
+
+            // service_account：项目内名称忽略大小写唯一、角色枚举、过期时间必填
+            val expiresAt = Timestamp.from(Instant.now().plusSeconds(86400))
+            insert(
+                c,
+                "INSERT INTO service_account (org_id, project_id, name, token_prefix, token_hash, role, expires_at) " +
+                    "VALUES (?, ?, 'ci-bot', 'shs_abcd1234', 'hash-sa-1', 'editor', ?)",
+                seed.orgId,
+                seed.projectId,
+                expiresAt,
+            )
+            assertFailsWith<SQLException>("服务账号名称项目内忽略大小写唯一") {
+                insert(
+                    c,
+                    "INSERT INTO service_account (org_id, project_id, name, token_prefix, token_hash, role, expires_at) " +
+                        "VALUES (?, ?, 'CI-BOT', 'shs_efgh5678', 'hash-sa-2', 'viewer', ?)",
+                    seed.orgId,
+                    seed.projectId,
+                    expiresAt,
+                )
+            }
+            assertFailsWith<SQLException>("服务账号角色仅 viewer / editor") {
+                insert(
+                    c,
+                    "INSERT INTO service_account (org_id, project_id, name, token_prefix, token_hash, role, expires_at) " +
+                        "VALUES (?, ?, 'ci-owner', 'shs_ijkl9012', 'hash-sa-3', 'owner', ?)",
+                    seed.orgId,
+                    seed.projectId,
+                    expiresAt,
+                )
+            }
+            // 跨项目可同名
+            val otherProject =
+                insert(
+                    c,
+                    "INSERT INTO project (name, org_id, slug, visibility) VALUES (?, ?, ?, 'private')",
+                    "legacy-v5-other",
+                    seed.orgId,
+                    "legacy-v5-other",
+                )
+            insert(
+                c,
+                "INSERT INTO service_account (org_id, project_id, name, token_prefix, token_hash, role, expires_at) " +
+                    "VALUES (?, ?, 'ci-bot', 'shs_mnop3456', 'hash-sa-4', 'viewer', ?)",
+                seed.orgId,
+                otherProject,
+                expiresAt,
+            )
+
+            // user_identity：(provider, subject) 唯一
+            insert(
+                c,
+                "INSERT INTO user_identity (user_id, provider, subject, email) " +
+                    "VALUES (?, 'oidc:https://idp.example', 'sub-1', 'v5-member@example.com')",
+                seed.memberId,
+            )
+            assertFailsWith<SQLException>("同一 IdP subject 不可重复绑定") {
+                insert(
+                    c,
+                    "INSERT INTO user_identity (user_id, provider, subject, email) " +
+                        "VALUES (?, 'oidc:https://idp.example', 'sub-1', 'other@example.com')",
+                    seed.adminId,
+                )
+            }
+
+            // audit_event：org_id / actor_user_id 不建外键，用户 / 组织删除后审计仍可保留
+            insert(
+                c,
+                "INSERT INTO audit_event (org_id, actor_user_id, actor_name, actor_type, action, target_type, target_id, detail, outcome, ip, user_agent) " +
+                    "VALUES (?, ?, 'ghost', 'anonymous', 'auth.login.failure', 'user', '999999', 'bad credentials', 'failure', '127.0.0.1', 'test')",
+                999_999L,
+                999_999L,
+            )
+            assertEquals(1, count(c, "SELECT COUNT(*) AS c FROM audit_event WHERE org_id = 999999"))
+            assertFailsWith<SQLException>("actor_type 枚举") {
+                insert(
+                    c,
+                    "INSERT INTO audit_event (org_id, actor_name, actor_type, action, outcome) " +
+                        "VALUES (?, 'robot', 'robot', 'auth.login.failure', 'failure')",
+                    seed.orgId,
+                )
+            }
+            assertFailsWith<SQLException>("outcome 枚举") {
+                insert(
+                    c,
+                    "INSERT INTO audit_event (org_id, actor_name, actor_type, action, outcome) " +
+                        "VALUES (?, 'ghost', 'anonymous', 'auth.login.failure', 'maybe')",
+                    seed.orgId,
+                )
+            }
+
+            // 阶段 C 直接使用 Spring Session Data Redis：管理库不建会话表
+            assertEquals(
+                0,
+                count(
+                    c,
+                    "SELECT COUNT(*) AS c FROM information_schema.tables " +
+                        "WHERE table_schema = ${schemaExpr(db)} AND LOWER(table_name) IN ('user_session', 'spring_session')",
+                ),
+                "会话不落管理库",
+            )
+        }
+    }
+
+    // ── V6 → V7 ────────────────────────────────────────────────────────────
+
+    @Test
+    fun `V6 有数据升级到 V7 - 删除旧列且 legacy token 保留`() {
+        val db = newTarget("v6v7")
+        flyway(db, "5").migrate()
+
+        val userId =
+            DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
+                val orgId = one(c, "SELECT id FROM org WHERE slug = 'default'")["id"] as Long
+                val uid =
+                    insert(
+                        c,
+                        "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES (?, ?, ?, ?)",
+                        "v7-user",
+                        "V7 User",
+                        "hash-v7-legacy",
+                        false,
+                    )
+                insert(
+                    c,
+                    "INSERT INTO org_membership (user_id, org_id, org_role, status) VALUES (?, ?, 'org_member', 'active')",
+                    uid,
+                    orgId,
+                )
+                uid
+            }
+
+        flyway(db, "6").migrate()
+        val result = flyway(db, "7").migrate()
+        assertTrue(result.migrationsExecuted >= 1, "V7 应被执行：${result.migrationsExecuted}")
+
+        DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
+            assertFalse(columnExists(c, db, "app_user", "token_hash"), "V7 删除 app_user.token_hash")
+            assertFalse(columnExists(c, db, "app_user", "is_platform_admin"), "V7 删除 app_user.is_platform_admin")
+
+            // 迁移前的旧 token 已回填 user_token，删列后仍可按 hash 定位
+            val legacy = one(c, "SELECT user_id, purpose, expires_at FROM user_token WHERE token_hash = ?", "hash-v7-legacy")
+            assertEquals(userId, legacy["user_id"])
+            assertEquals("legacy", legacy["purpose"])
+            assertNull(legacy["expires_at"])
+
+            // V7 后新建用户不再依赖被删列
+            val newUserId = insert(c, "INSERT INTO app_user (username, display_name) VALUES ('v7-no-token', 'V7 No Token')")
+            assertEquals("active", one(c, "SELECT status FROM app_user WHERE id = ?", newUserId)["status"])
+        }
+    }
+
+    @Test
+    fun `V6 遇到重复 token_hash 中止迁移`() {
+        val db = newTarget("v6guard")
+        flyway(db, "5").migrate()
+
+        DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
+            insert(c, "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES ('dup-a', 'Dup A', 'same-hash', FALSE)")
+            insert(c, "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES ('dup-b', 'Dup B', 'same-hash', FALSE)")
+        }
+
+        val ex = assertFailsWith<FlywayException> { flyway(db, "6").migrate() }
+        val message = ex.message.orEmpty()
+        assertTrue(
+            message.contains("chk_v6_no_duplicate_token_hash") || message.contains("重复"),
+            "应因重复 token_hash 中止 V6：$message",
+        )
+        DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
+            assertEquals(
+                0,
+                count(
+                    c,
+                    "SELECT COUNT(*) AS c FROM information_schema.tables " +
+                        "WHERE table_schema = ${schemaExpr(db)} AND table_name = 'user_token'",
+                ),
+                "中止后不应留下半成品 user_token",
+            )
+        }
+    }
+
+    @Test
+    fun `V7 遇到未回填 token 中止迁移`() {
+        val db = newTarget("v7guard")
+        flyway(db, "5").migrate()
+
+        DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
+            insert(c, "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES ('guard-old', 'Guard Old', 'hash-guard', FALSE)")
+        }
+        flyway(db, "6").migrate()
+        // 模拟 V6 之后旧代码新写的 token_hash（没有对应 user_token 行）
+        DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
+            insert(c, "INSERT INTO app_user (username, display_name, token_hash, is_platform_admin) VALUES ('late-user', 'Late User', 'hash-late', FALSE)")
+        }
+
+        val ex = assertFailsWith<FlywayException> { flyway(db, "7").migrate() }
+        val message = ex.message.orEmpty()
+        assertTrue(
+            message.contains("chk_v7_legacy") || message.contains("V7 中止"),
+            "应因未回填 token 中止 V7：$message",
+        )
+        DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
+            assertTrue(columnExists(c, db, "app_user", "token_hash"), "V7 中止后旧列仍在")
+        }
+    }
+
+    @Test
+    fun `空库从 V1 直接迁移到 V7`() {
         val db = newTarget("empty")
-        val result = flyway(db, null).migrate()
-        assertTrue(result.migrationsExecuted >= 5, "空库应执行 V1–V5：${result.migrationsExecuted}")
+        val result = flyway(db, "7").migrate()
+        assertTrue(result.migrationsExecuted >= 7, "空库应执行 V1–V7：${result.migrationsExecuted}")
 
         DriverManager.getConnection(db.jdbcUrl, db.username, db.password).use { c ->
             assertEquals(1, count(c, "SELECT COUNT(*) AS c FROM org WHERE slug = 'default'"), "bootstrap 默认组织")
@@ -531,10 +910,41 @@ class ManagementDbMigrationTest {
             assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM org_membership"))
             assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM team"))
             assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM team_member"))
+            assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM user_token"))
+            assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM service_account"))
+            assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM user_identity"))
+            assertEquals(0, count(c, "SELECT COUNT(*) AS c FROM audit_event"))
+            assertFalse(columnExists(c, db, "app_user", "token_hash"), "空库迁到 V7 后无旧 token 列")
+            assertFalse(columnExists(c, db, "app_user", "is_platform_admin"), "空库迁到 V7 后无平台 admin 列")
+            assertEquals(
+                0,
+                count(
+                    c,
+                    "SELECT COUNT(*) AS c FROM information_schema.tables " +
+                        "WHERE table_schema = ${schemaExpr(db)} AND LOWER(table_name) IN ('user_session', 'spring_session')",
+                ),
+                "会话不落管理库",
+            )
         }
     }
 
     // ── JDBC helpers ───────────────────────────────────────────────────────
+
+    private fun schemaExpr(db: TestManagementDb.DbTarget): String = if (db.vendor == "postgresql") "current_schema()" else "DATABASE()"
+
+    private fun columnExists(
+        c: Connection,
+        db: TestManagementDb.DbTarget,
+        table: String,
+        column: String,
+    ): Boolean =
+        count(
+            c,
+            "SELECT COUNT(*) AS c FROM information_schema.columns " +
+                "WHERE table_schema = ${schemaExpr(db)} AND table_name = ? AND column_name = ?",
+            table,
+            column,
+        ) > 0
 
     private fun rows(
         c: Connection,

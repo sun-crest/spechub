@@ -1,6 +1,6 @@
 # SpecHub · 阶段 C 任务拆解（账号与审计）
 
-> **日期**：2026-11-19　**状态**：C0 已确认（2026-11-19）；C1–C10 待启动
+> **日期**：2026-11-19　**状态**：C0 / C1 已完成（2026-11-19）；C2–C10 待启动
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **范围**：Spring Security Web 认证底座、Spring Session 分布式会话、密码 / OIDC 登录、账号禁用与邀请、可过期可吊销令牌、项目级服务账号、管理动作审计查询。
 > **不覆盖**：多组织切换 / 组织生命周期 / 平台运营控制面 / break-glass（阶段 D1）、自助注册 / 邮箱验证 / 域名认领（阶段 D2）、SAML / SCIM、MFA / WebAuthn、组织级服务账号、`project_group` / `api_group`。
@@ -48,9 +48,9 @@
 |---|---|---|---|---|
 | C0 | 前置对齐与决策 | — | S | 决策记录、ADR §13 回填 |
 | C1 | 管理库 V6 / V7 迁移 | C0 | L | `V6__identity_and_audit.sql`、`V7__identity_tighten.sql`（PG/MySQL；会话走 Redis，不建管理库会话表） |
-
-> **C0 状态**：✅ 2026-11-19 已确认；C1 起待启动。
 | C2 | Spring Security 认证底座与领域适配 | C1 | L | `SecurityConfig` 双链（Bearer API / Web Session）、Spring Session Data Redis、`AuthenticationManager`、opaque Bearer provider、`AuthService` / `AuthzService` 适配 |
+
+> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 运行期生效；V7 文件与测试已就绪，运行期由 `spring.flyway.target=6` 暂缓，C4 与代码切换同窗口放开）。
 
 ### 2.2 C‑2 登录与账号生命周期
 
@@ -181,7 +181,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **V6 · `app_user` 扩展**
 
-- [ ] 新增列（示意）：
+- [x] 新增列（示意）：
   ```sql
   ALTER TABLE app_user ADD COLUMN email VARCHAR(255);
   ALTER TABLE app_user ADD COLUMN password_hash VARCHAR(255);
@@ -191,18 +191,18 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   ALTER TABLE app_user ADD COLUMN mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE;
   ALTER TABLE app_user ADD COLUMN last_login_at TIMESTAMPTZ;
   ```
-- [ ] `status ∈ active | disabled | invited`（CHECK）；现有用户全部回填 `active`。
-- [ ] `app_user.token_hash` 改为可空（PostgreSQL `DROP NOT NULL`；MySQL `MODIFY token_hash VARCHAR(128) NULL`）：C2 代码停止写该列后仍能创建新用户；V7 再删列。
-- [ ] 迁移前检查 `app_user.token_hash` 是否有重复：理论上不应出现，若有则**中止迁移并要求人工处理**（避免 `user_token` 唯一键静默丢凭据）。
-- [ ] 邮箱唯一、忽略大小写：
+- [x] `status ∈ active | disabled | invited`（CHECK）；现有用户全部回填 `active`。
+- [x] `app_user.token_hash` 改为可空（PostgreSQL `DROP NOT NULL`；MySQL `MODIFY token_hash VARCHAR(128) NULL`）：C2 代码停止写该列后仍能创建新用户；V7 再删列。
+- [x] 迁移前检查 `app_user.token_hash` 是否有重复：理论上不应出现，若有则**中止迁移并要求人工处理**（避免 `user_token` 唯一键静默丢凭据）。PG 用 `DO` + `RAISE`；MySQL 用临时表 + `CHECK` 约束（`chk_v6_no_duplicate_token_hash`）。
+- [x] 邮箱唯一、忽略大小写：
   - PostgreSQL：`CREATE UNIQUE INDEX uk_app_user_email_lower ON app_user (lower(email)) WHERE email IS NOT NULL;`
   - MySQL：函数索引 `CREATE UNIQUE INDEX uk_app_user_email_lower ON app_user ((LOWER(email)));`
   - Service 层写入前统一 `trim().lowercase()`；邮箱为空时允许 NULL。
-- [ ] `mfa_enabled` 只预留列，C 阶段不实现 MFA 校验；文档标注。
+- [x] `mfa_enabled` 只预留列，C 阶段不实现 MFA 校验；文档标注。
 
 **V6 · `user_token`（用户 API 令牌）**
 
-- [ ] 新建表（示意）：
+- [x] 新建表（示意）：
   ```sql
   user_token(id, user_id, name, token_prefix, token_hash, purpose,
              expires_at, used_at, last_used_at, revoked_at, created_at)
@@ -212,15 +212,17 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   -- purpose ∈ legacy | api | invite | password_reset
   -- CHECK (purpose = 'legacy' OR expires_at IS NOT NULL)
   ```
-- [ ] 回填现有令牌：
+- [x] 回填现有令牌：
   ```sql
   INSERT INTO user_token (user_id, name, token_prefix, token_hash, purpose, created_at)
   SELECT id, 'legacy', '', token_hash, 'legacy', created_at FROM app_user;
   ```
-- [ ] `legacy` 行不设过期（ADR §10 要求旧 token 继续有效）；`api` / `invite` / `password_reset` 行必须有过期时间。
-- [ ] `invite` / `password_reset` 使用后写 `used_at`，不可复用。
+- [x] `legacy` 行不设过期（ADR §10 要求旧 token 继续有效）；`api` / `invite` / `password_reset` 行必须有过期时间（DB CHECK 强制）。
+- [ ] `invite` / `password_reset` 使用后写 `used_at`，不可复用（C3 / C4 服务层实现）。
 
 **会话存储 · Spring Session Data Redis（V6 不建会话表）**
+
+> **C1 边界**：本任务只保证迁移不建 `SPRING_SESSION` / `user_session` 表，并由迁移测试断言；Spring Session / Redis 依赖与配置在 C2 引入。以下条目随 C2 勾选。
 
 - [ ] 引入 `org.springframework.session:spring-session-data-redis`（以及 Boot 的 Redis 连接支持）；**不引入 `spring-session-jdbc`**，不在管理库建 `SPRING_SESSION` / `user_session` 表。
 - [ ] 配置 `spring.session.store-type=redis`、`spring.session.redis.namespace=spechub:session`、`spring.session.timeout=24h`；绝对 7 天由 C2 的 `AbsoluteSessionTimeoutFilter` 负责。
@@ -232,7 +234,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **V6 · `service_account`（项目级服务账号）**
 
-- [ ] 新建表（示意）：
+- [x] 新建表（示意）：
   ```sql
   service_account(id, org_id, project_id, name, token_prefix, token_hash,
                   role, status, expires_at, last_used_at, revoked_at, created_at)
@@ -244,23 +246,23 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   -- FK org_id → org(id) ON DELETE RESTRICT
   -- FK project_id → project(id) ON DELETE RESTRICT
   ```
-- [ ] `project_id NOT NULL`，`org_id` 冗余；Service 创建时校验 `project.orgId == org_id`。
-- [ ] 项目删除时由 `ProjectService.delete` 显式清理服务账号（保持现有 FK RESTRICT 纪律）。
+- [x] `project_id NOT NULL`，`org_id` 冗余（DB 约束已落库）；Service 创建时校验 `project.orgId == org_id`（C5 实现）。
+- [ ] 项目删除时由 `ProjectService.delete` 显式清理服务账号（保持现有 FK RESTRICT 纪律；C5 实现）。
 
 **V6 · `user_identity`（OIDC 身份绑定）**
 
-- [ ] 新建表（示意）：
+- [x] 新建表（示意）：
   ```sql
   user_identity(id, user_id, provider, subject, email, created_at)
   -- UNIQUE (provider, subject)
   -- INDEX (user_id), INDEX (email)
   -- FK user_id → app_user(id) ON DELETE CASCADE
   ```
-- [ ] `provider` 为 issuer 的稳定标识（如 `oidc:<issuer>` 或 registration id）；`subject` 为 `sub`。
+- [x] `provider` 为 issuer 的稳定标识（如 `oidc:<issuer>` 或 registration id）；`subject` 为 `sub`（MySQL 用 `utf8mb4_bin` 保证大小写敏感）。
 
 **V6 · `audit_event`（管理动作审计）**
 
-- [ ] 新建表（示意）：
+- [x] 新建表（示意）：
   ```sql
   audit_event(id, org_id, actor_user_id, actor_name, actor_type,
               action, target_type, target_id, detail, outcome,
@@ -271,33 +273,35 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   -- actor_type ∈ user | service_account | anonymous
   -- outcome ∈ success | failure
   ```
-- [ ] `org_id` / `actor_user_id` **不建外键**：审计需在用户 / 组织删除后保留；`actor_name` 存快照。
-- [ ] `detail` 只存可审计摘要，禁止密码、令牌、Cookie、spec 正文。
+- [x] `org_id` / `actor_user_id` **不建外键**：审计需在用户 / 组织删除后保留；`actor_name` 存快照。
+- [ ] `detail` 只存可审计摘要，禁止密码、令牌、Cookie、spec 正文（C7 服务层约束）。
 
 **V7 · 收紧与删列（代码切换后）**
 
-- [ ] `DROP COLUMN app_user.token_hash`（已回填 `user_token`）。
-- [ ] `DROP COLUMN app_user.is_platform_admin`（已由 `org_membership.org_role` 取代）。
-- [ ] 校验：`user_token` 中 `legacy` 行数量与迁移前 `app_user` 非空 token 数一致；
-- [ ] 校验：`app_user.status` 无 NULL；邮箱无重复（忽略大小写）。
-- [ ] 迁移后启动旧代码会失败，属预期；V7 必须与 C2–C4 代码同一发布窗口。
+- [x] `DROP COLUMN app_user.token_hash`（已回填 `user_token`）。
+- [x] `DROP COLUMN app_user.is_platform_admin`（已由 `org_membership.org_role` 取代）。
+- [x] 校验：`user_token` 中 `legacy` 行数量与迁移前 `app_user` 非空 token 数一致（不一致时中止，PG `RAISE` / MySQL `chk_v7_legacy_count`）；
+- [x] 校验：`app_user.status` 无 NULL；邮箱无重复（忽略大小写，由 V6 唯一索引兜底）。
+- [x] 迁移后启动旧代码会失败，属预期；V7 必须与 C2–C4 代码同一发布窗口。
+
+> **C1 运行期策略**：V6 随 C1 生效；V7 文件与测试已落库，但 `application.yml` 用 `spring.flyway.target=6` 暂缓执行，避免旧代码启动即失败。**C4 必须把 target 改为 7（或删除该行）**，并与代码切换同一发布窗口；`ManagementDbMigrationTest` 已用显式 target 6 / 7 覆盖两种状态。
 
 **兼容与纪律**
 
-- [ ] 分 vendor 维护，不写跨方言 SQL；MySQL 使用 `DATETIME(6)`、`CHECK`、函数索引。
-- [ ] 不删除任何业务数据；V7 只删已迁移的凭据 / 兼容列。
-- [ ] `ManagementDbMigrationTest` 增加 V5→V6→V7 分段用例与空库 V1→V7；**不涉及会话表**（会话在 Redis，由 C9 的 Redis 集成测试覆盖）。
-- [ ] 迁移后校验：现有 admin 用户在 `org_membership` 中为 `org_admin`（V3 已回填，C1 再断言一次）。
+- [x] 分 vendor 维护，不写跨方言 SQL；MySQL 使用 `DATETIME(6)`、`CHECK`、函数索引。
+- [x] 不删除任何业务数据；V7 只删已迁移的凭据 / 兼容列。
+- [x] `ManagementDbMigrationTest` 增加 V5→V6→V7 分段用例与空库 V1→V7；**不涉及会话表**（会话在 Redis，由 C9 的 Redis 集成测试覆盖）。
+- [x] 迁移后校验：现有 admin 用户在 `org_membership` 中为 `org_admin`（V3 已回填，C1 再断言一次）。
 
 **验收**
 
-- [ ] PostgreSQL 18.6：V5 有用户 / token / 团队数据 → V6，旧 token 回填为 `legacy`，用户 `status=active`。
-- [ ] MySQL 8.4：同上。
-- [ ] V6 → V7：旧列删除；用迁移前的旧 token 仍可通过 `user_token` 认证。
-- [ ] 空库 V1 → V7 一次跑通。
-- [ ] 双库全量 `:server:test` 与 `:server:ktlintCheck` 通过（V6 不破坏旧写入路径；V7 随代码切换后验证）。
+- [x] PostgreSQL 18.6：V5 有用户 / token / 团队数据 → V6，旧 token 回填为 `legacy`，用户 `status=active`。
+- [x] MySQL 8.4：同上。
+- [x] V6 → V7：旧列删除；用迁移前的旧 token 仍可通过 `user_token` 认证（C1 验证 legacy 行保留且可按 hash 定位；Bearer 认证链路在 C2 接入）。
+- [x] 空库 V1 → V7 一次跑通。
+- [x] 双库全量 `:server:test` 与 `:server:ktlintCheck` 通过（V6 不破坏旧写入路径；V7 以显式 target 验证，运行期随 C4 代码切换放开）。
 
-**状态**：待启动。
+**状态**：✅ 2026-11-19 完成。V6 运行期生效；V7 文件与测试就绪，运行期由 `spring.flyway.target=6` 暂缓，C4 与代码切换同窗口改为 7。
 
 ---
 
@@ -567,7 +571,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **V7 收紧**
 
-- [ ] 代码切换完成后执行 `V7__identity_tighten.sql`，删除 `app_user.token_hash` / `app_user.is_platform_admin`。
+- [ ] 代码切换完成后，把 `application.yml` 的 `spring.flyway.target` 从 `6` 改为 `7`（或删除该行），执行 `V7__identity_tighten.sql`，删除 `app_user.token_hash` / `app_user.is_platform_admin`。
 - [ ] grep 门禁：`is_platform_admin`、`isPlatformAdmin`、`tokenHash`（`app_user` 语境）、`platformAdmin` 仅允许出现在历史迁移 / 文档中。
 - [ ] `ManagementDbMigrationTest` 覆盖 V6→V7 后旧 token 仍可认证、用户列表正常。
 

@@ -30,7 +30,7 @@ scripts/backup-db.sh [输出目录]        # 默认 ./backups
 
 - PostgreSQL 输出 `management-postgres-<UTC时间>.dump`（`pg_dump -Fc`）；
 - MySQL 输出 `management-mysql-<UTC时间>.sql`（`mysqldump --single-transaction`）；
-- 建议：每日全量 + 大版本/迁移前手动备份；管理库很小（表结构随 Flyway V1–V5 演进，当前 17 张 + 小数据量），RPO 24h 通常足够。
+- 建议：每日全量 + 大版本/迁移前手动备份；管理库很小（表结构随 Flyway V1–V6 演进，当前 21 张 + 小数据量；V7 为阶段 C 代码切换后的收紧迁移），RPO 24h 通常足够。
 - 团队与订阅是管理数据（`team` / `team_member` / `subscription.team_id` / `notification.team_id`），随管理库一起备份；投影重建不会影响它们。
 
 ### 2.2 恢复

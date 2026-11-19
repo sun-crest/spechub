@@ -8,6 +8,10 @@ spring:
     password: ${SPECHUB_DB_PASSWORD:spechub}
   flyway:
     locations: classpath:db/migration/{vendor}
+    # 阶段 C 两阶段迁移：V6（身份 / 令牌 / 服务账号 / 审计，只加列与建表）在 C1 生效；
+    # V7（删除 app_user.token_hash / is_platform_admin）必须与 C2–C4 代码同一发布窗口，
+    # 届时把 target 改为 7（或删除本行），并同步更新 ManagementDbMigrationTest。
+    target: 6
   threads:
     virtual:
       # Java 25 虚拟线程（§7 选型：MVC 阻塞 + 虚拟线程，mock/调试请求的天然载体）
