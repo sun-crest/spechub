@@ -263,7 +263,7 @@ class ReadIsolationTest {
         assertEquals(0, json.readTree(get("/api/reviews", f.token).body()).size(), "评审列表不含 B")
         assertEquals(0, json.readTree(get("/api/subscriptions", f.token).body()).size(), "订阅列表不含 B")
         assertEquals(404, send("DELETE", "/api/subscriptions/${f.subscriptionB}", f.token).statusCode(), "取消 B 订阅应 404")
-        assertEquals(0, json.readTree(get("/api/subscriptions/notifications?teamId=${f.teamBId}", f.token).body()).size(), "通知不含 B")
+        assertEquals(404, get("/api/subscriptions/notifications?teamId=${f.teamBId}", f.token).statusCode(), "非团队成员查 B 团队通知应 404")
         assertTrue(get("/api/changelog", f.token).body().let { !it.contains("B 变更记录") }, "变更记录不含 B")
 
         val commentsA = get("/api/apis/${f.apiA}/comments", f.token)

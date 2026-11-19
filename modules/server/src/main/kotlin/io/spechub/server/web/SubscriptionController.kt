@@ -2,6 +2,7 @@ package io.spechub.server.web
 
 import io.spechub.server.service.ChangelogService
 import io.spechub.server.service.SubscriptionService
+import io.spechub.server.service.TeamService
 import io.spechub.server.web.common.ApiErrorCode
 import io.spechub.server.web.common.ApiException
 import io.spechub.spec.index.NotificationRecord
@@ -38,6 +39,7 @@ class SubscriptionController(
     private val projection: ProjectionStore,
     private val changelogService: ChangelogService,
     private val subscriptionService: SubscriptionService,
+    private val teamService: TeamService,
     private val auth: AuthService,
 ) {
     data class SubscribeRequest(
@@ -119,6 +121,31 @@ class SubscriptionController(
         if (request.getParameter("team") != null) {
             throw ApiException(ApiErrorCode.BAD_REQUEST, "team 参数已移除，请使用 teamId")
         }
-        return subscriptionService.listNotifications(teamId, auth.visibleRepoIds(request, Stage.RELEASE), limit)
+        val safeLimit = limit.coerceIn(1, 200)
+        val repoIds = auth.visibleRepoIds(request, Stage.RELEASE)
+        // dev 免登录：保持可见 repo 全量通知（不按团队过滤）
+        if (!auth.authEnabled) {
+            return subscriptionService.listNotifications(teamId, repoIds, safeLimit)
+        }
+
+        val user = auth.requireAuthenticated(request, "查看变更通知")
+        val orgId = auth.currentOrgId(request)
+        if (teamId != null) {
+            // 团队成员 / org_admin；非成员按 404（不暴露团队通知）
+            auth.requireTeamMember(request, teamId, "查看变更通知")
+            return subscriptionService.listNotifications(teamId, repoIds, safeLimit)
+        }
+        if (auth.isOrgAdmin(user, orgId)) {
+            // org_admin 审计视角：全组织可见 repo 的通知（含 team_id 为空的历史行）
+            return subscriptionService.listNotifications(null, repoIds, safeLimit)
+        }
+        val uid = user.id ?: return emptyList()
+        val myTeamIds =
+            teamService
+                .teamsOf(uid)
+                .filter { it.team.orgId == orgId }
+                .mapNotNull { it.team.id }
+                .distinct()
+        return subscriptionService.listNotificationsByTeamIds(myTeamIds, repoIds, safeLimit)
     }
 }

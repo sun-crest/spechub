@@ -156,6 +156,20 @@ class SubscriptionService(
         return entities.sortedByDescending { it.id }.take(limit).map { it.toRecord() }
     }
 
+    /** B5：普通用户只看自己所属团队的通知（不含 team_id 为空的历史行）。 */
+    fun listNotificationsByTeamIds(
+        teamIds: Collection<Long>,
+        repoIds: Collection<Long>,
+        limit: Int = 50,
+    ): List<NotificationRecord> {
+        if (teamIds.isEmpty() || repoIds.isEmpty()) return emptyList()
+        return notifications
+            .findAllByTeamIdInAndRepoIdIn(teamIds, repoIds)
+            .sortedByDescending { it.id }
+            .take(limit)
+            .map { it.toRecord() }
+    }
+
     /** 旧文本团队过滤（保留给过渡期测试/调用方）。 */
     fun listNotificationsByTeamName(
         team: String?,

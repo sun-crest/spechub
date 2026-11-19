@@ -1,17 +1,22 @@
 package io.spechub.server.web
 
+import io.spechub.server.repository.NotificationEntity
+import io.spechub.server.repository.NotificationRepository
 import io.spechub.server.repository.OrgEntity
 import io.spechub.server.repository.OrgRepository
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.ProjectService
 import io.spechub.server.service.RepoService
+import io.spechub.server.service.SubscriptionService
 import io.spechub.server.service.TeamService
 import io.spechub.server.service.UserService
 import io.spechub.spec.index.Role
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import tools.jackson.databind.json.JsonMapper
@@ -35,7 +40,7 @@ import kotlin.test.assertTrue
         "spechub.admin-token=test-sub-team-admin",
     ],
 )
-class SubscriptionTeamApiTest {
+class SubscriptionTeamApiTest : TestDbIsolation() {
     @LocalServerPort
     var port: Int = 0
 
@@ -56,6 +61,15 @@ class SubscriptionTeamApiTest {
 
     @Autowired
     lateinit var teamService: TeamService
+
+    @Autowired
+    lateinit var subscriptions: SubscriptionService
+
+    @Autowired
+    lateinit var notificationRepos: NotificationRepository
+
+    @Autowired
+    lateinit var jdbc: JdbcTemplate
 
     private val json = JsonMapper.builder().build()
     private val http = HttpClient.newHttpClient()
@@ -78,6 +92,11 @@ class SubscriptionTeamApiTest {
         val id: Long,
         val token: String,
     )
+
+    @BeforeEach
+    fun clean() {
+        clearManagementTables(jdbc)
+    }
 
     private fun uniqueSuffix(): String =
         UUID
@@ -139,6 +158,15 @@ class SubscriptionTeamApiTest {
         teamId: Long,
         token: String,
     ): HttpResponse<String> = send("POST", "/api/subscriptions", """{"repoId":$repoId,"method":"GET","path":"/pets","teamId":$teamId}""", token)
+
+    private fun addNotification(
+        teamId: Long,
+        repoId: Long,
+        path: String = "/pets",
+    ) {
+        val team = assertNotNull(teamService.get(teamId, orgs.defaultOrgId()))
+        subscriptions.addNotification(teamId, team.name, repoId, "GET", path, "结构变更：GET $path")
+    }
 
     @Test
     fun `订阅写权限 - 仅 team lead 可订阅与取消`() {
@@ -216,5 +244,131 @@ class SubscriptionTeamApiTest {
         val legacyQuery = send("GET", "/api/subscriptions/notifications?team=core")
         assertEquals(400, legacyQuery.statusCode(), legacyQuery.body())
         assertEquals("BAD_REQUEST", codeOf(legacyQuery.body()))
+    }
+
+    @Test
+    fun `通知只对团队成员可见 - 非成员 404 且 org_admin 可审计`() {
+        val projectId = createProject()
+        val repoId = createRepo(projectId)
+        val teamId = createTeam()
+        val lead = createUser(projectId)
+        val member = createUser(projectId)
+        val outsider = createUser(projectId)
+        assertEquals(201, addMember(teamId, lead.id, TeamService.ROLE_LEAD))
+        assertEquals(201, addMember(teamId, member.id, TeamService.ROLE_MEMBER))
+        addNotification(teamId, repoId, "/pets")
+        addNotification(teamId, repoId, "/pets/{id}")
+
+        for (user in listOf(lead, member)) {
+            val own = send("GET", "/api/subscriptions/notifications", token = user.token)
+            assertEquals(200, own.statusCode(), own.body())
+            assertEquals(2, json.readTree(own.body()).size(), "团队成员可见团队通知")
+        }
+
+        val outsiderAll = send("GET", "/api/subscriptions/notifications", token = outsider.token)
+        assertEquals(200, outsiderAll.statusCode(), outsiderAll.body())
+        assertEquals(0, json.readTree(outsiderAll.body()).size(), "非团队成员看不到团队通知")
+
+        val outsiderTeam = send("GET", "/api/subscriptions/notifications?teamId=$teamId", token = outsider.token)
+        assertEquals(404, outsiderTeam.statusCode(), outsiderTeam.body())
+
+        val adminTeam = send("GET", "/api/subscriptions/notifications?teamId=$teamId")
+        assertEquals(200, adminTeam.statusCode(), adminTeam.body())
+        assertEquals(2, json.readTree(adminTeam.body()).size(), "org_admin 可审计团队通知")
+    }
+
+    @Test
+    fun `历史通知 team_id 为空 - 仅 org_admin 可见`() {
+        val projectId = createProject()
+        val repoId = createRepo(projectId)
+        val teamId = createTeam()
+        val lead = createUser(projectId)
+        assertEquals(201, addMember(teamId, lead.id, TeamService.ROLE_LEAD))
+        addNotification(teamId, repoId)
+        notificationRepos.save(
+            NotificationEntity(
+                teamId = null,
+                team = "legacy",
+                repoId = repoId,
+                orgId = orgs.defaultOrgId(),
+                method = "GET",
+                path = "/legacy",
+                summary = "历史通知",
+                createdAt = Instant.now(),
+            ),
+        )
+
+        val leadList = send("GET", "/api/subscriptions/notifications", token = lead.token)
+        assertEquals(200, leadList.statusCode(), leadList.body())
+        assertEquals(1, json.readTree(leadList.body()).size(), "普通用户看不到 team_id 为空的历史通知")
+
+        val adminList = send("GET", "/api/subscriptions/notifications")
+        assertEquals(200, adminList.statusCode(), adminList.body())
+        assertEquals(2, json.readTree(adminList.body()).size(), "org_admin 可审计全组织通知")
+    }
+
+    @Test
+    fun `通知跨团队隔离 - 指定他人 teamId 404`() {
+        val projectId = createProject()
+        val repoId = createRepo(projectId)
+        val team1 = createTeam()
+        val team2 = createTeam()
+        val user1 = createUser(projectId)
+        val user2 = createUser(projectId)
+        assertEquals(201, addMember(team1, user1.id, TeamService.ROLE_LEAD))
+        assertEquals(201, addMember(team2, user2.id, TeamService.ROLE_LEAD))
+        addNotification(team1, repoId, "/pets")
+        addNotification(team2, repoId, "/pets/{id}")
+
+        val list1 = send("GET", "/api/subscriptions/notifications", token = user1.token)
+        val list2 = send("GET", "/api/subscriptions/notifications", token = user2.token)
+        assertEquals(200, list1.statusCode(), list1.body())
+        assertEquals(200, list2.statusCode(), list2.body())
+        assertEquals(1, json.readTree(list1.body()).size())
+        val path1 =
+            json
+                .readTree(list1.body())
+                .get(0)
+                ?.get("path")
+                ?.asText()
+        assertEquals("/pets", path1)
+        assertEquals(1, json.readTree(list2.body()).size())
+        val path2 =
+            json
+                .readTree(list2.body())
+                .get(0)
+                ?.get("path")
+                ?.asText()
+        assertEquals("/pets/{id}", path2)
+
+        val cross = send("GET", "/api/subscriptions/notifications?teamId=$team2", token = user1.token)
+        assertEquals(404, cross.statusCode(), cross.body())
+    }
+
+    @Test
+    fun `团队删除后历史通知保留 - 仅 org_admin 可见`() {
+        val projectId = createProject()
+        val repoId = createRepo(projectId)
+        val teamId = createTeam()
+        val user = createUser(projectId)
+        assertEquals(201, addMember(teamId, user.id, TeamService.ROLE_LEAD))
+        addNotification(teamId, repoId, "/legacy")
+
+        assertEquals(204, send("DELETE", "/api/teams/$teamId").statusCode())
+
+        val userList = send("GET", "/api/subscriptions/notifications", token = user.token)
+        assertEquals(200, userList.statusCode(), userList.body())
+        assertEquals(0, json.readTree(userList.body()).size(), "团队删除后普通用户看不到历史通知")
+
+        val adminList = send("GET", "/api/subscriptions/notifications")
+        assertEquals(200, adminList.statusCode(), adminList.body())
+        assertEquals(1, json.readTree(adminList.body()).size(), "历史通知保留（team_id 置空）")
+        val legacyPath =
+            json
+                .readTree(adminList.body())
+                .get(0)
+                ?.get("path")
+                ?.asText()
+        assertEquals("/legacy", legacyPath)
     }
 }

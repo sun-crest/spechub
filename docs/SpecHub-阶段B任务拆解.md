@@ -274,27 +274,27 @@ ADR 未写死、但会影响实现细节的项，在 B0 一次拍板并记录。
 
 **投递链路**
 
-- [ ] `Ingestor.notifySubscribers`：从订阅记录取 `teamId` / `teamName`，调用 `addNotification(teamId, teamName, ...)`；逐团队独立写、失败不阻塞其它团队（保持现状）。
-- [ ] 通知行写 `org_id`、`team_id`、`team`（名称快照）。
-- [ ] 团队改名后，新通知用新名快照；历史通知保留旧快照。
+- [x] `Ingestor.notifySubscribers`：从订阅记录取 `teamId` / `teamName`，调用 `addNotification(teamId, teamName, ...)`；逐团队独立写、失败不阻塞其它团队（保持现状）。
+- [x] 通知行写 `org_id`、`team_id`、`team`（名称快照）。
+- [x] 团队改名后，新通知用新名快照；历史通知保留旧快照。
 
 **查询语义（安全核心）**
 
-- [ ] 鉴权启用时：
-  - 不传 `teamId`：当前用户所属团队的通知；`org_admin` 返回全组织通知；
-  - 传 `teamId`：必须是该团队成员或 `org_admin`，否则 **404**；
+- [x] 鉴权启用时：
+  - 不传 `teamId`：当前用户所属团队（按当前 org 过滤）的通知；`org_admin` 返回全组织可见 repo 的通知；
+  - 传 `teamId`：必须是该团队成员或 `org_admin`，否则 **404**（`AuthService.requireTeamMember`）；
   - 始终与 `visibleRepoIds(request, RELEASE)` 求交，空集合返回空，禁止退化全量（延续 A4 纪律）。
-- [ ] 历史通知 `team_id` 为 NULL：仅 `org_admin` 可见（无法安全归属到成员）。
-- [ ] dev 免登录：返回当前组织可见 repo 的全部通知（保持开发可用）。
-- [ ] `limit` 上限保持现有行为（默认 50）。
+- [x] 历史通知 `team_id` 为 NULL：普通用户不返回（`team_id IN (...)` 天然排除）；仅 `org_admin` 可见（无法安全归属到成员）。
+- [x] dev 免登录：返回当前组织可见 repo 的全部通知（保持开发可用）。
+- [x] `limit` 默认 50，`coerceIn(1, 200)` 防滥用。
 
 **测试**
 
-- [ ] `SubscriptionApiTest`：改 spec push → 团队成员看到通知；同组织非成员看不到；指定别人 teamId → 404；org_admin 可见全组织。
-- [ ] `ReadIsolationTest` 增补：通知不跨团队、不跨项目/org。
-- [ ] 团队删除后历史通知仍可由 org_admin 查到（`team_id` 置 NULL，快照名保留）。
+- [x] `SubscriptionTeamApiTest` 新增：团队成员可见、非成员不传 teamId 为空/指定 teamId 404、org_admin 可审计；历史 `team_id` 为空仅 org_admin 可见；跨团队隔离；团队删除后历史通知保留（`team_id` 置 NULL，快照名保留）。
+- [x] `SubscriptionApiTest`（dev e2e）：改 spec push → 通知按 teamId 可查，幂等不重复。
+- [x] `ReadIsolationTest`：非团队成员指定 B 团队 `teamId` 返回 404；可见 repo 过滤保持。
 
-**状态**：⬜ 待开始。
+**状态**：✅ 2026-11-19 完成；PostgreSQL / MySQL 全量 `:server:test` 与 `:server:ktlintCheck` 通过。
 
 ---
 
