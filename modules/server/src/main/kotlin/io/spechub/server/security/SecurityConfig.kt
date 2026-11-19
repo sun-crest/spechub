@@ -2,6 +2,7 @@ package io.spechub.server.security
 
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.repository.ServiceAccountRepository
+import io.spechub.server.service.UserService
 import io.spechub.server.service.UserTokenService
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.context.annotation.Bean
@@ -167,6 +168,8 @@ class SecurityConfig(
         csrfTokenRepository: CsrfTokenRepository,
         entryPoint: ApiAuthenticationEntryPoint,
         deniedHandler: ApiAccessDeniedHandler,
+        rateLimiter: RedisLoginRateLimiter,
+        users: UserService,
     ): SecurityFilterChain {
         http.csrf { csrf ->
             csrf.csrfTokenRepository(csrfTokenRepository)
@@ -187,10 +190,10 @@ class SecurityConfig(
         }
 
         val loginFilter =
-            JsonUsernamePasswordAuthenticationFilter(json, authenticationManager, csrfTokenRepository).apply {
+            JsonUsernamePasswordAuthenticationFilter(json, authenticationManager, csrfTokenRepository, rateLimiter).apply {
                 setSessionAuthenticationStrategy(sessionStrategy)
                 setSecurityContextRepository(securityContextRepository)
-                setAuthenticationSuccessHandler(LoginSuccessHandler(json, csrfTokenRepository))
+                setAuthenticationSuccessHandler(LoginSuccessHandler(json, csrfTokenRepository, users))
                 setAuthenticationFailureHandler(LoginFailureHandler(entryPoint))
             }
         http.addFilterAt(loginFilter, UsernamePasswordAuthenticationFilter::class.java)

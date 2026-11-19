@@ -1,5 +1,7 @@
 package io.spechub.server.web
 
+import io.spechub.server.repository.UserStatus
+import io.spechub.server.security.SessionAdminService
 import io.spechub.server.service.ChangelogService
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.ProjectService
@@ -15,6 +17,7 @@ import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import org.springframework.http.HttpStatus
+import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.security.web.csrf.CsrfToken
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -48,6 +51,8 @@ class AuthController(
     private val teams: TeamService,
     private val auth: AuthService,
     private val userTokens: UserTokenService,
+    private val passwordEncoder: PasswordEncoder,
+    private val sessions: SessionAdminService,
 ) {
     data class StatusResponse(
         val authEnabled: Boolean,
@@ -128,6 +133,20 @@ class AuthController(
     data class CreateUserResponse(
         val user: UserView,
         val token: String,
+    )
+
+    data class ChangePasswordRequest(
+        val currentPassword: String? = null,
+        val newPassword: String? = null,
+    )
+
+    data class SetupPasswordRequest(
+        val token: String? = null,
+        val newPassword: String? = null,
+    )
+
+    data class SetupPasswordResponse(
+        val ok: Boolean,
     )
 
     @GetMapping("/status")
@@ -212,6 +231,88 @@ class AuthController(
             teams = teamViews,
             canManage = orgAdmin || projectRoles.values.any { Role.rank(it) >= Role.rank(Role.ADMIN) },
         )
+    }
+
+    // ── 密码管理 ───────────────────────────────────────────────────────────
+
+    /** 修改自己的密码：校验当前密码（首次改密 / 无密码时允许不带），吊销其它 Web 会话；API 令牌不自动吊销。 */
+    @PostMapping("/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun changePassword(
+        req: HttpServletRequest,
+        @RequestBody body: ChangePasswordRequest,
+    ) {
+        val user = auth.requireHuman(req, "修改密码")
+        val userId = checkNotNull(user.id) { "当前用户必有 id" }
+        validatePassword(body.newPassword, user.username, user.email)
+        val newPassword = checkNotNull(body.newPassword)
+
+        if (body.currentPassword != null) {
+            val hash = users.passwordHash(userId)
+            if (hash != null && !passwordEncoder.matches(body.currentPassword, hash)) {
+                throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "当前密码错误")
+            }
+        } else if (user.hasPassword && !user.mustChangePassword) {
+            throw ApiException(
+                ApiErrorCode.VALIDATION,
+                "请输入当前密码",
+                listOf(ApiErrorBody.FieldError("currentPassword", "请输入当前密码")),
+            )
+        }
+
+        val encoded = checkNotNull(passwordEncoder.encode(newPassword)) { "密码编码失败" }
+        users.setPassword(userId, encoded)
+        sessions.deleteOtherSessions(user.username, req.getSession(false)?.id)
+    }
+
+    /** 一次性邀请 / 重置令牌设置密码；不自动登录，前端引导重新登录。 */
+    @PostMapping("/password/setup")
+    fun setupPassword(
+        @RequestBody body: SetupPasswordRequest,
+    ): SetupPasswordResponse {
+        val raw =
+            body.token?.trim()?.takeIf { it.isNotEmpty() }
+                ?: throw ApiException(
+                    ApiErrorCode.VALIDATION,
+                    "缺少令牌",
+                    listOf(ApiErrorBody.FieldError("token", "令牌不能为空")),
+                )
+        val resolved =
+            userTokens.resolveSetup(raw)
+                ?: throw ApiException(ApiErrorCode.BAD_REQUEST, "邀请 / 重置令牌无效或已过期")
+        val user = resolved.user
+        validatePassword(body.newPassword, user.username, user.email)
+        val newPassword = checkNotNull(body.newPassword)
+
+        val encoded = checkNotNull(passwordEncoder.encode(newPassword)) { "密码编码失败" }
+        users.setPassword(
+            checkNotNull(user.id) { "已持久化用户必有 id" },
+            encoded,
+            status = UserStatus.ACTIVE,
+        )
+        userTokens.markUsed(checkNotNull(resolved.token.id) { "已持久化令牌必有 id" })
+        return SetupPasswordResponse(ok = true)
+    }
+
+    private fun validatePassword(
+        password: String?,
+        username: String,
+        email: String?,
+    ) {
+        val errors = mutableListOf<ApiErrorBody.FieldError>()
+        if (password.isNullOrBlank()) {
+            errors += ApiErrorBody.FieldError("newPassword", "密码不能为空")
+        } else {
+            if (password.length !in 10..128) {
+                errors += ApiErrorBody.FieldError("newPassword", "密码长度须为 10–128")
+            }
+            if (password.equals(username, ignoreCase = true) ||
+                (!email.isNullOrBlank() && password.equals(email, ignoreCase = true))
+            ) {
+                errors += ApiErrorBody.FieldError("newPassword", "密码不能与用户名或邮箱相同")
+            }
+        }
+        if (errors.isNotEmpty()) throw ApiException(ApiErrorCode.VALIDATION, "密码不符合要求", errors)
     }
 
     // ── 组织用户目录（org_admin） ───────────────────────────────────────────

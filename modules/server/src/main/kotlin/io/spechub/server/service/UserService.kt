@@ -56,6 +56,28 @@ class UserService(
 
     fun findById(id: Long): UserRecord? = users.findById(id).orElse(null)?.toRecord()
 
+    /** 仅用于密码校验；不对外返回 hash。 */
+    fun passwordHash(userId: Long): String? = users.findById(userId).orElse(null)?.passwordHash
+
+    /** 设置密码并清 mustChangePassword；设置密码即视为激活（邀请 / 重置流程）。 */
+    @Transactional
+    fun setPassword(
+        userId: Long,
+        passwordHash: String,
+        status: String? = null,
+    ): Boolean {
+        val entity = users.findById(userId).orElse(null) ?: return false
+        users.save(
+            entity.copy(
+                passwordHash = passwordHash,
+                passwordUpdatedAt = Instant.now(),
+                mustChangePassword = false,
+                status = status ?: entity.status,
+            ),
+        )
+        return true
+    }
+
     fun findByUsername(username: String): UserRecord? = users.findByUsername(username)?.toRecord()
 
     fun findByEmail(email: String): UserRecord? = users.findByEmail(email)?.toRecord()

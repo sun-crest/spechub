@@ -1,6 +1,6 @@
 # SpecHub · 阶段 C 任务拆解（账号与审计）
 
-> **日期**：2026-11-19　**状态**：C0 / C1 / C2 已完成（2026-11-19）；C3–C10 待启动
+> **日期**：2026-11-19　**状态**：C0 / C1 / C2 / C3 已完成（2026-11-19）；C4–C10 待启动
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **范围**：Spring Security Web 认证底座、Spring Session 分布式会话、密码 / OIDC 登录、账号禁用与邀请、可过期可吊销令牌、项目级服务账号、管理动作审计查询。
 > **不覆盖**：多组织切换 / 组织生命周期 / 平台运营控制面 / break-glass（阶段 D1）、自助注册 / 邮箱验证 / 域名认领（阶段 D2）、SAML / SCIM、MFA / WebAuthn、组织级服务账号、`project_group` / `api_group`。
@@ -50,7 +50,7 @@
 | C1 | 管理库 V6 / V7 迁移 | C0 | L | `V6__identity_and_audit.sql`、`V7__identity_tighten.sql`（PG/MySQL；会话走 Redis，不建管理库会话表） |
 | C2 | Spring Security 认证底座与领域适配 | C1 | L | `SecurityConfig` 双链（Bearer API / Web Session）、Spring Session Data Redis、`AuthenticationManager`、opaque Bearer provider、`AuthService` / `AuthzService` 适配 |
 
-> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 运行期生效；V7 文件与测试已就绪，运行期由 `spring.flyway.target=6` 暂缓，C4 与代码切换同窗口放开）；**C2 状态**：✅ 2026-11-19 完成（双链 / Session Redis / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）。
+> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 运行期生效；V7 文件与测试已就绪，运行期由 `spring.flyway.target=6` 暂缓，C4 与代码切换同窗口放开）；**C2 状态**：✅ 2026-11-19 完成（双链 / Session Redis / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）；**C3 状态**：✅ 2026-11-19 完成（密码登录 / 改密 / 邀请重置 / Redis 限流 / 会话属性；审计写点待 C7）。
 
 ### 2.2 C‑2 登录与账号生命周期
 
@@ -218,7 +218,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   SELECT id, 'legacy', '', token_hash, 'legacy', created_at FROM app_user;
   ```
 - [x] `legacy` 行不设过期（ADR §10 要求旧 token 继续有效）；`api` / `invite` / `password_reset` 行必须有过期时间（DB CHECK 强制）。
-- [ ] `invite` / `password_reset` 使用后写 `used_at`，不可复用（C3 / C4 服务层实现）。
+- [x] `invite` / `password_reset` 使用后写 `used_at`，不可复用（C3 `/api/auth/password/setup` 已实现）。
 
 **会话存储 · Spring Session Data Redis（V6 不建会话表）**
 
@@ -426,7 +426,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **登录（Spring Security JSON filter）**
 
-- [ ] `JsonUsernamePasswordAuthenticationFilter` 接管 `POST /api/auth/login`，请求体兼容两种形态：
+- [x] `JsonUsernamePasswordAuthenticationFilter` 接管 `POST /api/auth/login`，请求体兼容两种形态：
   ```json
   { "username": "alice", "password": "..." }
   { "username": "alice", "token": "shu_..." }
@@ -439,22 +439,22 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   - 失败统一 401「用户名或密码错误」；禁用账号同样 401（不泄露状态）。
   - 限流命中返回 429，带 `Retry-After`；新增 `ApiErrorCode.TOO_MANY_REQUESTS(429)`。
   - **不再有 `AUTH_NOT_ENABLED` / 免登录分支**：所有环境都必须登录；dev 用 `.env` 的 `SPECHUB_ADMIN_TOKEN` 首次登录，建立真实 Spring Session，再设置密码 / 绑定 OIDC。
-- [ ] 首次 bootstrap 流程：`admin` + admin-token → 真实会话 → `/api/auth/password` 设置密码或 OIDC 绑定；之后用密码 / OIDC；admin-token 只做 bootstrap / break-glass。
-- [ ] 登录成功写审计 `auth.login.success`、更新 `last_login_at`；失败写 `auth.login.failure`；限流写 `auth.login.locked`。
-- [ ] 登录成功把 IP / User-Agent / 登录时间写入 Spring Session 属性，供活动会话列表显示；不在会话中存密码 / 令牌。
-- [ ] 不在登录响应 / 日志中回显 token、密码、Cookie。
+- [x] 首次 bootstrap 流程：`admin` + admin-token → 真实会话 → `/api/auth/password` 设置密码或 OIDC 绑定；之后用密码 / OIDC；admin-token 只做 bootstrap / break-glass。
+- [ ] 登录成功写审计 `auth.login.success`、更新 `last_login_at`；失败写 `auth.login.failure`；限流写 `auth.login.locked`（`last_login_at` 已实现；审计写点随 C7 `AuditService` 接入）。
+- [x] 登录成功把 IP / User-Agent / 登录时间写入 Spring Session 属性，供活动会话列表显示；不在会话中存密码 / 令牌。
+- [x] 不在登录响应 / 日志中回显 token、密码、Cookie。
 
 **登出**
 
-- [ ] 配置 Spring Security `LogoutFilter` 处理 `POST /api/auth/logout`：
+- [x] 配置 Spring Security `LogoutFilter` 处理 `POST /api/auth/logout`：
   - `SecurityContextLogoutHandler` + `CookieClearingLogoutHandler`；
   - Spring Session 删除当前会话；
   - 成功 handler 返回 204 JSON；未登录也返回 204（幂等）；`/api/auth/logout` 豁免 CSRF，避免无会话时 403。
-  - 审计 `auth.logout`。
+  - [ ] 审计 `auth.logout`（C7 接入）。
 
 **当前用户**
 
-- [ ] `GET /api/auth/me` 从 `SecurityContext` 读取 `Authentication`，扩展：
+- [x] `GET /api/auth/me` 从 `SecurityContext` 读取 `Authentication`，扩展：
   ```json
   {
     "authenticated": true,
@@ -476,48 +476,50 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   ```
   - `platformAdmin` 字段在 C 内删除；`orgAdmin` 是唯一组织管理标识，前端 C8 同步改造。
   - `csrfToken` 从 Spring Security `CsrfToken` request attribute 返回；Bearer 认证返回 `null`。
-- [ ] `GET /api/auth/status` 增加 `authMethod` / `oidcEnabled` / `oidcLoginUrl`，供登录框探测。
+- [x] `GET /api/auth/status` 增加 `authMethod` / `oidcEnabled` / `oidcLoginUrl`，供登录框探测。
 
 **密码管理**
 
-- [ ] `POST /api/auth/password`：
+- [x] `POST /api/auth/password`：
   - 请求 `{currentPassword?, newPassword}`；
   - 已有密码时必须校验 `currentPassword`；`mustChangePassword=true` 或 `hasPassword=false` 时允许不带；
   - 更新 `password_hash` / `password_updated_at`，清 `must_change_password`；
   - 通过 `FindByIndexNameSessionRepository.findByPrincipalName(username)` 删除该用户**其它**会话（保留当前会话）；API 令牌暂不吊销（C0 决策）；
-  - 写审计 `auth.password.change`。
-- [ ] `POST /api/auth/password/setup`：
+  - [ ] 写审计 `auth.password.change`（C7 接入）。
+- [x] `POST /api/auth/password/setup`：
   - 请求 `{token, newPassword}`；Web 链放行（无会话）；
   - 令牌 purpose 必须为 `invite` / `password_reset`，未过期、未使用、用户未禁用；
   - 设置密码、`status=active`、清 `must_change_password`、写 `used_at`；
-  - 写审计 `auth.password.setup`；返回 200（不自动登录，前端引导登录）。
-- [ ] 密码策略校验：长度 10–128；不得等于用户名 / 邮箱；空白字符串拒绝；错误返回 400 + `fieldErrors`。
+  - 返回 200（不自动登录，前端引导登录）；[ ] 写审计 `auth.password.setup`（C7 接入）。
+- [x] 密码策略校验：长度 10–128；不得等于用户名 / 邮箱；空白字符串拒绝；错误返回 400 + `fieldErrors`。
 
 **会话与 CSRF**
 
-- [ ] Spring Session Data Redis 配置：`spring.session.timeout=24h`（空闲）；`AbsoluteSessionTimeoutFilter` 校验绝对 7 天；Cookie 名 `spechub_session`，`HttpOnly` / `SameSite=Lax` / `Path=/`，prod `Secure`，dev 可关；prod 可用 `__Host-` 前缀。prod 使用 HTTP 部署时必须显式关闭 `cookie-secure` 或配置 TLS，文档标注。
-- [ ] 会话固定防护由 Spring Security `SessionAuthenticationStrategy` 完成，不手写会话轮换。
-- [ ] CSRF：`CsrfFilter` + `HttpSessionCsrfTokenRepository`；登录与 `/api/auth/me` 下发 `X-CSRF-Token`；非安全方法缺失 / 错误返回 403 + `ApiErrorCode.AUTH_CSRF`；Bearer API 链整体关闭 CSRF。
-- [ ] 会话列表 / 吊销端点由 C4 提供；本任务只保证 Spring Session 索引可用。
+- [x] Spring Session Data Redis 配置：`spring.session.timeout=24h`（空闲）；`AbsoluteSessionTimeoutFilter` 校验绝对 7 天；Cookie 名 `spechub_session`，`HttpOnly` / `SameSite=Lax` / `Path=/`，prod `Secure`，dev 可关；prod 可用 `__Host-` 前缀。prod 使用 HTTP 部署时必须显式关闭 `cookie-secure` 或配置 TLS，文档标注。
+- [x] 会话固定防护由 Spring Security `SessionAuthenticationStrategy` 完成，不手写会话轮换。
+- [x] CSRF：`CsrfFilter` + `HttpSessionCsrfTokenRepository`；登录与 `/api/auth/me` 下发 `X-CSRF-Token`；非安全方法缺失 / 错误返回 403 + `ApiErrorCode.AUTH_CSRF`；Bearer API 链整体关闭 CSRF。
+- [x] 会话列表 / 吊销端点由 C4 提供；本任务只保证 Spring Session 索引可用。
 
 **限流**
 
-- [ ] `RedisLoginRateLimiter`（C 阶段直接使用 Redis，不做内存过渡）：
+- [x] `RedisLoginRateLimiter`（C 阶段直接使用 Redis，不做内存过渡）：
   - key `spechub:ratelimit:login:identifier:<lower(username|email)>` 与 `...:ip:<remoteAddr>`；
   - 失败窗口 5 分钟 / 5 次；锁 15 分钟；成功清零；
   - 使用 Redis `INCR` + `PEXPIRE`（或 Lua 原子脚本）；TTL 自动清理；
   - Redis 不可用时 fail-closed（登录返回 503），不回退到内存限流。
 
+> **C3 实施说明（2026-11-19）**：Boot 4 的会话属性为 `spring.session.data.redis.*`；登录成功已写入 IP / User-Agent / 登录时间 / 认证方式到 Spring Session（C4 活动会话列表读取）；登录限流 Redis fail-closed；审计写点统一在 C7 接入，不阻塞 C3 功能验收。
+
 **测试**
 
-- [ ] `PasswordLoginApiTest`：JSON 登录 filter、密码 / 邮箱登录、错误密码 401、未知用户 401、禁用 401、限流 429、成功后 `/me` 带 CSRF。
-- [ ] `SessionApiTest`：Spring Session Data Redis Cookie 认证、登录会话 ID 变化（固定防护）、登出后 401、空闲 / 绝对过期、CSRF 缺失 / 错误 403、Bearer 豁免 CSRF。
-- [ ] `RedisLoginRateLimiterTest`：窗口 / 锁定 / 清零 / Redis 不可用 fail-closed。
-- [ ] `PasswordChangeApiTest`：改密校验、改密删除其它会话、邀请 / 重置令牌设置密码、令牌单次使用、密码策略。
-- [ ] `AuthApiTest` 旧 token 登录仍可用且现在建立 Spring Security 会话；`ReadIsolationTest` / `WebApiTest` 适配 Session / Bearer 双链。
-- [ ] 双库全量测试、Redis 会话 / 限流集成测试与 ktlint 通过。
+- [x] `PasswordLoginApiTest`：JSON 登录 filter、密码 / 邮箱登录、错误密码 401、未知用户 401、禁用 401、限流 429、成功后 `/me` 带 CSRF。
+- [x] `SessionApiTest`：Spring Session Data Redis Cookie 认证、登录会话 ID 变化（固定防护）、登出后 401、空闲 / 绝对过期、CSRF 缺失 / 错误 403、Bearer 豁免 CSRF。
+- [x] `RedisLoginRateLimiterTest`：窗口 / 锁定 / 清零 / Redis 不可用 fail-closed。
+- [x] `PasswordChangeApiTest`：改密校验、改密删除其它会话、邀请 / 重置令牌设置密码、令牌单次使用、密码策略。
+- [x] `AuthApiTest` 旧 token 登录仍可用且现在建立 Spring Security 会话；`ReadIsolationTest` / `WebApiTest` 适配 Session / Bearer 双链。
+- [x] 双库全量测试、Redis 会话 / 限流集成测试与 ktlint 通过。
 
-**状态**：待启动。
+**状态**：✅ 2026-11-19 完成（审计写点待 C7）。
 
 ---
 

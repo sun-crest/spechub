@@ -36,6 +36,9 @@ enum class ApiErrorCode(
     /** 资源/实体不存在 */
     NOT_FOUND(404),
 
+    /** 登录 / 接口限流（带 Retry-After） */
+    TOO_MANY_REQUESTS(429),
+
     /** 状态冲突（已存在/已处理等） */
     CONFLICT(409),
 

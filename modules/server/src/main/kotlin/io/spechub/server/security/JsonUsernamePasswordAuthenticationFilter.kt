@@ -1,5 +1,6 @@
 package io.spechub.server.security
 
+import io.spechub.server.service.UserService
 import io.spechub.server.web.common.ApiErrorCode
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -22,6 +23,7 @@ import org.springframework.session.FindByIndexNameSessionRepository
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import java.io.IOException
+import java.time.Instant
 
 /**
  * `POST /api/auth/login` JSON 登录（阶段 C）：
@@ -34,6 +36,7 @@ class JsonUsernamePasswordAuthenticationFilter(
     private val json: ObjectMapper,
     authenticationManager: AuthenticationManager,
     private val csrfTokenRepository: CsrfTokenRepository,
+    private val rateLimiter: RedisLoginRateLimiter,
 ) : AbstractAuthenticationProcessingFilter(LoginRequestMatcher()) {
     companion object {
         const val LOGIN_PATH = "/api/auth/login"
@@ -82,7 +85,17 @@ class JsonUsernamePasswordAuthenticationFilter(
         if (password != null) {
             request.setAttribute(AUTH_METHOD_ATTRIBUTE, "password")
             val identifier = username ?: email ?: throw BadCredentialsException("缺少用户名或邮箱")
-            return authenticationManager.authenticate(UsernamePasswordAuthenticationToken.unauthenticated(identifier, password))
+            val ip = request.remoteAddr ?: "unknown"
+            rateLimiter.check(identifier, ip)?.let { throw LoginRateLimitedException(it) }
+            val authentication =
+                try {
+                    authenticationManager.authenticate(UsernamePasswordAuthenticationToken.unauthenticated(identifier, password))
+                } catch (e: AuthenticationException) {
+                    rateLimiter.onFailure(identifier, ip)
+                    throw e
+                }
+            rateLimiter.onSuccess(identifier, ip)
+            return authentication
         }
 
         request.setAttribute(AUTH_METHOD_ATTRIBUTE, "token")
@@ -117,6 +130,7 @@ class LoginBadRequestException(
 class LoginSuccessHandler(
     private val json: ObjectMapper,
     private val csrfTokenRepository: CsrfTokenRepository,
+    private val users: UserService,
 ) : AuthenticationSuccessHandler {
     override fun onAuthenticationSuccess(
         request: HttpServletRequest,
@@ -124,11 +138,19 @@ class LoginSuccessHandler(
         authentication: Authentication,
     ) {
         val principal = authentication.principal as? AppUserPrincipal ?: return
+        users.update(principal.userId, lastLoginAt = Instant.now())
         val csrfToken = csrfTokenRepository.generateToken(request)
         csrfTokenRepository.saveToken(csrfToken, request, response)
-        request
-            .getSession(true)
-            .setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, principal.username)
+        val session = request.getSession(true)
+        session.setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, principal.username)
+        session.setAttribute(SessionAttributes.PRINCIPAL_NAME, principal.username)
+        session.setAttribute(SessionAttributes.IP, request.remoteAddr)
+        session.setAttribute(SessionAttributes.USER_AGENT, request.getHeader("User-Agent"))
+        session.setAttribute(SessionAttributes.LOGIN_AT, Instant.now().toString())
+        session.setAttribute(
+            SessionAttributes.AUTH_METHOD,
+            request.getAttribute(JsonUsernamePasswordAuthenticationFilter.AUTH_METHOD_ATTRIBUTE) ?: "session",
+        )
 
         val body =
             mapOf(
@@ -158,6 +180,15 @@ class LoginFailureHandler(
     ) {
         SecurityContextHolder.clearContext()
         when (exception) {
+            is LoginRateLimitedException -> {
+                response.setHeader("Retry-After", exception.retryAfterSeconds.toString())
+                entryPoint.writeError(request, response, ApiErrorCode.TOO_MANY_REQUESTS, "登录尝试过于频繁，请稍后再试")
+            }
+
+            is LoginRateLimitUnavailableException -> {
+                entryPoint.writeError(request, response, ApiErrorCode.SERVICE_UNAVAILABLE, "登录服务暂不可用")
+            }
+
             is LoginBadRequestException -> {
                 entryPoint.writeError(request, response, ApiErrorCode.BAD_REQUEST, exception.message ?: "请求不合法")
             }
