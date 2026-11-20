@@ -1,6 +1,6 @@
 # SpecHub · 阶段 C 任务拆解（账号与审计）
 
-> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 / C5 / C6 / C7 / C8 / C9 自动化门禁已完成（C9.1 浏览器手测待人工执行）；C10 待启动
+> **日期**：2026-11-20　**状态**：C0–C10 已完成（C9.1 浏览器手测待人工执行）
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **范围**：Spring Security Web 认证底座、Spring Session 分布式会话、密码 / OIDC 登录、账号禁用与邀请、可过期可吊销令牌、项目级服务账号、管理动作审计查询。
 > **不覆盖**：多组织切换 / 组织生命周期 / 平台运营控制面 / break-glass（阶段 D1）、自助注册 / 邮箱验证 / 域名认领（阶段 D2）、SAML / SCIM、MFA / WebAuthn、组织级服务账号、`project_group` / `api_group`。
@@ -13,18 +13,18 @@
 
 **阶段 C 完成定义（DoD）**：
 
-- [ ] Web 登录走 **Spring Security + Spring Session Data Redis** 的 HttpOnly 会话，浏览器不再把长期令牌放 localStorage；密码登录可用，配置 OIDC 后可用 `oauth2Login` 登录；
-- [ ] Spring Security 两条链：**Web Session 链**（密码 / OIDC / CSRF / 安全头）与 **Bearer API 链**（opaque 用户令牌 / 服务账号，无 CSRF、无会话）；**所有环境都必须真实登录，不设 dev 放行链**；
-- [ ] `app_user` 具备 `email` / `password_hash` / `status`，密码使用 **Argon2id**（`Argon2PasswordEncoder`）存储；
-- [ ] 账号可禁用 / 启用 / 邀请 / 重置密码；**禁用后该用户所有会话与令牌在下一次请求立即失效**；
-- [ ] 用户令牌带前缀、可设置过期时间、可吊销；旧 `app_user.token_hash` 迁移为 `user_token` 后**旧令牌继续有效**（ADR §10）；
-- [ ] 项目级服务账号 `viewer` / `editor` 可用，**不可登录 Web、不可跨项目访问**，吊销立即生效；
-- [ ] 登录成功 / 失败、用户管理、令牌、服务账号、项目 / 团队 / binding 等管理动作写入 `audit_event`；`GET /api/audit` 仅 `org_admin` 可查；
-- [ ] Spring Security 的默认安全头、会话固定防护、CSRF、401/403 错误契约与现有 `ApiErrorBody` / `ApiErrorCode` 对齐；
-- [ ] `app_user.is_platform_admin` 与 `app_user.token_hash` 在阶段 C 内移除（V7），代码中无引用；
-- [ ] 管理库迁移在 PostgreSQL 18.6 与 MySQL 8.4 上通过（V5→V6→V7、空库 V1→V7）；**会话不落管理库，C 阶段直接使用 Spring Session Data Redis**；
-- [ ] **本地开发与生产使用同一套认证方案**：都通过真实 admin-token / 密码 / OIDC 换取 Spring Session，或使用 Bearer 服务账号；没有 `authEnabled=false`、dev 请求头、固定默认密码等旁路；
-- [ ] `apps/web` 构建通过，浏览器手测清单落文档。
+- [x] Web 登录走 **Spring Security + Spring Session Data Redis** 的 HttpOnly 会话，浏览器不再把长期令牌放 localStorage；密码登录可用，配置 OIDC 后可用 `oauth2Login` 登录；
+- [x] Spring Security 两条链：**Web Session 链**（密码 / OIDC / CSRF / 安全头）与 **Bearer API 链**（opaque 用户令牌 / 服务账号，无 CSRF、无会话）；**所有环境都必须真实登录，不设 dev 放行链**；
+- [x] `app_user` 具备 `email` / `password_hash` / `status`，密码使用 **Argon2id**（`Argon2PasswordEncoder`）存储；
+- [x] 账号可禁用 / 启用 / 邀请 / 重置密码；**禁用后该用户所有会话与令牌在下一次请求立即失效**；
+- [x] 用户令牌带前缀、可设置过期时间、可吊销；旧 `app_user.token_hash` 迁移为 `user_token` 后**旧令牌继续有效**（ADR §10）；
+- [x] 项目级服务账号 `viewer` / `editor` 可用，**不可登录 Web、不可跨项目访问**，吊销立即生效；
+- [x] 登录成功 / 失败、用户管理、令牌、服务账号、项目 / 团队 / binding 等管理动作写入 `audit_event`；`GET /api/audit` 仅 `org_admin` 可查；
+- [x] Spring Security 的默认安全头、会话固定防护、CSRF、401/403 错误契约与现有 `ApiErrorBody` / `ApiErrorCode` 对齐；
+- [x] `app_user.is_platform_admin` 与 `app_user.token_hash` 在阶段 C 内移除（V7），代码中无引用；
+- [x] 管理库迁移在 PostgreSQL 18.6 与 MySQL 8.4 上通过（V5→V6→V7、空库 V1→V7）；**会话不落管理库，C 阶段直接使用 Spring Session Data Redis**；
+- [x] **本地开发与生产使用同一套认证方案**：都通过真实 admin-token / 密码 / OIDC 换取 Spring Session，或使用 Bearer 服务账号；没有 `authEnabled=false`、dev 请求头、固定默认密码等旁路；
+- [x] `apps/web` 构建通过，浏览器手测清单落文档。
 
 **明确不做**：
 
@@ -224,13 +224,13 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 > **C1 边界**：本任务只保证迁移不建 `SPRING_SESSION` / `user_session` 表，并由迁移测试断言；Spring Session / Redis 依赖与配置在 C2 引入。以下条目随 C2 勾选。
 
-- [ ] 引入 `org.springframework.session:spring-session-data-redis`（以及 Boot 的 Redis 连接支持）；**不引入 `spring-session-jdbc`**，不在管理库建 `SPRING_SESSION` / `user_session` 表。
-- [ ] 配置 `spring.session.store-type=redis`、`spring.session.redis.namespace=spechub:session`、`spring.session.timeout=24h`；绝对 7 天由 C2 的 `AbsoluteSessionTimeoutFilter` 负责。
-- [ ] dev 与 prod 都使用 Spring Session Data Redis：同一 namespace / TTL / Cookie 配置，只换 Redis 连接串；dev compose 也起 Redis，不存在 JDBC 过渡。
-- [ ] 会话列表 / 吊销通过 `FindByIndexNameSessionRepository` 与 `SessionRegistry` 完成；`PRINCIPAL_NAME_INDEX_NAME` 由登录策略写入 Redis 索引。
-- [ ] 清理：Redis TTL + Spring Session Redis 的过期清理（`spring.session.redis.cleanup-cron`）；不写管理库清理任务。
-- [ ] Redis 不可用时鉴权 fail-closed（返回 503 / 无法建立会话），不做降级到匿名或本地内存会话。
-- [ ] 会话数据不纳入管理库备份；Redis 丢失时用户重新登录，不丢管理数据。
+- [x] 引入 `org.springframework.session:spring-session-data-redis`（以及 Boot 的 Redis 连接支持）；**不引入 `spring-session-jdbc`**，不在管理库建 `SPRING_SESSION` / `user_session` 表。
+- [x] 配置 `spring.session.store-type=redis`、`spring.session.redis.namespace=spechub:session`、`spring.session.timeout=24h`；绝对 7 天由 C2 的 `AbsoluteSessionTimeoutFilter` 负责。
+- [x] dev 与 prod 都使用 Spring Session Data Redis：同一 namespace / TTL / Cookie 配置，只换 Redis 连接串；dev compose 也起 Redis，不存在 JDBC 过渡。
+- [x] 会话列表 / 吊销通过 `FindByIndexNameSessionRepository` 与 `SessionRegistry` 完成；`PRINCIPAL_NAME_INDEX_NAME` 由登录策略写入 Redis 索引。
+- [x] 清理：Redis TTL + Spring Session Redis 的过期清理（`spring.session.redis.cleanup-cron`）；不写管理库清理任务。
+- [x] Redis 不可用时鉴权 fail-closed（返回 503 / 无法建立会话），不做降级到匿名或本地内存会话。
+- [x] 会话数据不纳入管理库备份；Redis 丢失时用户重新登录，不丢管理数据。
 
 **V6 · `service_account`（项目级服务账号）**
 
@@ -247,7 +247,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   -- FK project_id → project(id) ON DELETE RESTRICT
   ```
 - [x] `project_id NOT NULL`，`org_id` 冗余（DB 约束已落库）；Service 创建时校验 `project.orgId == org_id`（C5 实现）。
-- [ ] 项目删除时由 `ProjectService.delete` 显式清理服务账号（保持现有 FK RESTRICT 纪律；C5 实现）。
+- [x] 项目删除时由 `ProjectService.delete` 显式清理服务账号（保持现有 FK RESTRICT 纪律；C5 实现）。
 
 **V6 · `user_identity`（OIDC 身份绑定）**
 
@@ -274,7 +274,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   -- outcome ∈ success | failure
   ```
 - [x] `org_id` / `actor_user_id` **不建外键**：审计需在用户 / 组织删除后保留；`actor_name` 存快照。
-- [ ] `detail` 只存可审计摘要，禁止密码、令牌、Cookie、spec 正文（C7 服务层约束）。
+- [x] `detail` 只存可审计摘要，禁止密码、令牌、Cookie、spec 正文（C7 服务层约束）。
 
 **V7 · 收紧与删列（代码切换后）**
 
@@ -357,7 +357,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   - 无效 / 过期令牌由 entry point 返回 401。
 - [x] `AppUserPrincipal` / `ServicePrincipal`：实现 `Serializable`，只带 id / username / displayName / orgId / projectId / role 等最小字段；**不把 `UserRecord`、`UserEntity` 或 `DefaultOidcUser` 直接写入 Spring Session**。
 - [x] `Authentication.getName()` 统一返回 `username`（OIDC principal 也覆盖为本地 username），保证 Spring Session 的 `PRINCIPAL_NAME` 索引可用于按用户列 / 删会话。
-- [ ] `OidcUserService`（C6 落地）：调用 `OidcLoginService` 解析 / 绑定 / 自动建号，返回带 `appUserId`、且 `getName()` 为本地 username 的可序列化 principal。
+- [x] `OidcUserService`（C6 落地）：调用 `OidcLoginService` 解析 / 绑定 / 自动建号，返回带 `appUserId`、且 `getName()` 为本地 username 的可序列化 principal。
 
 **会话与 CSRF**
 
@@ -407,7 +407,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 - [x] Principal 必须可序列化且最小化；Spring Session 默认 Java 序列化，禁止把实体 / `OidcUser` 直接写入会话。
 - [x] 自定义 entry point / denied handler 保持 `ApiErrorBody` / `ApiErrorCode` 契约。
 - [x] 密码、令牌、Cookie 不写日志；认证事件只记 username / principal / IP / 时间。
-- [ ] 禁用 / 删除用户时：先完成 DB 事务（status / 令牌 / 关系），再按 principal 删除 Redis 会话；**不以跨存储事务为前提**，删除失败由每请求状态校验兜底（C4 生命周期端点实现；C2 已具备每请求状态校验）。
+- [x] 禁用 / 删除用户时：先完成 DB 事务（status / 令牌 / 关系），再按 principal 删除 Redis 会话；**不以跨存储事务为前提**，删除失败由每请求状态校验兜底（C4 生命周期端点实现；C2 已具备每请求状态校验）。
 
 **测试**
 
@@ -946,27 +946,35 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 ### C10 · 文档与收尾（S）
 
-- [ ] 开发计划新增 P2.7（阶段 C）并勾选。
-- [ ] 本文档状态更新、任务勾选。
-- [ ] README 补账号体系说明：Spring Security + Spring Session、密码 / OIDC、CSRF、令牌类型与前缀、服务账号、CLI/MCP 使用。
-- [ ] ADR §13 开放问题回填：
+- [x] 开发计划新增 P2.7（阶段 C）并勾选。
+- [x] 本文档状态更新、任务勾选。
+- [x] README 补账号体系说明：Spring Security + Spring Session、密码 / OIDC、CSRF、令牌类型与前缀、服务账号、CLI/MCP 使用。
+- [x] ADR §13 开放问题回填：
   - 2（服务账号是否提前到 A）→ C 落地，项目级；
   - 5（SSO 优先级）→ OIDC 优先，SAML / SCIM 延后；
   - 12（平台运营 IdP）→ D1，不在 C；
   - 新增 / 更新 C 阶段迁移说明（V6 / V7、Spring Session schema、旧 token 兼容）。
-- [ ] `SpecHub-管理数据持久化选型.md` 补 Phase 6：新表、Redis 会话数据（不纳入管理库备份）、令牌 / 审计数据归属与备份范围；说明 C 阶段直接使用 Redis，不做 JDBC 过渡。
-- [ ] `SpecHub-运维手册.md` 补：
+- [x] `SpecHub-管理数据持久化选型.md` 补 Phase 6：新表、Redis 会话数据（不纳入管理库备份）、令牌 / 审计数据归属与备份范围；说明 C 阶段直接使用 Redis，不做 JDBC 过渡。
+- [x] `SpecHub-运维手册.md` 补：
   - Redis 会话 / HA（Sentinel/Cluster）/ TTL / cleanup-cron / fail-closed；
   - 会话列表与吊销、禁用用户 / 重置密码 / 最后 org_admin 保护；
   - OIDC 配置与回调地址、CSRF / Cookie / 安全头说明；
   - 审计保留与查询；
   - 备份管理库新增表（会话不在备份范围）。
-- [ ] `SpecHub-UI方案.md` 补登录、账号与安全（含活动会话）、服务账号、审计页。
-- [ ] `.env.example` / compose 补 `SPECHUB_ADMIN_TOKEN`（dev 值）、`SPECHUB_REDIS_URL`、Redis 服务、OIDC 环境变量、Cookie 配置说明；dev 与 prod 使用同一套登录流程与会话存储。
-- [ ] `application-dev.yml`：`require-admin-token: true`、Spring Session Data Redis、`SPECHUB_REDIS_URL`；删除 `authEnabled=false` / 免登录相关配置与注释；README 补首次 bootstrap 流程（admin + token → 设置密码 / 绑定 OIDC）。
-- [ ] `SpecHub-后端编码规范.md` 认证章节更新：Spring Security 双链、`AuthService` / `AuthzService`、CSRF、可序列化 principal、令牌不落日志、V6/V7 迁移纪律、所有环境真实登录。
+- [x] `SpecHub-UI方案.md` 补登录、账号与安全（含活动会话）、服务账号、审计页。
+- [x] `.env.example` / compose 补 `SPECHUB_ADMIN_TOKEN`（dev 值）、`SPECHUB_REDIS_URL`、Redis 服务、OIDC 环境变量、Cookie 配置说明；dev 与 prod 使用同一套登录流程与会话存储。
+- [x] `application-dev.yml`：`require-admin-token: true`、Spring Session Data Redis、`SPECHUB_REDIS_URL`；删除 `authEnabled=false` / 免登录相关配置与注释；README 补首次 bootstrap 流程（admin + token → 设置密码 / 绑定 OIDC）。
+- [x] `SpecHub-后端编码规范.md` 认证章节更新：Spring Security 双链、`AuthService` / `AuthzService`、CSRF、可序列化 principal、令牌不落日志、V6/V7 迁移纪律、所有环境真实登录。
 
-**状态**：待启动。
+> **C10 实施说明（2026-11-20）**：
+> - 开发计划 P2.7 勾选并记录验收；本文档全部任务勾选。
+> - README 补账号体系（Spring Security + Spring Session / 密码 / OIDC / CSRF / 令牌前缀 / 服务账号 / CLI·MCP）、首次 bootstrap、Redis 硬依赖与本地启动命令；`compose/.env.example` 与 compose 补 `SPECHUB_REDIS_URL`、Cookie / OIDC / 审计保留变量。
+> - ADR §13 回填 2 / 5 / 12；§10 补 V6/V7 + Spring Session + 旧 token 兼容迁移说明。
+> - 持久化选型补 Phase 6（新表、Redis 会话归属、令牌 / 审计备份范围、无 JDBC 过渡）；运维手册补 Redis HA / TTL / cleanup / fail-closed、会话与账号运维、OIDC、CSRF / Cookie / 安全头、审计与备份范围；UI 方案补 §6.4；编码规范重写安全 / 测试章节并移除旧自研 filter 决策。
+> - `application.yml` 清理「鉴权关闭」过时注释，`application-dev.yml` 标注 Redis 会话与真实登录；compose / env 示例补齐 OIDC 与 Cookie 配置。
+> - 验证：文档 / 配置变更不涉及运行时代码；`./gradlew :server:ktlintCheck` 与 `cd apps/web && npm run build` 通过（C9 全量门禁已覆盖）。
+
+**状态**：✅ 2026-11-20 完成；C9.1 浏览器手测待人工执行。
 
 ---
 

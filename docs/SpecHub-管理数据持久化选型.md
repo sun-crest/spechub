@@ -28,7 +28,8 @@
 | 层 | 载体 | 内容 | 生命周期 |
 |---|---|---|---|
 | 内容真源 | git | `specs/` 下 OpenAPI、`docs/` 下 Markdown | 永久、可 diff/回滚/评审 |
-| 平台管理数据 | 管理 DB（durable） | 用户、角色、token hash、项目、仓库注册、团队与成员、评论、订阅、通知、评审、mock 规则、changelog、发布状态（release 标记） | 持久，必须备份；**本阶段存量数据重置，不迁移** |
+| 平台管理数据 | 管理 DB（durable） | 用户、角色、用户令牌 / 服务账号（仅 hash + 前缀）、身份绑定、项目、仓库注册、团队与成员、评论、订阅、通知、评审、mock 规则、changelog、发布状态（release 标记）、审计事件 | 持久，必须备份；**本阶段存量数据重置，不迁移** |
+| 运行时会话 / 限流 | Redis（disposable） | Spring Session（浏览器会话）、登录失败计数 / 锁定 | TTL / 过期清理；Redis 不可用时认证 fail-closed；**不纳入备份** |
 | 可重建投影 | 投影 DB（disposable） | `api` / `schema` / `doc` 投影、FTS、版本快照、draft/release 投影副本 | 可随时清空，从 git + 管理库（repo 列表 / release 标记）重扫 |
 
 ### 2.2 关键边界
@@ -39,6 +40,8 @@
 - 管理数据引用内容时使用**稳定键**：`repo_id + path`、`repo_id + method + path`、`repo_id + name`。
 - **管理库内部保留外键**（user ↔ membership、project ↔ repo 等），默认 `ON DELETE RESTRICT`，删除由 Service 显式编排。
 - **团队归管理库**：`team` / `team_member` 是组织级实体，与项目 `membership` 独立；`subscription.team_id` 为订阅归属（FK `RESTRICT`），`notification.team_id` 为投递目标（FK `SET NULL`，名称快照保留）。
+- **会话与登录限流归 Redis，不落管理库**：Spring Session 会话、登录失败计数 / 锁定键只在 Redis；会话丢失只影响重新登录，不进入管理库备份；Redis 不可用时认证 fail-closed（不降级匿名 / 内存会话）。
+- **令牌 / 审计归管理库**：`user_token` / `service_account` 只存 SHA-256 hash 与展示前缀（明文仅创建 / 轮换响应返回一次）；`audit_event` 保留 365 天并随管理库备份。
 - 投影表引用管理表的 `project_id` / `repo_id` 使用逻辑引用（不建跨库外键）。
 
 ---
@@ -296,6 +299,16 @@ modules/mock/
 - [x] `V5__team_binding_tighten.sql`：`team_member` 代理主键；B1→B2 窗口 NULL 回填、重复订阅去重、唯一键切换 `(repo_id, method, path, team_id)`、`team_id NOT NULL`、旧 `team` 列可空。
 - [x] `TeamService` / `TeamController` / 订阅 `teamId` 契约 / 通知团队可见性。
 - [x] 双库迁移/全量测试与 `apps/web` 构建通过（PostgreSQL `check`、MySQL 113 项、ktlint）。
+
+### Phase 6 · 阶段 C 身份 / 会话 / 审计（2026-11-20）
+- [x] `V6__identity_and_audit.sql`（双 vendor）：`app_user` 增加 `email`（lower 唯一）/ `password_hash` / `status` / `must_change_password` / `mfa_enabled` / `last_login_at`；新建 `user_token`（SHA-256 hash + 展示前缀；legacy / api / invite / password_reset）、`service_account`、`user_identity`、`audit_event`；旧 `app_user.token_hash` 回填 `user_token(purpose='legacy')`。
+- [x] `V7__identity_tighten.sql`：删除 `app_user.token_hash` / `is_platform_admin`；V6 后漏回填的 token 补记为 revoked legacy；旧 admin-token / 用户令牌继续按 `user_token` 认证。
+- [x] **会话不使用管理库**：Spring Session Data Redis 在 dev / prod 直接用（不做 JDBC 过渡）；namespace `spechub:session`，空闲 24h / 绝对 7d，cleanup-cron 每 15 分钟；登录限流同样走 Redis（5 次 / 5 分钟，锁 15 分钟，不可用 fail-closed）。
+- [x] **数据归属与备份范围**：
+  - 管理库（随备份）：`app_user` / `org_membership` / `user_token` / `service_account` / `user_identity` / `audit_event` 及既有管理表；
+  - Redis（不备份、可丢失）：Spring Session 会话、登录限流键；丢失后重新登录即可；
+  - 投影 SQLite 仍为可重建派生，不备份。
+- [x] 双库迁移与全量测试：`ManagementDbMigrationTest` V5→V6→V7 + 空库 V1→V7；PostgreSQL `check` 248 tests / MySQL 199 tests / ktlint / web build 全绿。
 
 ---
 

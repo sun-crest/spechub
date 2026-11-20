@@ -154,6 +154,8 @@ H5 的 Monaco 双栏方向对，语义明确为：**编辑 `specs/xxx/openapi.ya
 | 接口详情三段式（含溯源区，H3） | Doc 域全文检索（K2） | YAML↔JSON 互转双栏 |
 | Monaco 编辑 + commit 确认（H4/H5） | 评论（I5） | 环境变量 / 订阅流等平台能力 |
 
+> 阶段 C（P2.7）已完成 RBAC / 会话 / 账号安全 UI（登录、账号与安全、服务账号、审计），见 §6.4；上表保留为 H 组历史范围。
+
 ### 6.2 需后端配合的小扩展
 
 1. **溯源区对外拆字段**：`GET /apis/{id}` 返回值补 `specHash` / repo 元数据（url / branch / syncStatus）。数据在库里有，只差序列化层拆出来。`ApiRecord` 加对应字段或聚合时带上 `RepoRecord`。
@@ -166,13 +168,29 @@ H5 的 Monaco 双栏方向对，语义明确为：**编辑 `specs/xxx/openapi.ya
 - 组件库 **shadcn/ui（Tailwind v4；新默认 Base UI 引擎，已真码试桩验证）**：方法色 / 紧凑表格 / 双主题都可控；主题 OKLCH 映射已跑通（`apps/web-spike`，试桩可收编或删）。
 - 路由建议用 React Router；状态管理先不引（列表 + 详情 + 编辑器三个页面，props 足够，避免 Redux 类重镇）。
 
+### 6.4 阶段 C 账号与安全（C8 落地）
+
+> 阶段 C（P2.7）把 H6 的登录占位升级为真实账号体系；本节记录**已落地**的 UI 契约，替代 §6.1 中「RBAC 真实落地延后」的旧假设。
+
+- **登录框 `LoginDialog`**：默认「用户名或邮箱 + 密码」；OIDC 启用时显示「使用 SSO 登录」（相对路径，同源跳转）；「使用令牌登录」折叠为高级选项（兼容 admin-token / 用户 API 令牌，仅用于换取 Spring Session，不写 localStorage）；错误统一展示（不区分用户不存在 / 密码错误），429 提示「尝试过于频繁」。
+- **启动与鉴权**：所有环境启动即探测 `/api/auth/status` + `/api/auth/me`；无会话一律弹登录框（**无 dev 免登录 / `authEnabled=false` 分支**）；`mustChangePassword=true` 强制打开改密且改密前不可关闭；任意 API 401 清空当前用户并回到登录框。
+- **账号菜单**：「账号与安全…」（所有人）、「服务账号…」（当前项目 admin+ / org_admin）、「审计日志…」（org_admin）、「团队管理…」、「退出登录」（`POST /api/auth/logout`）。
+- **账号与安全 `SecurityDialog`**：
+  - 资料：用户名 / 邮箱 / 状态 / 组织角色 / 当前登录方式 / OIDC 启用状态（只读，不提供解绑）；
+  - 修改密码：当前密码（首次 / 重置后隐藏）+ 新密码 + 确认；
+  - 活动会话：脱敏 id / IP / User-Agent / 创建时间 / 最近访问 / 当前会话标记，可吊销单条或其它全部；
+  - 我的令牌：前缀 / 名称 / 过期 / 最近使用 / 状态；创建（名称 + 1–365 天）时明文只显示一次并提供复制；可吊销。
+- **服务账号 `ServiceAccountDialog`**：项目选择（默认当前项目）、列表（名称 / 角色 / 前缀 / 过期 / 最近使用 / 状态）、创建（viewer|editor，1–365 天）、轮换 / 吊销（二次确认）；密钥只显示一次。
+- **审计 `AuditDialog`**：actor / action / targetType / outcome / 时间范围过滤；表格列 = 时间 / 操作者 / 动作 / 目标 / 结果 / IP / 摘要；分页 50 条 / 页；项目 admin / 非 org_admin 不显示入口。
+- **浏览器安全边界**：只持有 HttpOnly `spechub_session` Cookie；CSRF token 仅内存，非 GET/HEAD 请求带 `X-CSRF-Token`；不同步任何长期令牌到 localStorage（加载时清除历史 `spechub.admin-token`）。
+
 ---
 
 ## 7. 开放问题
 
 - **O1（已向用户提出）· 保存是否强制 diff 确认**：编辑保存时强制走「diff 预览 + 提交信息」步骤，最契合「可信」叙事但多一步操作；偏 YApi 的旧用户（§9 R1 收编诉求）会嫌重。待拍板：强制确认 / 可配置（默认开）/ 仅对「新建」强制。
 - **O2 · draft / release 开关在 I6 落地前**：UI 先做开关占位，I6 前语义 = release 即当前快照、开关仅切换无 draft 数据时的空态提示。是否接受此中间态？
-- **O3 · 登录形态**：H6 用 admin token 简单登录占位（对齐 E8 `--seed-admin`），还是直接引 OIDC 骨架？后者工程量大，倾向前者占位、P2 I4 一起换。
+- **O3 · 登录形态** → ✅ 阶段 C 已定案（2026-11-20）：Spring Security 双链 + Spring Session Data Redis；密码 / OIDC / 兼容令牌登录，Web 不持久化长期令牌（详见 §6.4）。
 
 ---
 

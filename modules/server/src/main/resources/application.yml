@@ -28,7 +28,7 @@ spring:
       # Java 25 虚拟线程（§7 选型：MVC 阻塞 + 虚拟线程，mock/调试请求的天然载体）
       enabled: true
   profiles:
-    # 默认 dev（本地/最小部署鉴权关闭）；生产显式 SPRING_PROFILES_ACTIVE=prod
+    # 默认 dev（与 prod 使用同一套真实登录；不存在免登录模式）；生产显式 SPRING_PROFILES_ACTIVE=prod
     default: dev
 
 server:

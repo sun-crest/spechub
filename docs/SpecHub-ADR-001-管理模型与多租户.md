@@ -597,6 +597,11 @@ waitlist（申请制） → 邀请 50 家 → 灰度 10% → 50% → 100%
 6. `review`、`comment`、`mock_rule`、`changelog`、`notification`、`release_marker` 补 `org_id`。
 7. 所有迁移按现有纪律分 vendor（PostgreSQL / MySQL）维护 Flyway；不破坏现有数据，不做重置。
 8. 阶段 A 的迁移为 `V3__multi_project.sql`，已在 PostgreSQL 18.6 与 MySQL 8.4 上由 `ManagementDbMigrationTest` 验证「V1/V2 有数据 → V3」回填与空库 V1→V3。
+9. （阶段 C）`V6__identity_and_audit.sql` / `V7__identity_tighten.sql`，双 vendor：
+   - V6 给 `app_user` 增加 `email` / `password_hash` / `status` / `must_change_password` / `mfa_enabled` / `last_login_at`，新建 `user_token` / `service_account` / `user_identity` / `audit_event`；旧 `app_user.token_hash` 逐行回填为 `user_token(purpose='legacy')`；**不建会话表**。
+   - V7 删除 `app_user.token_hash` / `is_platform_admin`；V6 之后漏回填的 token 补记为 revoked legacy；`org_membership.org_role` 关系不变。
+   - **会话直接使用 Spring Session Data Redis**（不引入 `spring-session-jdbc`，无 JDBC 过渡）：namespace `spechub:session`，空闲 24h / 绝对 7d，cleanup-cron 每 15 分钟；Redis 不参与管理库备份。
+   - 旧 admin-token / 用户令牌经 `user_token` 继续有效；Web 浏览器改为 HttpOnly 会话 + CSRF，不再持久化长期令牌。迁移由 `ManagementDbMigrationTest` 在 PostgreSQL / MySQL 双库覆盖。
 
 ---
 
@@ -659,17 +664,17 @@ waitlist（申请制） → 邀请 50 家 → 灰度 10% → 50% → 100%
 ## 13. 开放问题
 
 1. `visibility` 三档是否足够？`public` 是否需要独立域名/门户与备案要求。
-2. 服务账号是否提前到阶段 A（CI/MCP 现在就需要项目级凭据）。
+2. ~~服务账号是否提前到阶段 A（CI/MCP 现在就需要项目级凭据）。~~ ✅ 阶段 C 落地（2026-11-20）：项目级 `service_account`（viewer / editor，默认 90 天，轮换 / 吊销立即生效，跨项目 404）；未提前到 A。
 3. 每租户 SQLite 与共享 PostgreSQL 的切换拐点（租户数、索引大小、并发）。
 4. RLS 是否在阶段 A 就上，还是 D1；MySQL 客户的隔离承诺如何表述。
-5. SSO 优先级：OIDC / SAML / SCIM；是否需要多 IdP。
+5. ~~SSO 优先级：OIDC / SAML / SCIM；是否需要多 IdP。~~ ✅ 阶段 C 定案（2026-11-20）：先 OIDC（单 IdP，`oauth2Login` + PKCE + 已验证邮箱，auto-provision 默认关）；SAML / SCIM / 多 IdP 延后至 D2+。
 6. `repo_mirror` 是否在 D1 提供，还是更晚；镜像失败是否告警。
 7. binding flip 的回滚窗口时长（建议 30 天）。
 8. 平台托管 git 的定价与数据责任（备份、SLA、DPA）。
 9. 计费系统选型（Stripe / 国内支付）与 N2 的边界。
 10. 数据驻留区域与跨境合规。
 11. ~~UI 文案：`team` 对外叫「团队」还是「分组」。~~ ✅ 阶段 B 已定案（2026-11-19）：对外统一叫「团队」。
-12. 平台运营登录使用哪个 IdP、是否独立域名、是否要求 IP 白名单。
+12. ~~平台运营登录使用哪个 IdP、是否独立域名、是否要求 IP 白名单。~~ → D1（平台运营控制面），不在阶段 C；C 只做租户内 `org_admin`。
 
 ---
 
@@ -708,6 +713,7 @@ waitlist（申请制） → 邀请 50 家 → 灰度 10% → 50% → 100%
 ### 阶段 C
 
 - 禁用用户后其会话与 token 立即失效；服务账号只能访问所属项目；密码/OIDC 登录可用。
+- ✅ 2026-11-20 落地（C0–C10）：双链认证 / Spring Session Redis / 密码 / OIDC / 服务账号 / 审计 / 双库迁移与测试门禁见 [阶段 C 任务拆解](SpecHub-阶段C任务拆解.md)。
 
 ### 阶段 D1
 

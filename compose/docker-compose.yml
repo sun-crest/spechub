@@ -95,8 +95,18 @@ services:
       SPECHUB_DB_URL: jdbc:postgresql://db:5432/spechub
       SPECHUB_DB_USER: spechub
       SPECHUB_DB_PASSWORD: ${SPECHUB_DB_PASSWORD:-spechub}
-      # Spring Session Data Redis（阶段 C：所有环境同一种会话实现）
-      SPECHUB_REDIS_URL: redis://redis:6379
+      # Spring Session Data Redis（阶段 C：所有环境同一种会话实现；本文件 redis 服务）
+      SPECHUB_REDIS_URL: ${SPECHUB_REDIS_URL:-redis://redis:6379}
+      # Cookie：prod（HTTPS）必须 Secure；dev 本地 HTTP 默认 false
+      SPECHUB_SESSION_COOKIE_SECURE: ${SPECHUB_SESSION_COOKIE_SECURE:-false}
+      # C6：OIDC（可选；enabled=false 时不注册 oauth2Login）
+      SPECHUB_OIDC_ENABLED: ${SPECHUB_OIDC_ENABLED:-false}
+      SPECHUB_OIDC_ISSUER_URI: ${SPECHUB_OIDC_ISSUER_URI:-}
+      SPECHUB_OIDC_CLIENT_ID: ${SPECHUB_OIDC_CLIENT_ID:-}
+      SPECHUB_OIDC_CLIENT_SECRET: ${SPECHUB_OIDC_CLIENT_SECRET:-}
+      SPECHUB_OIDC_REDIRECT_URI: ${SPECHUB_OIDC_REDIRECT_URI:-}
+      SPECHUB_OIDC_AUTO_PROVISION: ${SPECHUB_OIDC_AUTO_PROVISION:-false}
+      SPECHUB_OIDC_REQUIRE_VERIFIED_EMAIL: ${SPECHUB_OIDC_REQUIRE_VERIFIED_EMAIL:-true}
       # profile：dev / prod 都要求真实登录；SPECHUB_ADMIN_TOKEN 缺失/空串 → 启动失败
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
       SPECHUB_ADMIN_TOKEN: ${SPECHUB_ADMIN_TOKEN:-}

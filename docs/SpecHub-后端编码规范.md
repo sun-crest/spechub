@@ -178,8 +178,8 @@ data class LoginRequest(
 
 ### 7.2 环境
 
-- `[推]` 引入 profile：`application.yml`（公共）+ `application-dev.yml` / `application-prod.yml` 差分；**默认值只为开发友好，生产必须显式提供**（admin-token 等安全项默认空 = 鉴权关闭，已在代码注释声明，保持该默认但要求 prod 覆盖）。
-- `[推]` 敏感配置（token、外部凭据）仅经环境变量/secret 注入，**不进 `application*.yml` 入库**（现 `adminToken` 即环境注入，符合）。
+- `[推]` 引入 profile：`application.yml`（公共）+ `application-dev.yml` / `application-prod.yml` 差分；**所有 profile `spechub.require-admin-token=true`，`SPECHUB_ADMIN_TOKEN` 缺失/空串启动失败**；不存在 `authEnabled=false` / dev 免登录，dev 也必须真实登录（admin-token / 密码 / OIDC → Spring Session）。
+- `[推]` 敏感配置（token、外部凭据、OIDC client-secret）仅经环境变量 / secret 注入，**不进 `application*.yml` 入库**（现 `adminToken` / OIDC 配置即环境注入，符合）。
 
 ---
 
@@ -192,18 +192,31 @@ data class LoginRequest(
 
 ---
 
-## 9. 安全
+## 9. 安全（阶段 C 起）
 
-- `[强]` 现状自研 `TokenAuthFilter`（Bearer + `AuthService`）是 **MVP 期决策，不否定但不扩展其架构**：**禁止继续往 filter 的 URL 白名单里加前缀**来放行新能力（现状 `/mock` 放行已属例外，须在代码注释标注理由）。
-- `[强]` 新增受保护端点**默认拒绝，显式声明**：一次性令牌在内存校验过的端点留注释；凡涉及写操作，必须「鉴权 + 角色 ≥ editor」或在端点注释里说明为何豁免。
-- `[推]` 正式化鉴权时整体评估 Spring Security（`@PreAuthorize` + 方法级），替代「每个 Controller 复制一份 `requireManager`」；**在此之前，抽取鉴权决策到 `AuthService` 单一入口**即可（现状 `requireManager` 三处重复已在 `AuthService` 侧可收敛）。
-- `[强]` token 只存摘要（`sha256`，现状正确），日志/响应体一律不回显完整令牌。
+### 9.1 认证与授权架构
+
+- `[强]` **Spring Security 双链**（`SecurityConfig`）：
+  - **Bearer API 链**只匹配 `Authorization: Bearer`，`STATELESS`、无 CSRF、无会话；用户 API 令牌 / 服务账号。
+  - **Web Session 链**承载密码 / OIDC 登录、Spring Session Data Redis 会话、CSRF 与安全头。
+  - 两条链都**默认拒绝**；任何 `permitAll` 必须显式列出、有注释与测试覆盖，禁止「往 URL 白名单加前缀」放行新能力。
+- `[强]` **所有环境真实登录**：不存在 `authEnabled=false` / dev 放行链；`SPECHUB_ADMIN_TOKEN` 必填，admin-token 仅 bootstrap / break-glass。
+- `[强]` **域授权单入口**：认证只管 principal；org / project / team 角色一律经 `AuthService` / `AuthzService` **每请求查库**（不把角色放进 authorities，避免角色变更不生效）。
+- `[强]` **principal 最小可序列化**：会话只存 `AppUserPrincipal` / `OidcAppUserPrincipal` 等最小字段；不把实体、`OidcUser`、IdP token 写入 session；新增 principal 字段须可序列化并有测试。
+- `[强]` **CSRF**：会话写请求必须带 `X-CSRF-Token`（登录 / `/api/auth/me` 返回，前端仅存内存）；Bearer 链豁免。Cookie 统一 HttpOnly + SameSite=Lax，prod 加 Secure。
+- `[强]` **密码**：Argon2id；10–128，禁止等于用户名 / 邮箱；登录失败统一 401；Redis 登录限流（5 次 / 5 分钟，锁 15 分钟）fail-closed。
+- `[强]` **令牌**：`user_token` / `service_account` 只存 SHA-256 hash + 展示前缀（`shu_` / `shs_`），明文仅创建 / 轮换响应返回一次；日志 / 审计 / 响应一律不回显令牌、密码、Cookie。服务账号只在其 `projectId` 生效，不可登录 Web。
+- `[强]` **Redis 不可用**：登录 / 会话 / 限流 fail-closed（5xx / 无法建立会话），禁止降级匿名或内存会话。
+- `[强]` **迁移纪律**：V6 先加列 / 建表 / 回填，V7 再删 `app_user.token_hash` / `is_platform_admin`；V7 与代码同窗口发布；旧 token 经 `user_token` 兼容；grep 门禁清零后才能删列。
 
 ---
 
 ## 10. 测试
 
 - `[强]` `@SpringBootTest` 一律沿用 `TestDbIsolation` 模式（每测试类 `@TempDir` + `@DynamicPropertySource` 全新投影目录）；**禁止**新增共享固定目录的集成测试（历史 `SQLITE_BUSY` 教训）。
+- `[强]` 阶段 C 起**所有集成测试走真实登录 / Bearer**：`SPECHUB_ADMIN_TOKEN` 由 `server/build.gradle.kts` 的 test 任务统一注入；测试类可覆盖 token；**禁止 anonymous / 免登录模式**。会话写请求必须带 CSRF（真实 token 或 `spring-security-test`）。
+- `[强]` 管理库 / Redis 隔离：`TestManagementDb` 每测试类独立 schema + 独立 session namespace，并在类级上下文创建时清空限流键；不得依赖上一测试类的会话 / 登录失败计数。
+- `[推]` 迁移测试覆盖 PostgreSQL / MySQL 双库（`ManagementDbMigrationTest`：V5→V6→V7、空库 V1→V7、约束与旧 token 兼容）。
 - `[强]` kernel 层逻辑（解析/升级/索引/git 行为）以**纯 JVM 单测**覆盖（无 Spring context），保 CI 快；server 层以**端到端 REST 测试**覆盖契约（现状 `web/*Test` 已是范本）。
 - `[推]` 断言统一一种风格（现状 `json-path` + Kotlin `assertEquals`），新测试尽量同一家族，**别在同一类里混两套断言**。
 - `[推]` 每新增端点配至少「happy path + 鉴权拒绝 + 参数非法」三类用例（对应 §2.3 错误契约）。
@@ -227,7 +240,7 @@ data class LoginRequest(
 | 决策 | 为什么保留 | 规则边界 |
 |---|---|---|
 | kernel 零 Spring / 零 Web 依赖 | §7.4 硬依赖约束；解析/索引/存储与框架解耦，可独立演进与测试 | 只在 kernel 内部严禁框架；server 装配层可正常用 Spring |
-| 自研 Bearer 鉴权（而非 Spring Security） | MVP 期对外接口有限、无外部消费者；最小面替代 | 见 §9：不扩白名单、正式化时整体评估 |
+| Spring Security 双链（而非自研 filter） | 阶段 C 起统一认证 / 会话 / CSRF / 安全头，并接 OIDC 与审计 | 见 §9：Bearer 链无会话；Web 链默认拒绝；不得回退到 URL 白名单式 filter |
 | `@ConfigurationProperties` 单类承载全部 `spechub.*` | 配置总量小、聚查看；分拆成本 > 收益 | 超过 ~10 个键或出现明显分域（如 `mock.*`/`ingest.*`）再分 |
 | actuator 仅暴露 `health,info` | 单机 compose 部署，healthcheck 已够 | 加多副本/外部监控时再开 `prometheus` metrics |
 | 错误 `message` 中文化 | 面向内部团队的确定性达意 | 中文只入 `message`，**机器分支必须靠 `code`**（§2.2），不得反依赖 |
@@ -236,6 +249,8 @@ data class LoginRequest(
 ---
 
 ## 13. 存量收敛（暂不改代码，作为 backlog）
+
+> 阶段 A–C 已消化下列 1 / 2 / 4 / 6 / 7（统一错误契约、`AuthService` 收敛、DTO 注解化、ktlint 门禁、springdoc/Knife4j）；余项继续按「成本低、收益高」排序入开发计划。
 
 按「成本低、收益高」排序，入开发计划排期：
 

@@ -1,5 +1,7 @@
 # 默认开发 profile：与 prod 使用同一套真实登录（admin-token / 密码 / OIDC → Spring Session）。
 # admin-token 由 .env 的 SPECHUB_ADMIN_TOKEN 提供；缺失/空串启动失败，不存在免登录模式。
+# Spring Session Data Redis 与登录限流使用 application.yml 的 spring.data.redis.url
+# （SPECHUB_REDIS_URL，默认 redis://localhost:6379）；dev / prod 同一实现，只换连接串。
 # R11：文档端点公开（/v3/api-docs、/doc.html、/webjars/**），Knife4j 增强启用。
 spechub:
   require-admin-token: true

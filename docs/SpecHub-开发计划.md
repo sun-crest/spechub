@@ -1,7 +1,7 @@
 # SpecHub 开发计划
 
 > **关联**：主线方案见 [SpecHub-产品方案.md](SpecHub-产品方案.md)（产品真源）；本文件是**开发任务拆解真源**，随进度勾选更新。
-> **日期**：2026-11-19　**状态**：**P0–P2.6 全部完成；P2.7（阶段 C 账号与审计）C0 已确认、C1–C10 待启动**——P0 存储内核、P1 双写闭环、P2 平台化（I+J+K）、P2.5 多项目骨架（A0–A10）、P2.6 团队与跨团队订阅（B0–B8）全部勾选；管理库 PostgreSQL / MySQL 双库全绿（MySQL 113 项），`./gradlew check` 与 `apps/web` 构建通过。P3（IDE 插件 / 契约测试 / 云托管）待规划。
+> **日期**：2026-11-20　**状态**：**P0–P2.7 全部完成**——P0 存储内核、P1 双写闭环、P2 平台化（I+J+K）、P2.5 多项目骨架（A0–A10）、P2.6 团队与跨团队订阅（B0–B8）、P2.7 账号与审计（C0–C10 自动化门禁）全部勾选；管理库 PostgreSQL / MySQL 双库全绿（PG `check` 248 tests / MySQL 199 tests），`apps/web` 构建通过。C9.1 浏览器手测待人工执行；P3（IDE 插件 / 契约测试 / 云托管）待规划。
 
 ---
 
@@ -170,7 +170,7 @@
 
 > **详细任务拆解**：[SpecHub-阶段C任务拆解.md](SpecHub-阶段C任务拆解.md)（C0–C10，含依赖、文件落点、安全门禁、手动 e2e 清单）
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
-> **状态**：C0 / C1 / C2 / C3 / C4 / C5 / C6 / C7 已完成；C8–C10 待启动
+> **状态**：C0–C10 已完成（自动化门禁通过；C9.1 浏览器手测待人工执行）
 > **认证基线**：阶段 C 起本地与生产使用同一套真实登录（admin-token / 密码 / OIDC + Spring Session Data Redis，机器用 Bearer）；不保留 dev 免登录或放行链，不做 JDBC 会话过渡。
 > **C0 结论**：Spring Security 双链 + Spring Session Data Redis + Redis 登录限流；全环境真实登录；Argon2id；项目级服务账号；OIDC `oauth2Login`；独立 `audit_event`。
 
@@ -182,11 +182,11 @@
 - [x] C5 项目级服务账号（`ServiceAccountAuthenticationProvider`、CRUD / 轮换 / 跨项目隔离、MCP / CLI 文档）✅ 2026-11-20（审计写点待 C7）
 - [x] C6 OIDC 登录（`oauth2Login`、单 IdP、PKCE、身份绑定、auto-provision 默认关）✅ 2026-11-20（审计写点待 C7）
 - [x] C7 管理动作审计（`audit_event`、关键写点接入、`GET /api/audit`、保留策略；可补 Spring Security 事件）✅ 2026-11-20
-- [ ] C8 前端账号与安全改造（登录框、账号与安全 / 活动会话、服务账号、审计页、去掉 localStorage 长期令牌、无 dev 免登录）
-- [ ] C9 测试矩阵与双库验证（迁移 V5→V6→V7、SecurityConfig、真实登录 / Redis 会话 / 密码 / 禁用 / 服务账号 / OIDC / 审计、手动 e2e）
-- [ ] C10 文档与收尾（README、ADR §13 回填、持久化选型 Phase 6、运维手册、UI 方案、编码规范）
+- [x] C8 前端账号与安全改造（登录框、账号与安全 / 活动会话、服务账号、审计页、去掉 localStorage 长期令牌、无 dev 免登录）✅ 2026-11-20
+- [x] C9 测试矩阵与双库验证（迁移 V5→V6→V7、SecurityConfig、真实登录 / Redis 会话 / 密码 / 禁用 / 服务账号 / OIDC / 审计；PG 248 tests / MySQL 199 tests / ktlint / web build）✅ 2026-11-20（C9.1 浏览器手测待人工执行）
+- [x] C10 文档与收尾（README、ADR §13 回填、持久化选型 Phase 6、运维手册、UI 方案、编码规范）✅ 2026-11-20
 
-**P2.7 验收**：Spring Security + Spring Session Data Redis 的 Web 会话与 Bearer API 双链可用；本地与生产都通过真实 admin-token / 密码 / OIDC 或 Bearer 访问，无 dev 免登录；浏览器不再把长期令牌放 localStorage；禁用用户所有会话与令牌立即失效；服务账号只能访问所属项目；管理动作审计可查；V5→V6→V7 在 PostgreSQL / MySQL 双库通过，Redis 会话 / 限流集成测试通过。
+**P2.7 验收**：Spring Security + Spring Session Data Redis 的 Web 会话与 Bearer API 双链可用；本地与生产都通过真实 admin-token / 密码 / OIDC 或 Bearer 访问，无 dev 免登录；浏览器不再把长期令牌放 localStorage；禁用用户所有会话与令牌立即失效；服务账号只能访问所属项目；管理动作审计可查；V5→V6→V7 在 PostgreSQL / MySQL 双库通过，Redis 会话 / 限流集成测试通过。✅ 2026-11-20：`./gradlew check --rerun-tasks`（PG，248 tests）、`./gradlew :server:test -Dspechub.test.db=mysql --rerun-tasks`（199 tests）、`:server:ktlintCheck`、`apps/web npm run build` 全绿；C9.1 浏览器手测待人工执行。
 
 ---
 

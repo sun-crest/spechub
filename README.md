@@ -55,30 +55,33 @@ spechub/
 | **Docker + Compose** | — | ⚠️ 建议（起管理库 / 全套） | PostgreSQL 管理库、可选 gitea / 容器化 backend | 本机已有 PostgreSQL 18.6 / MySQL 8.4 时可不装；集成测试用 Testcontainers 也需要 Docker |
 | **Gradle** | 9.9.1 wrapper | 由 `./gradlew` 提供，无需预装 | — | — |
 | **PostgreSQL**（或 MySQL 8.4） | 18.6（参考默认值） | ✅ | 管理库：项目 / 仓库 / 用户 / 评论等 | **Phase 2 起后端启动必需**；Flyway 自动建表，`SPECHUB_DB_*` 可改地址与凭据 |
+| **Redis** | 7.x（compose `redis:7.4.2-alpine`） | ✅ | Spring Session 会话与登录限流 | **阶段 C 起必需**；`SPECHUB_REDIS_URL` 默认 `redis://localhost:6379`；不可用时认证 fail-closed |
 | **SQLite** | 内嵌 `sqlite-jdbc` | 无需安装 | 索引存储 `spechub-index.db` | 无独立数据库服务 |
 
 ### 启动方式
 
 **方式 A · docker compose（含 gitea，贴近生产）**
 ```bash
-docker compose -f compose/docker-compose.yml up -d --build   # gitea(:3000) + backend(:8080)，Dockerfile 内自动 bootJar
+cp compose/.env.example compose/.env        # 至少覆盖 SPECHUB_ADMIN_TOKEN（缺失/空串启动失败）
+docker compose -f compose/docker-compose.yml up -d --build   # gitea(:3000) + db + redis + backend(:8080)
 cd apps/web && npm install && npm run dev   # → http://localhost:5173（被占顺延 5174），/api 代理到 :8080
 ```
 
 **方式 B · 本地目录档（本地管理库 + 纯本地 git 仓，无需 gitea / backend 容器）**
 
-> Phase 2 起管理库是后端启动硬依赖（Flyway 启动自动建表）。没有本机 PostgreSQL 时用下面的 compose 只起 db；已有 PG / MySQL 则跳过第 1 步，建一个空库并把 `SPECHUB_DB_*` 指向它。
+> Phase 2 起管理库是后端启动硬依赖（Flyway 启动自动建表）；阶段 C 起 **Redis 也是硬依赖**（Spring Session + 登录限流）。没有本机 PostgreSQL / Redis 时用下面的 compose 只起 db / redis；已有 PG / MySQL / Redis 则跳过第 1 步，建一个空库并把 `SPECHUB_DB_*` / `SPECHUB_REDIS_URL` 指向它。
 
 ```bash
-# 1) 管理库：compose 只起 postgres:18.6（localhost:5432，spechub/spechub）
-docker compose -f compose/docker-compose.yml up -d --wait db
+# 1) 管理库 + Redis：compose 只起 postgres:18.6（localhost:5432，spechub/spechub）与 redis:7.4（localhost:6379）
+docker compose -f compose/docker-compose.yml up -d --wait db redis
 
-# 2) 后端 bootJar + 起服务（SPECHUB_* 三个目录启动时自动创建）
+# 2) 后端 bootJar + 起服务（SPECHUB_* 三个目录启动时自动创建；admin-token 必填）
 ./gradlew :server:bootJar
 SPECHUB_GIT_SOURCE_DIR=/tmp/spechub-gitsource SPECHUB_SQLITE_DIR=/tmp/spechub-sqlite \
   SPECHUB_ARTIFACTS_DIR=/tmp/spechub-artifacts \
   SPECHUB_DB_URL=jdbc:postgresql://localhost:5432/spechub SPECHUB_DB_USER=spechub \
-  SPECHUB_DB_PASSWORD=spechub \
+  SPECHUB_DB_PASSWORD=spechub SPECHUB_REDIS_URL=redis://localhost:6379 \
+  SPECHUB_ADMIN_TOKEN=dev-admin-token \
   java -jar modules/server/build/libs/spechub-server.jar --server.port=18080 &
 
 # 3) 一个本地 bare origin（真源仓），注册即摄取
@@ -89,7 +92,7 @@ git init -q --bare -b main /tmp/spechub-origin
 cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
 ```
 
-> 管理库连接默认值即 `jdbc:postgresql://localhost:5432/spechub` + `spechub/spechub`，与上面 compose 的 db 完全一致；本段 `SPECHUB_DB_*` 显式写出，便于切换到 MySQL 或远程库时直接替换。
+> 管理库连接默认值即 `jdbc:postgresql://localhost:5432/spechub` + `spechub/spechub`，与上面 compose 的 db 完全一致；Redis 默认 `redis://localhost:6379`。本段 `SPECHUB_DB_*` / `SPECHUB_REDIS_URL` 显式写出，便于切换到 MySQL / 远程服务时直接替换。
 
 ### 多项目（阶段 A）
 
@@ -144,6 +147,46 @@ curl -s "http://localhost:8080/api/subscriptions/notifications?teamId=$TID"
 - **删除保护**：有订阅的团队不能删除（409），先取消订阅；团队删除后历史通知保留（`team_id` 置 NULL）。
 - **旧数据**：V4/V5 迁移把旧 `subscription.team` 文本按同组织同名合并为 `team` 行并回填 `team_id`；旧列保留为只读快照，D1 清理。
 - **Web**：账号菜单 →「团队管理」创建团队、管理成员；接口详情 →「订阅」Tab 选择团队订阅；通知面板按「我的团队」展示并可按团队筛选。
+
+### 账号与安全（阶段 C）
+
+**架构**：Spring Security 双链 + Spring Session Data Redis（dev / prod 同一实现）。
+- **Web 链**：浏览器会话 Cookie `spechub_session`（HttpOnly + SameSite=Lax；prod 加 Secure）；密码 / OIDC 登录；会话写请求必须带 CSRF（`X-CSRF-Token`）；空闲 24h / 绝对 7 天。
+- **Bearer 链**：`Authorization: Bearer <token>`，无会话、无 CSRF；用户 API 令牌 / 项目级服务账号。
+- **所有环境都必须真实登录**：没有 `authEnabled=false` / dev 免登录；Redis 不可用时认证 fail-closed（不降级匿名 / 内存会话）。
+
+**首次 bootstrap（dev 与生产一致）**：`.env` 配置 `SPECHUB_ADMIN_TOKEN` → 用 `admin` + 该 token 调用 `POST /api/auth/login` 换取 Spring Session → Web「账号与安全 → 修改密码」设置密码（或绑定 OIDC）→ 之后用密码 / OIDC 登录。admin-token 仅保留 bootstrap / break-glass。
+
+```bash
+# 会话登录（返回 csrfToken，并写入 HttpOnly Cookie）
+curl -s -c .cookies -H 'Content-Type: application/json' \
+  -d '{"username":"admin","token":"dev-admin-token"}' http://localhost:8080/api/auth/login
+
+# 会话写请求：Cookie + CSRF
+curl -b .cookies -H 'X-CSRF-Token: <csrfToken>' -H 'Content-Type: application/json' \
+  -d '{"name":"支付平台","slug":"payments"}' http://localhost:8080/api/projects
+
+# 机器调用：Bearer（无 Cookie / CSRF）
+curl -H "Authorization: Bearer $SPECHUB_TOKEN" http://localhost:8080/api/projects
+```
+
+**登录方式**：用户名或邮箱 + 密码；OIDC（`SPECHUB_OIDC_ENABLED=true`，回调 `${SPECHUB_EXTERNAL_URL}/login/oauth2/code/spechub`）；兼容令牌登录（登录框高级选项，仅换取会话，不再写 localStorage）。
+
+**令牌类型与前缀**（服务端只存 SHA-256 hash 与展示前缀，明文仅在创建 / 轮换响应返回一次）：
+
+| 类型 | 前缀 | 说明 |
+|---|---|---|
+| 用户 API 令牌 | `shu_` | Web「账号与安全 → 我的令牌」创建；1–365 天过期、可吊销；吊销后立即 401 |
+| 服务账号令牌 | `shs_` | 项目级机器身份；viewer 只读 / editor 可写；默认 90 天；不可登录 Web |
+| legacy / admin-token | 无前缀 | 由旧 `app_user` 令牌列迁移；V7 后仍有效；只用于 bootstrap / 兼容 |
+
+**服务账号**：Web「服务账号」入口（当前项目 admin+ / org_admin）按项目创建、轮换、吊销；跨项目访问统一 404；用于 CI / MCP / CLI。
+
+**审计**：`org_admin` 在 Web「审计日志」查询登录 / 禁用 / 会话 / 令牌 / 服务账号 / 项目 / 团队动作（`GET /api/audit`，过滤 + 分页）；保留 365 天；`detail` 不含密码 / 令牌 / Cookie。
+
+**CLI / MCP**：`SPECHUB_TOKEN` 传 `shu_` 或 `shs_`，Bearer 请求无需 Cookie / CSRF；MCP 写工具还需 `SPECHUB_ALLOW_WRITE=1`，服务账号 viewer 只读、editor 可写。详见 [apps/mcp/README.md](apps/mcp/README.md) / [apps/cli/README.md](apps/cli/README.md)。
+
+**Web 端**：启动探测 `/api/auth/status` + `/api/auth/me`，未认证弹登录框；`mustChangePassword` 强制改密；账号菜单含「账号与安全」（资料 / 改密 / 活动会话 / 令牌）、「服务账号」、「审计日志」、「团队管理」；浏览器的 localStorage 不保存任何长期令牌。
 
 **质量门禁（R12）**：`./gradlew check`（ktlintCheck + Jackson 2 源码校验 + 全量测试）；CI 见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。单独跑格式检查/修复：`./gradlew ktlintCheck` / `./gradlew ktlintFormat`。
 
