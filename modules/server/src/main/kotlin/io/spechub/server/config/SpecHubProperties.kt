@@ -43,6 +43,8 @@ data class SpecHubProperties(
     @field:Min(60) val sessionAbsoluteTimeoutSeconds: Long = 7L * 24 * 3600,
     /** binding flip 后旧 binding 的回滚窗口（天）：窗口内禁止删除 retired binding（ADR §4.4） */
     @field:Min(0) val repoBindingRollbackDays: Long = 30,
+    /** C7：审计保留天数（每日清理更早的 audit_event） */
+    @field:Min(1) val auditRetentionDays: Long = 365,
     // R11 文档端点是否公开：dev 默认 true，放行 api-docs / doc.html / webjars；
     // prod 置 false 并关闭 springdoc/knife4j，文档仍受鉴权保护（401）。
     val openapiPublic: Boolean = true,

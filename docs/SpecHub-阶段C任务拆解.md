@@ -1,6 +1,6 @@
 # SpecHub · 阶段 C 任务拆解（账号与审计）
 
-> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 / C5 / C6 已完成；C7–C10 待启动
+> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 / C5 / C6 / C7 已完成；C8–C10 待启动
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **范围**：Spring Security Web 认证底座、Spring Session 分布式会话、密码 / OIDC 登录、账号禁用与邀请、可过期可吊销令牌、项目级服务账号、管理动作审计查询。
 > **不覆盖**：多组织切换 / 组织生命周期 / 平台运营控制面 / break-glass（阶段 D1）、自助注册 / 邮箱验证 / 域名认领（阶段 D2）、SAML / SCIM、MFA / WebAuthn、组织级服务账号、`project_group` / `api_group`。
@@ -50,7 +50,7 @@
 | C1 | 管理库 V6 / V7 迁移 | C0 | L | `V6__identity_and_audit.sql`、`V7__identity_tighten.sql`（PG/MySQL；会话走 Redis，不建管理库会话表） |
 | C2 | Spring Security 认证底座与领域适配 | C1 | L | `SecurityConfig` 双链（Bearer API / Web Session）、Spring Session Data Redis、`AuthenticationManager`、opaque Bearer provider、`AuthService` / `AuthzService` 适配 |
 
-> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 / V7 均已生效；V7 由 C4 同窗口切到 `target=7` 并删除旧列）；**C2 状态**：✅ 2026-11-19 完成（双链 / Session Redis / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）；**C3 状态**：✅ 2026-11-19 完成（密码登录 / 改密 / 邀请重置 / Redis 限流 / 会话属性；审计写点待 C7）；**C4 状态**：✅ 2026-11-20 完成（生命周期 / 会话管理 / 令牌管理 / V7；审计写点待 C7）；**C5 状态**：✅ 2026-11-20 完成（项目级服务账号 / 跨项目隔离 / MCP / CLI；审计写点待 C7）；**C6 状态**：✅ 2026-11-20 完成（OIDC oauth2Login / PKCE / 身份绑定 / auto-provision；审计写点待 C7）。
+> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 / V7 均已生效；V7 由 C4 同窗口切到 `target=7` 并删除旧列）；**C2 状态**：✅ 2026-11-19 完成（双链 / Session Redis / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）；**C3 状态**：✅ 2026-11-19 完成（密码登录 / 改密 / 邀请重置 / Redis 限流 / 会话属性；审计已随 C7 接入）；**C4 状态**：✅ 2026-11-20 完成（生命周期 / 会话管理 / 令牌管理 / V7；审计已随 C7 接入）；**C5 状态**：✅ 2026-11-20 完成（项目级服务账号 / 跨项目隔离 / MCP / CLI；审计已随 C7 接入）；**C6 状态**：✅ 2026-11-20 完成（OIDC oauth2Login / PKCE / 身份绑定 / auto-provision）；**C7 状态**：✅ 2026-11-20 完成（audit_event / AuditService / GET /api/audit / 保留清理；认证与管理动作写点接入）。
 
 ### 2.2 C‑2 登录与账号生命周期
 
@@ -440,7 +440,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   - 限流命中返回 429，带 `Retry-After`；新增 `ApiErrorCode.TOO_MANY_REQUESTS(429)`。
   - **不再有 `AUTH_NOT_ENABLED` / 免登录分支**：所有环境都必须登录；dev 用 `.env` 的 `SPECHUB_ADMIN_TOKEN` 首次登录，建立真实 Spring Session，再设置密码 / 绑定 OIDC。
 - [x] 首次 bootstrap 流程：`admin` + admin-token → 真实会话 → `/api/auth/password` 设置密码或 OIDC 绑定；之后用密码 / OIDC；admin-token 只做 bootstrap / break-glass。
-- [ ] 登录成功写审计 `auth.login.success`、更新 `last_login_at`；失败写 `auth.login.failure`；限流写 `auth.login.locked`（`last_login_at` 已实现；审计写点随 C7 `AuditService` 接入）。
+- [x] 登录成功写审计 `auth.login.success`、更新 `last_login_at`；失败写 `auth.login.failure`；限流写 `auth.login.locked`（C7 已接入）。
 - [x] 登录成功把 IP / User-Agent / 登录时间写入 Spring Session 属性，供活动会话列表显示；不在会话中存密码 / 令牌。
 - [x] 不在登录响应 / 日志中回显 token、密码、Cookie。
 
@@ -450,7 +450,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   - `SecurityContextLogoutHandler` + `CookieClearingLogoutHandler`；
   - Spring Session 删除当前会话；
   - 成功 handler 返回 204 JSON；未登录也返回 204（幂等）；`/api/auth/logout` 豁免 CSRF，避免无会话时 403。
-  - [ ] 审计 `auth.logout`（C7 接入）。
+  - [x] 审计 `auth.logout`（C7 已接入）。
 
 **当前用户**
 
@@ -485,12 +485,12 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
   - 已有密码时必须校验 `currentPassword`；`mustChangePassword=true` 或 `hasPassword=false` 时允许不带；
   - 更新 `password_hash` / `password_updated_at`，清 `must_change_password`；
   - 通过 `FindByIndexNameSessionRepository.findByPrincipalName(username)` 删除该用户**其它**会话（保留当前会话）；API 令牌暂不吊销（C0 决策）；
-  - [ ] 写审计 `auth.password.change`（C7 接入）。
+  - [x] 写审计 `auth.password.change`（C7 已接入）。
 - [x] `POST /api/auth/password/setup`：
   - 请求 `{token, newPassword}`；Web 链放行（无会话）；
   - 令牌 purpose 必须为 `invite` / `password_reset`，未过期、未使用、用户未禁用；
   - 设置密码、`status=active`、清 `must_change_password`、写 `used_at`；
-  - 返回 200（不自动登录，前端引导登录）；[ ] 写审计 `auth.password.setup`（C7 接入）。
+  - 返回 200（不自动登录，前端引导登录）；[x] 写审计 `auth.password.setup`（C7 已接入）。
 - [x] 密码策略校验：长度 10–128；不得等于用户名 / 邮箱；空白字符串拒绝；错误返回 400 + `fieldErrors`。
 
 **会话与 CSRF**
@@ -519,7 +519,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 - [x] `AuthApiTest` 旧 token 登录仍可用且现在建立 Spring Security 会话；`ReadIsolationTest` / `WebApiTest` 适配 Session / Bearer 双链。
 - [x] 双库全量测试、Redis 会话 / 限流集成测试与 ktlint 通过。
 
-**状态**：✅ 2026-11-19 完成（审计写点待 C7）。
+**状态**：✅ 2026-11-19 完成（审计已随 C7 接入）。
 
 ---
 
@@ -581,7 +581,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 - [x] 最后一名可登录的 `org_admin`（`app_user.status ∈ active|invited` + `org_membership.status='active'`）不可禁用 / 降级 / 删除（409，提示先指定新的 org_admin）。
 - [x] 禁用 / 重置 / 删除不可作用于当前操作者自身（删除已有保护；禁用 / 重置补齐）。
-- [ ] 所有生命周期动作写 `audit_event`；用户可见的产品流仍写 `changelog`（changelog 已写；`audit_event` 写点随 C7 `AuditService` 接入）。
+- [x] 所有生命周期动作写 `audit_event`；用户可见的产品流仍写 `changelog`（C7 已接入）。
 
 **测试**
 
@@ -596,7 +596,7 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 > - V7 对 C2/C3 轮换后的 `app_user.token_hash` 采用「补记 revoked legacy 再删列」策略（行数不再要求相等，缺失回填仍中止）；`ManagementDbMigrationTest` 已覆盖。
 > - 「最后一名可登录 org_admin」保护在 `UserLifecycleService` 统一判定；自禁用 / 自重置 / 自删除返回 400。
 
-**状态**：✅ 2026-11-20 完成（审计写点待 C7）。
+**状态**：✅ 2026-11-20 完成（审计已随 C7 接入）。
 
 ---
 
@@ -649,9 +649,9 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 - [x] `ProjectApiTest`：项目删除时服务账号清理（或 409 行为与 C0 一致）。
 - [x] 双库全量测试与 ktlint 通过。
 
-> **C5 实施说明（2026-11-20）**：服务账号 token 认证复用 C2 的 `TokenAuthenticationProvider`（先 user_token、后 service_account）；`service_account.*` 的 `audit_event` 写点随 C7 接入。MCP / CLI 继续使用 `SPECHUB_TOKEN`，无需改客户端代码。
+> **C5 实施说明（2026-11-20）**：服务账号 token 认证复用 C2 的 `TokenAuthenticationProvider`（先 user_token、后 service_account）；`service_account.*` 的 `audit_event` 写点已随 C7 接入。MCP / CLI 继续使用 `SPECHUB_TOKEN`，无需改客户端代码。
 
-**状态**：✅ 2026-11-20 完成（审计写点待 C7）。
+**状态**：✅ 2026-11-20 完成（审计已随 C7 接入）。
 
 ---
 
@@ -721,9 +721,9 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 > - `OidcProperties` 校验在 `SpecHubPropertiesValidationTest` 覆盖（含 enabled 必填 / 默认值 / auto-provision 默认关）。
 > - OIDC 只在 Web 链启用；Bearer 链、密码 / 令牌登录不受影响；PKCE 由 `ClientSettings.requireProofKey(true)` 强制。
 > - 身份绑定 / 邮箱绑定 / auto-provision / 未验证邮箱 / 禁用用户已在 `OidcLoginServiceTest` + `OidcAutoProvisionTest` 覆盖；principal 可序列化且经 `AuthService` 作为人类用户识别。
-> - `auth.oidc.*` 审计写点随 C7 接入；不存 IdP access / refresh token。
+> - `auth.oidc.*` 审计写点已随 C7 接入；不存 IdP access / refresh token。
 
-**状态**：✅ 2026-11-20 完成（审计写点待 C7）。
+**状态**：✅ 2026-11-20 完成（审计已随 C7 接入）。
 
 ---
 
@@ -731,56 +731,63 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **领域层**
 
-- [ ] `AuditEventEntity` / `AuditEventRepository`：
+- [x] `AuditEventEntity` / `AuditEventRepository`：
   - `save`、`findByOrgIdAndCreatedAtBetween...`、`findByOrgIdAndActorName...`、`findByOrgIdAndAction...`；
   - 复杂组合查询用 `JdbcTemplate`，分页 `limit` / `offset`。
-- [ ] `AuditService`：
+- [x] `AuditService`：
   - `record(orgId, principal, action, targetType, targetId, detail, outcome, request)`；
   - `actorType`：`user` / `service_account` / `anonymous`；
   - `actorName`：用户名或 `service:<name>`；
   - `detail` 截断（如 1024 字符），禁止密码 / 令牌 / Cookie / spec 正文；
   - 写失败：管理动作同事务失败；登录类尽力而为 + ERROR 日志（C0 确认）。
-- [ ] 查询 `list(orgId, filters, limit, offset)`：默认最近 30 天，`limit` 默认 50 / 最大 200。
+- [x] 查询 `list(orgId, filters, limit, offset)`：默认最近 30 天，`limit` 默认 50 / 最大 200。
 
 **写点接入**
 
-- [ ] 认证：`auth.login.success` / `auth.login.failure` / `auth.login.locked` / `auth.logout` / `auth.password.change` / `auth.password.setup` / `auth.oidc.*` / `session.revoke`。
-- [ ] 认证事件来源：优先在 JSON 登录 filter 的 success / failure handler 与 `LogoutFilter` 中写审计（可拿到 IP / UA / 失败原因）；可选监听 Spring Security `AuthenticationSuccessEvent` / `AuthenticationFailureBadCredentialsEvent` 作为补充，避免重复写同一条。
-- [ ] 会话事件：禁用 / 改密 / 重置 / 管理员吊销时写 `session.admin.revoke`；Spring Session 的 `SessionDestroyedEvent` 可用于补充审计，但不能替代业务动作审计。
-- [ ] 用户：`user.create` / `user.update` / `user.role` / `user.disable` / `user.enable` / `user.password.reset` / `user.delete`。
-- [ ] 令牌：`token.create` / `token.revoke` / `token.admin.revoke` / `token.rotate`。
-- [ ] 服务账号：`service_account.create` / `service_account.revoke` / `service_account.rotate`。
-- [ ] 组织级管理动作（与现有 changelog 双写，审计用）：
+- [x] 认证：`auth.login.success` / `auth.login.failure` / `auth.login.locked` / `auth.logout` / `auth.password.change` / `auth.password.setup` / `auth.oidc.*` / `session.revoke`。
+- [x] 认证事件来源：优先在 JSON 登录 filter 的 success / failure handler 与 `LogoutFilter` 中写审计（可拿到 IP / UA / 失败原因）；可选监听 Spring Security `AuthenticationSuccessEvent` / `AuthenticationFailureBadCredentialsEvent` 作为补充，避免重复写同一条。
+- [x] 会话事件：禁用 / 改密 / 重置 / 管理员吊销时写 `session.admin.revoke`；Spring Session 的 `SessionDestroyedEvent` 可用于补充审计，但不能替代业务动作审计。
+- [x] 用户：`user.create` / `user.update` / `user.role` / `user.disable` / `user.enable` / `user.password.reset` / `user.delete`。
+- [x] 令牌：`token.create` / `token.revoke` / `token.admin.revoke` / `token.rotate`。
+- [x] 服务账号：`service_account.create` / `service_account.revoke` / `service_account.rotate`。
+- [x] 组织级管理动作（与现有 changelog 双写，审计用）：
   - 项目：`project.create` / `update` / `archive` / `transfer` / `delete`；
   - 项目成员：`project.member.add` / `role` / `delete`；
   - 团队：`team.create` / `update` / `delete` / `team.member.*`；
   - Git：`git_connection.create` / `disable`；`repo.binding.create` / `verify` / `activate` / `retire` / `delete`。
-- [ ] 内容写操作（spec / comment / review / subscription / mock）继续只写 `changelog`，不写 `audit_event`，避免审计噪音。
-- [ ] `actor_user_id` / `org_id` 从当前 principal / 请求上下文获取；服务账号 actor 为 `service_account`。
-- [ ] 登录失败时若用户名存在 → 用该用户 org；否则用默认 org（C 单组织）；D1 多组织再收敛。
+- [x] 内容写操作（spec / comment / review / subscription / mock）继续只写 `changelog`，不写 `audit_event`，避免审计噪音。
+- [x] `actor_user_id` / `org_id` 从当前 principal / 请求上下文获取；服务账号 actor 为 `service_account`。
+- [x] 登录失败时若用户名存在 → 用该用户 org；否则用默认 org（C 单组织）；D1 多组织再收敛。
 
 **API**
 
-- [ ] `GET /api/audit?from=&to=&actor=&action=&targetType=&outcome=&limit=&offset=`：
+- [x] `GET /api/audit?from=&to=&actor=&action=&targetType=&outcome=&limit=&offset=`：
   - 仅 `org_admin`；服务账号 403；项目 admin 403；
   - 固定当前 org，禁止跨 org；
   - 按 `created_at DESC, id DESC` 排序；
   - 返回 `AuditEventView(id, actorName, actorType, action, targetType, targetId, detail, outcome, ip, createdAt)`；
   - `from` / `to` 使用 ISO Instant；参数非法 400。
-- [ ] 审计查询本身不写审计（避免自增循环）；仅 INFO 日志。
+- [x] 审计查询本身不写审计（避免自增循环）；仅 INFO 日志。
 
 **保留与清理**
 
-- [ ] `spechub.audit-retention-days=365`；每日清理 `created_at < now - retention` 的记录。
-- [ ] 备份：`audit_event` 随管理库备份；运维手册补说明。
+- [x] `spechub.audit-retention-days=365`；每日清理 `created_at < now - retention` 的记录。
+- [x] 备份：`audit_event` 随管理库备份；运维手册补说明。
 
 **测试**
 
-- [ ] `AuditApiTest`：登录成功 / 失败、禁用、令牌、服务账号、项目 / 团队动作写入；org_admin 可查；项目 admin / 服务账号 403；actor / action / outcome / 时间过滤；跨 org 不可见；`detail` 不含敏感值。
-- [ ] `AuditRetentionTest`：过期记录清理，未过期保留。
-- [ ] 双库全量测试与 ktlint 通过。
+- [x] `AuditApiTest`：登录成功 / 失败、禁用、令牌、服务账号、项目 / 团队动作写入；org_admin 可查；项目 admin / 服务账号 403；actor / action / outcome / 时间过滤；跨 org 不可见；`detail` 不含敏感值。
+- [x] `AuditRetentionTest`：过期记录清理，未过期保留。
+- [x] 双库全量测试与 ktlint 通过。
 
-**状态**：待启动。
+> **C7 实施说明（2026-11-20）**：
+> - 写点已覆盖：`auth.login.*` / `auth.logout` / 密码、会话、用户生命周期、用户令牌、服务账号、OIDC、项目 / 成员 / 团队 / binding / Git 连接。
+> - 用户 / 令牌 / 服务账号 / Git 连接在服务事务内写审计（失败回滚）；项目 / 团队 / 成员 / binding 在控制器动作后写入（与 changelog 同点），审计失败不改变已完成动作。
+> - 认证 / 限流事件用独立事务尽力而为；`detail` 只存摘要并截断 1024；查询仅 org_admin、固定 org。
+> - `audit_event` 随管理库备份；运维手册保留策略细节由 C10 补齐。
+> - `auth.oidc.*` 审计已随 C7 接入（C6 遗留项清零）。
+
+**状态**：✅ 2026-11-20 完成。
 
 ---
 

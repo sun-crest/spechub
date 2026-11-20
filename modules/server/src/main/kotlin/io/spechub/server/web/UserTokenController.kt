@@ -1,6 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.server.repository.UserTokenEntity
+import io.spechub.server.service.AuditService
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.UserService
 import io.spechub.server.service.UserTokenService
@@ -36,6 +37,7 @@ class UserTokenController(
     private val users: UserService,
     private val orgs: OrgService,
     private val tokens: UserTokenService,
+    private val audit: AuditService,
 ) {
     data class TokenView(
         val id: Long,
@@ -87,6 +89,13 @@ class UserTokenController(
                 purpose = UserTokenService.PURPOSE_API,
                 expiresAt = Instant.now().plus(Duration.ofDays(days)),
             )
+        audit.recordCurrent(
+            auth.currentOrgId(request),
+            "token.create",
+            "user_token",
+            issued.entity.id.toString(),
+            "创建令牌 ${body.name.trim()}（$days 天）",
+        )
         return CreateTokenResponse(toView(issued.entity), issued.raw)
     }
 
@@ -99,6 +108,7 @@ class UserTokenController(
         val user = auth.requireHuman(request, "吊销令牌")
         val userId = checkNotNull(user.id) { "当前用户必有 id" }
         if (!tokens.revoke(id, userId)) throw ApiException(ApiErrorCode.NOT_FOUND, "令牌 $id 不存在")
+        audit.recordCurrent(auth.currentOrgId(request), "token.revoke", "user_token", id.toString(), "吊销自己的令牌")
     }
 
     @GetMapping("/users/{id}/tokens")
@@ -123,6 +133,13 @@ class UserTokenController(
         val token = tokens.findById(tokenId)
         if (token == null || token.userId != id) throw ApiException(ApiErrorCode.NOT_FOUND, "令牌 $tokenId 不存在")
         tokens.revokeById(tokenId)
+        audit.recordCurrent(
+            auth.currentOrgId(request),
+            "token.admin.revoke",
+            "user_token",
+            tokenId.toString(),
+            "管理员吊销用户 $id 的令牌",
+        )
     }
 
     private fun userTokens(user: UserRecord): List<UserTokenEntity> = tokens.list(checkNotNull(user.id) { "当前用户必有 id" })

@@ -1,6 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.server.repository.TeamEntity
+import io.spechub.server.service.AuditService
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.TeamService
 import io.spechub.server.service.UserService
@@ -42,6 +43,7 @@ class TeamController(
     private val users: UserService,
     private val orgs: OrgService,
     private val auth: AuthService,
+    private val audit: AuditService,
 ) {
     data class TeamView(
         val id: Long,
@@ -124,6 +126,7 @@ class TeamController(
             } else {
                 null
             }
+        audit.recordCurrent(orgId, "team.create", "team", teamId.toString(), "创建团队 ${team.name}")
         return toView(team, role, true)
     }
 
@@ -136,6 +139,7 @@ class TeamController(
         val user = auth.requireTeamLead(request, id, "修改团队")
         val orgId = auth.currentOrgId(request)
         val team = mapErrors { teams.update(id, orgId, body.name, body.description, auth.currentActor(request)) }
+        audit.recordCurrent(orgId, "team.update", "team", id.toString(), "更新团队 ${team.name}")
         return toView(team, myRole(user, id), true)
     }
 
@@ -145,9 +149,11 @@ class TeamController(
         @PathVariable id: Long,
         request: HttpServletRequest,
     ) {
-        auth.requireTeam(request, id, "删除团队")
+        val team = auth.requireTeam(request, id, "删除团队")
         auth.requireOrgAdmin(request, "删除团队")
-        mapErrors { teams.delete(id, auth.currentOrgId(request), auth.currentActor(request)) }
+        val orgId = auth.currentOrgId(request)
+        mapErrors { teams.delete(id, orgId, auth.currentActor(request)) }
+        audit.recordCurrent(orgId, "team.delete", "team", id.toString(), "删除团队 ${team.name}")
     }
 
     @GetMapping("/{id}/members")
@@ -186,6 +192,7 @@ class TeamController(
         val user = resolveUser(body.userId, body.username)
         val userId = checkNotNull(user.id) { "user 必有 id" }
         val saved = mapErrors { teams.addMember(id, orgId, userId, body.role, auth.currentActor(request)) }
+        audit.recordCurrent(orgId, "team.member.add", "team", id.toString(), "添加团队成员 ${user.username}（${body.role}）")
         return toMemberView(userId, saved.role, orgId)
     }
 
@@ -202,6 +209,7 @@ class TeamController(
             throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $userId 不是团队成员")
         }
         val saved = mapErrors { teams.addMember(id, orgId, userId, body.role, auth.currentActor(request)) }
+        audit.recordCurrent(orgId, "team.member.role", "team", id.toString(), "团队成员 $userId → ${body.role}")
         return toMemberView(userId, saved.role, orgId)
     }
 
@@ -213,7 +221,9 @@ class TeamController(
         request: HttpServletRequest,
     ) {
         auth.requireTeamLead(request, id, "移除团队成员")
-        mapErrors { teams.removeMember(id, auth.currentOrgId(request), userId, auth.currentActor(request)) }
+        val orgId = auth.currentOrgId(request)
+        mapErrors { teams.removeMember(id, orgId, userId, auth.currentActor(request)) }
+        audit.recordCurrent(orgId, "team.member.delete", "team", id.toString(), "移除团队成员 $userId")
     }
 
     private fun myRole(

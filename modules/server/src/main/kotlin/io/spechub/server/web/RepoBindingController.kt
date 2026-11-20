@@ -2,6 +2,7 @@ package io.spechub.server.web
 
 import io.spechub.server.ingest.Ingestor
 import io.spechub.server.repository.RepoBindingEntity
+import io.spechub.server.service.AuditService
 import io.spechub.server.service.ChangelogService
 import io.spechub.server.service.GitConnectionService
 import io.spechub.server.service.RepoBindingService
@@ -49,6 +50,7 @@ class RepoBindingController(
     private val urlTokens: UrlTokenStore,
     private val changelogService: ChangelogService,
     private val auth: AuthService,
+    private val audit: AuditService,
 ) {
     data class BindingView(
         val id: Long,
@@ -130,6 +132,13 @@ class RepoBindingController(
             action = "repo.binding.create",
             detail = "创建候选真源 ${binding.kind} ${binding.remoteUrl}（分支 ${binding.branch}）",
         )
+        audit.recordCurrent(
+            auth.currentOrgId(request),
+            "repo.binding.create",
+            "repo",
+            repoId.toString(),
+            "创建候选真源 ${binding.kind} ${binding.remoteUrl}（分支 ${binding.branch}）",
+        )
         return toView(binding)
     }
 
@@ -142,7 +151,9 @@ class RepoBindingController(
         auth.requireRepoVisible(request, repoId, Stage.RELEASE)
         auth.requireRepoRole(request, repoId, Role.ADMIN, "校验真源绑定")
         requireBinding(repoId, bindingId)
-        return bindingService.verify(repoId, bindingId)
+        val verify = bindingService.verify(repoId, bindingId)
+        audit.recordCurrent(auth.currentOrgId(request), "repo.binding.verify", "repo", repoId.toString(), "校验真源绑定 #$bindingId（${verify.status}）")
+        return verify
     }
 
     @PostMapping("/{bindingId}/activate")
@@ -202,6 +213,13 @@ class RepoBindingController(
                 "切换真源 → ${activated.kind} ${activated.remoteUrl}（分支 ${activated.branch}）" +
                     (ingestError?.let { "；摄取失败：$it" } ?: "；已重建索引"),
         )
+        audit.recordCurrent(
+            auth.currentOrgId(request),
+            "repo.binding.activate",
+            "repo",
+            repoId.toString(),
+            "切换真源 #$bindingId → ${activated.kind} ${activated.remoteUrl}",
+        )
         return ActivateResponse(toView(activated), verify, ingest, ingestError)
     }
 
@@ -221,6 +239,13 @@ class RepoBindingController(
             actor = auth.currentActor(request),
             action = "repo.binding.retire",
             detail = "退休真源绑定 #${binding.id}（${binding.kind} ${binding.remoteUrl}）",
+        )
+        audit.recordCurrent(
+            auth.currentOrgId(request),
+            "repo.binding.retire",
+            "repo",
+            repoId.toString(),
+            "退休真源绑定 #$bindingId",
         )
         return toView(binding)
     }
@@ -242,6 +267,13 @@ class RepoBindingController(
             actor = auth.currentActor(request),
             action = "repo.binding.delete",
             detail = "删除已退休真源绑定 #$bindingId",
+        )
+        audit.recordCurrent(
+            auth.currentOrgId(request),
+            "repo.binding.delete",
+            "repo",
+            repoId.toString(),
+            "删除已退休真源绑定 #$bindingId",
         )
     }
 

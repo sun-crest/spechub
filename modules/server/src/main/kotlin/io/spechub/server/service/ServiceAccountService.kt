@@ -24,6 +24,7 @@ import java.time.Instant
 class ServiceAccountService(
     private val accounts: ServiceAccountRepository,
     private val projects: ProjectRepository,
+    private val audit: AuditService,
 ) {
     companion object {
         const val ROLE_VIEWER = "viewer"
@@ -78,6 +79,14 @@ class ServiceAccountService(
                     createdAt = Instant.now(),
                 ),
             )
+        audit.record(
+            orgId,
+            audit.currentActor(),
+            "service_account.create",
+            "service_account",
+            saved.id?.toString(),
+            "创建服务账号 ${saved.name}（${saved.role}）",
+        )
         return Issued(saved.toRecord(), raw)
     }
 
@@ -99,6 +108,14 @@ class ServiceAccountService(
             } else {
                 accounts.save(account.copy(status = ServiceAccountStatus.REVOKED, revokedAt = Instant.now()))
             }
+        audit.record(
+            account.orgId,
+            audit.currentActor(),
+            "service_account.revoke",
+            "service_account",
+            id.toString(),
+            "吊销服务账号 ${account.name}",
+        )
         return saved.toRecord()
     }
 
@@ -131,6 +148,14 @@ class ServiceAccountService(
                     lastUsedAt = null,
                 ),
             )
+        audit.record(
+            account.orgId,
+            audit.currentActor(),
+            "service_account.rotate",
+            "service_account",
+            id.toString(),
+            "轮换服务账号 ${account.name} 密钥",
+        )
         return Issued(saved.toRecord(), raw)
     }
 

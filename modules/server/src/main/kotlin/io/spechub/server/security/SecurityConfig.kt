@@ -2,6 +2,7 @@ package io.spechub.server.security
 
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.repository.ServiceAccountRepository
+import io.spechub.server.service.AuditService
 import io.spechub.server.service.UserService
 import io.spechub.server.service.UserTokenService
 import jakarta.servlet.http.HttpServletResponse
@@ -173,6 +174,7 @@ class SecurityConfig(
         deniedHandler: ApiAccessDeniedHandler,
         rateLimiter: RedisLoginRateLimiter,
         users: UserService,
+        audit: AuditService,
         clientRegistrations: ObjectProvider<ClientRegistrationRepository>,
         oidcUsers: ObjectProvider<OidcUserService>,
     ): SecurityFilterChain {
@@ -195,11 +197,11 @@ class SecurityConfig(
         }
 
         val loginFilter =
-            JsonUsernamePasswordAuthenticationFilter(json, authenticationManager, csrfTokenRepository, rateLimiter).apply {
+            JsonUsernamePasswordAuthenticationFilter(json, authenticationManager, csrfTokenRepository, rateLimiter, audit).apply {
                 setSessionAuthenticationStrategy(sessionStrategy)
                 setSecurityContextRepository(securityContextRepository)
-                setAuthenticationSuccessHandler(LoginSuccessHandler(json, csrfTokenRepository, users))
-                setAuthenticationFailureHandler(LoginFailureHandler(entryPoint))
+                setAuthenticationSuccessHandler(LoginSuccessHandler(json, csrfTokenRepository, users, audit))
+                setAuthenticationFailureHandler(LoginFailureHandler(entryPoint, audit))
             }
         http.addFilterAt(loginFilter, UsernamePasswordAuthenticationFilter::class.java)
         http.addFilterBefore(
@@ -209,7 +211,7 @@ class SecurityConfig(
 
         http.logout { logout ->
             logout.logoutUrl("/api/auth/logout")
-            logout.logoutSuccessHandler { _, response, _ -> response.status = HttpServletResponse.SC_NO_CONTENT }
+            logout.logoutSuccessHandler(AuditLogoutSuccessHandler(audit))
             logout.deleteCookies(SESSION_COOKIE)
             logout.clearAuthentication(true)
         }

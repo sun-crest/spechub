@@ -3,6 +3,7 @@ package io.spechub.server.web
 import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.repository.UserStatus
 import io.spechub.server.security.SessionAdminService
+import io.spechub.server.service.AuditService
 import io.spechub.server.service.ChangelogService
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.ProjectService
@@ -58,6 +59,7 @@ class AuthController(
     private val sessions: SessionAdminService,
     private val lifecycle: UserLifecycleService,
     private val props: SpecHubProperties,
+    private val audit: AuditService,
 ) {
     data class StatusResponse(
         val authEnabled: Boolean,
@@ -287,12 +289,36 @@ class AuthController(
 
         val encoded = checkNotNull(passwordEncoder.encode(newPassword)) { "密码编码失败" }
         users.setPassword(userId, encoded)
-        sessions.deleteOtherSessions(user.username, req.getSession(false)?.id)
+        val revoked = sessions.deleteOtherSessions(user.username, req.getSession(false)?.id)
+        val actor = AuditService.AuditActor(userId, user.username, AuditService.ACTOR_USER)
+        audit.recordAuth(
+            audit.defaultOrgId(),
+            actor,
+            "auth.password.change",
+            "user",
+            userId.toString(),
+            "修改密码",
+            AuditService.OUTCOME_SUCCESS,
+            req,
+        )
+        if (revoked > 0) {
+            audit.recordAuth(
+                audit.defaultOrgId(),
+                actor,
+                "session.revoke",
+                "user",
+                userId.toString(),
+                "改密吊销其它会话 $revoked 个",
+                AuditService.OUTCOME_SUCCESS,
+                req,
+            )
+        }
     }
 
     /** 一次性邀请 / 重置令牌设置密码；不自动登录，前端引导重新登录。 */
     @PostMapping("/password/setup")
     fun setupPassword(
+        req: HttpServletRequest,
         @RequestBody body: SetupPasswordRequest,
     ): SetupPasswordResponse {
         val raw =
@@ -308,14 +334,25 @@ class AuthController(
         val user = resolved.user
         validatePassword(body.newPassword, user.username, user.email)
         val newPassword = checkNotNull(body.newPassword)
+        val userId = checkNotNull(user.id) { "已持久化用户必有 id" }
 
         val encoded = checkNotNull(passwordEncoder.encode(newPassword)) { "密码编码失败" }
         users.setPassword(
-            checkNotNull(user.id) { "已持久化用户必有 id" },
+            userId,
             encoded,
             status = UserStatus.ACTIVE,
         )
         userTokens.markUsed(checkNotNull(resolved.token.id) { "已持久化令牌必有 id" })
+        audit.recordAuth(
+            audit.defaultOrgId(),
+            AuditService.AuditActor(userId, user.username, AuditService.ACTOR_USER),
+            "auth.password.setup",
+            "user",
+            userId.toString(),
+            "通过邀请 / 重置令牌设置密码",
+            AuditService.OUTCOME_SUCCESS,
+            req,
+        )
         return SetupPasswordResponse(ok = true)
     }
 
@@ -403,6 +440,13 @@ class AuthController(
             detail = "创建组织用户 $username（${body.orgRole}${if (hasPassword) "" else "，邀请"}）",
             orgId = auth.currentOrgId(req),
         )
+        audit.recordCurrent(
+            auth.currentOrgId(req),
+            "user.create",
+            "user",
+            userId.toString(),
+            "创建用户 $username（${if (hasPassword) "password" else "invited"}）",
+        )
         return CreateUserResponse(toView(user, body.orgRole), apiToken.raw, setupToken)
     }
 
@@ -436,6 +480,7 @@ class AuthController(
             detail = "更新组织用户 ${updated.username} 资料",
             orgId = orgId,
         )
+        audit.recordCurrent(orgId, "user.update", "user", id.toString(), "更新用户 ${updated.username} 资料")
         return toView(updated, orgs.orgRole(id, orgId))
     }
 
@@ -472,8 +517,18 @@ class AuthController(
         lifecycle.ensureSameOrg(id, orgId)
         lifecycle.ensureNotLastLoginnableOrgAdmin(id, orgId)
 
-        val user = lifecycle.disable(id)
-        sessions.deleteAllSessions(user.username)
+        val user = lifecycle.disable(id, orgId)
+        val revoked = sessions.deleteAllSessions(user.username)
+        audit.recordAuth(
+            orgId,
+            audit.currentActor(),
+            "session.admin.revoke",
+            "user",
+            id.toString(),
+            "禁用用户，删除会话 $revoked 个",
+            AuditService.OUTCOME_SUCCESS,
+            req,
+        )
         changelogService.add(
             repoId = null,
             apiId = null,
@@ -493,7 +548,7 @@ class AuthController(
         auth.requireOrgAdmin(req, "启用用户")
         val orgId = auth.currentOrgId(req)
         lifecycle.ensureSameOrg(id, orgId)
-        val user = lifecycle.enable(id)
+        val user = lifecycle.enable(id, orgId)
         changelogService.add(
             repoId = null,
             apiId = null,
@@ -515,8 +570,18 @@ class AuthController(
         lifecycle.requireNotSelf(actor.id, id, "重置密码")
         lifecycle.ensureSameOrg(id, orgId)
 
-        val user = lifecycle.resetPassword(id)
-        sessions.deleteAllSessions(user.username)
+        val user = lifecycle.resetPassword(id, orgId)
+        val revoked = sessions.deleteAllSessions(user.username)
+        audit.recordAuth(
+            orgId,
+            audit.currentActor(),
+            "session.admin.revoke",
+            "user",
+            id.toString(),
+            "重置密码，删除会话 $revoked 个",
+            AuditService.OUTCOME_SUCCESS,
+            req,
+        )
         val setup =
             userTokens.issue(
                 checkNotNull(user.id) { "用户必有 id" },
@@ -547,6 +612,13 @@ class AuthController(
         val user = users.findById(id) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $id 不存在")
         userTokens.revokeLoginTokens(id)
         val issued = userTokens.issue(id, "reset", UserTokenService.PURPOSE_API, Instant.now().plus(Duration.ofDays(90)))
+        audit.recordCurrent(
+            orgId,
+            "token.rotate",
+            "user_token",
+            issued.entity.id.toString(),
+            "为用户 ${user.username} 签发新 API 令牌",
+        )
         val orgRole = orgs.orgRole(id, orgId)
         return CreateUserResponse(toView(user, orgRole), issued.raw)
     }
@@ -563,8 +635,18 @@ class AuthController(
         lifecycle.ensureSameOrg(id, orgId)
         lifecycle.ensureNotLastLoginnableOrgAdmin(id, orgId)
 
-        val user = lifecycle.delete(id)
-        sessions.deleteAllSessions(user.username)
+        val user = lifecycle.delete(id, orgId)
+        val revoked = sessions.deleteAllSessions(user.username)
+        audit.recordAuth(
+            orgId,
+            audit.currentActor(),
+            "session.admin.revoke",
+            "user",
+            id.toString(),
+            "删除用户，删除会话 $revoked 个",
+            AuditService.OUTCOME_SUCCESS,
+            req,
+        )
         changelogService.add(
             repoId = null,
             apiId = null,

@@ -1,6 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.server.repository.ProjectEntity
+import io.spechub.server.service.AuditService
 import io.spechub.server.service.ChangelogService
 import io.spechub.server.service.ProjectService
 import io.spechub.server.web.common.ApiErrorCode
@@ -37,6 +38,7 @@ class ProjectController(
     private val projects: ProjectService,
     private val auth: AuthService,
     private val changelogService: ChangelogService,
+    private val audit: AuditService,
 ) {
     data class ProjectView(
         val id: Long,
@@ -106,6 +108,7 @@ class ProjectController(
             detail = "创建项目 ${project.name}（${project.slug}）",
             orgId = orgId,
         )
+        audit.recordCurrent(orgId, "project.create", "project", project.id?.toString(), "创建项目 ${project.name}（${project.slug}）")
         return toView(project)
     }
 
@@ -141,6 +144,13 @@ class ProjectController(
             detail = "更新项目 ${updated.name}（${updated.slug}）",
             orgId = updated.orgId ?: auth.currentOrgId(request),
         )
+        audit.recordCurrent(
+            updated.orgId ?: auth.currentOrgId(request),
+            "project.update",
+            "project",
+            id.toString(),
+            "更新项目 ${updated.name}（${updated.slug}）",
+        )
         return toView(updated)
     }
 
@@ -158,6 +168,13 @@ class ProjectController(
             action = "project.archive",
             detail = "归档项目 ${project.name}",
             orgId = project.orgId ?: auth.currentOrgId(request),
+        )
+        audit.recordCurrent(
+            project.orgId ?: auth.currentOrgId(request),
+            "project.archive",
+            "project",
+            id.toString(),
+            "归档项目 ${project.name}",
         )
         return toView(project)
     }
@@ -177,6 +194,13 @@ class ProjectController(
             action = "project.transfer",
             detail = "转移项目 ${project.name} owner → 用户 ${body.ownerId}",
             orgId = project.orgId ?: auth.currentOrgId(request),
+        )
+        audit.recordCurrent(
+            project.orgId ?: auth.currentOrgId(request),
+            "project.transfer",
+            "project",
+            id.toString(),
+            "转移项目 ${project.name} owner → 用户 ${body.ownerId}",
         )
         return toView(project)
     }
@@ -199,6 +223,13 @@ class ProjectController(
             action = "project.delete",
             detail = "删除项目 ${project.name}",
             orgId = project.orgId ?: auth.currentOrgId(request),
+        )
+        audit.recordCurrent(
+            project.orgId ?: auth.currentOrgId(request),
+            "project.delete",
+            "project",
+            id.toString(),
+            "删除项目 ${project.name}",
         )
     }
 

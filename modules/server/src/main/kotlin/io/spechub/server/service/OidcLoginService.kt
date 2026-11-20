@@ -30,6 +30,7 @@ class OidcLoginService(
     private val users: UserRepository,
     private val identities: UserIdentityRepository,
     private val orgs: OrgService,
+    private val audit: AuditService,
 ) {
     data class OidcClaims(
         val issuer: String,
@@ -63,12 +64,16 @@ class OidcLoginService(
 
         val bound = identities.findByProviderAndSubject(provider, claims.subject)
         if (bound != null) {
-            return principal(requireLoginUser(bound.userId), claims)
+            val user = requireLoginUser(bound.userId)
+            auditOidc("auth.oidc.login", user, "OIDC 登录成功（已绑定身份）")
+            return principal(user, claims)
         }
 
         val existing = email?.let { users.findByEmail(it) }
         if (existing != null) {
             val boundUser = bindOrLoad(existing, provider, claims.subject, email)
+            auditOidc("auth.oidc.link", boundUser, "OIDC 身份绑定到既有用户")
+            auditOidc("auth.oidc.login", boundUser, "OIDC 登录成功（邮箱绑定）")
             return principal(boundUser, claims)
         }
 
@@ -80,6 +85,8 @@ class OidcLoginService(
         }
         val created = provision(email, claims)
         val boundUser = bindOrLoad(created, provider, claims.subject, email)
+        auditOidc("auth.oidc.provision", boundUser, "OIDC 自动建号 ${boundUser.username}")
+        auditOidc("auth.oidc.login", boundUser, "OIDC 登录成功（自动建号）")
         return principal(boundUser, claims)
     }
 
@@ -139,6 +146,27 @@ class OidcLoginService(
         val user = users.findById(userId).orElse(null) ?: throw OidcLoginException("绑定用户不存在")
         if (user.status !in UserStatus.LOGINNABLE) throw OidcLoginException("账号不可用")
         return user
+    }
+
+    private fun auditOidc(
+        action: String,
+        user: UserEntity,
+        detail: String,
+    ) {
+        audit.recordAuth(
+            audit.defaultOrgId(),
+            AuditService.AuditActor(
+                checkNotNull(user.id) { "已持久化用户必有 id" },
+                user.username,
+                AuditService.ACTOR_USER,
+            ),
+            action,
+            "user",
+            user.id?.toString(),
+            detail,
+            AuditService.OUTCOME_SUCCESS,
+            audit.currentRequest(),
+        )
     }
 
     private fun uniqueUsername(rawBase: String): String {

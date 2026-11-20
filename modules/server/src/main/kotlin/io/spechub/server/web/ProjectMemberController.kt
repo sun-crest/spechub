@@ -1,6 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.server.repository.ProjectEntity
+import io.spechub.server.service.AuditService
 import io.spechub.server.service.ChangelogService
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.ProjectService
@@ -36,6 +37,7 @@ class ProjectMemberController(
     private val orgs: OrgService,
     private val auth: AuthService,
     private val changelogService: ChangelogService,
+    private val audit: AuditService,
 ) {
     data class MemberView(
         val userId: Long,
@@ -108,6 +110,13 @@ class ProjectMemberController(
         }
         users.setMembership(userId, projectId, body.role)
         changelog(project, request, "project.member.add", "添加项目成员 ${user.username}（${body.role}）")
+        audit.recordCurrent(
+            orgIdOf(project),
+            "project.member.add",
+            "project",
+            projectId.toString(),
+            "添加项目成员 ${user.username}（${body.role}）",
+        )
         return toView(userId, body.role, orgId)
     }
 
@@ -131,6 +140,13 @@ class ProjectMemberController(
         val user = users.findById(userId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $userId 不存在")
         users.setMembership(userId, projectId, body.role)
         changelog(project, request, "project.member.role", "项目成员 ${user.username} → ${body.role}")
+        audit.recordCurrent(
+            orgIdOf(project),
+            "project.member.role",
+            "project",
+            projectId.toString(),
+            "项目成员 ${user.username} → ${body.role}",
+        )
         return toView(userId, body.role, orgIdOf(project))
     }
 
@@ -153,6 +169,13 @@ class ProjectMemberController(
         val user = users.findById(userId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "用户 $userId 不存在")
         users.removeMembership(userId, projectId)
         changelog(project, request, "project.member.delete", "移除项目成员 ${user.username}")
+        audit.recordCurrent(
+            orgIdOf(project),
+            "project.member.delete",
+            "project",
+            projectId.toString(),
+            "移除项目成员 ${user.username}",
+        )
     }
 
     private fun requireProject(projectId: Long): ProjectEntity = projects.get(projectId) ?: throw ApiException(ApiErrorCode.NOT_FOUND, "project $projectId 不存在")

@@ -1,5 +1,6 @@
 package io.spechub.server.security
 
+import io.spechub.server.service.AuditService
 import io.spechub.server.service.UserService
 import io.spechub.server.web.common.ApiErrorCode
 import jakarta.servlet.http.HttpServletRequest
@@ -37,10 +38,12 @@ class JsonUsernamePasswordAuthenticationFilter(
     authenticationManager: AuthenticationManager,
     private val csrfTokenRepository: CsrfTokenRepository,
     private val rateLimiter: RedisLoginRateLimiter,
+    private val audit: AuditService,
 ) : AbstractAuthenticationProcessingFilter(LoginRequestMatcher()) {
     companion object {
         const val LOGIN_PATH = "/api/auth/login"
         const val AUTH_METHOD_ATTRIBUTE = "spechub.auth.method"
+        const val LOGIN_IDENTIFIER_ATTRIBUTE = "spechub.auth.identifier"
     }
 
     init {
@@ -85,6 +88,7 @@ class JsonUsernamePasswordAuthenticationFilter(
         if (password != null) {
             request.setAttribute(AUTH_METHOD_ATTRIBUTE, "password")
             val identifier = username ?: email ?: throw BadCredentialsException("缺少用户名或邮箱")
+            request.setAttribute(LOGIN_IDENTIFIER_ATTRIBUTE, identifier)
             val ip = request.remoteAddr ?: "unknown"
             rateLimiter.check(identifier, ip)?.let { throw LoginRateLimitedException(it) }
             val authentication =
@@ -99,6 +103,7 @@ class JsonUsernamePasswordAuthenticationFilter(
         }
 
         request.setAttribute(AUTH_METHOD_ATTRIBUTE, "token")
+        if (username != null) request.setAttribute(LOGIN_IDENTIFIER_ATTRIBUTE, username)
         val authentication =
             try {
                 authenticationManager.authenticate(OpaqueTokenAuthenticationToken.unauthenticated(checkNotNull(token)))
@@ -131,6 +136,7 @@ class LoginSuccessHandler(
     private val json: ObjectMapper,
     private val csrfTokenRepository: CsrfTokenRepository,
     private val users: UserService,
+    private val audit: AuditService,
 ) : AuthenticationSuccessHandler {
     override fun onAuthenticationSuccess(
         request: HttpServletRequest,
@@ -139,6 +145,7 @@ class LoginSuccessHandler(
     ) {
         val principal = authentication.principal as? AppUserPrincipal ?: return
         users.update(principal.userId, lastLoginAt = Instant.now())
+        val authMethod = request.getAttribute(JsonUsernamePasswordAuthenticationFilter.AUTH_METHOD_ATTRIBUTE) ?: "session"
         val csrfToken = csrfTokenRepository.generateToken(request)
         csrfTokenRepository.saveToken(csrfToken, request, response)
         val session = request.getSession(true)
@@ -147,16 +154,24 @@ class LoginSuccessHandler(
         session.setAttribute(SessionAttributes.IP, request.remoteAddr)
         session.setAttribute(SessionAttributes.USER_AGENT, request.getHeader("User-Agent"))
         session.setAttribute(SessionAttributes.LOGIN_AT, Instant.now().toString())
-        session.setAttribute(
-            SessionAttributes.AUTH_METHOD,
-            request.getAttribute(JsonUsernamePasswordAuthenticationFilter.AUTH_METHOD_ATTRIBUTE) ?: "session",
+        session.setAttribute(SessionAttributes.AUTH_METHOD, authMethod)
+
+        audit.recordAuth(
+            orgId = audit.defaultOrgId(),
+            actor = AuditService.AuditActor(principal.userId, principal.username, AuditService.ACTOR_USER),
+            action = "auth.login.success",
+            targetType = "user",
+            targetId = principal.userId.toString(),
+            detail = "登录成功（$authMethod）",
+            outcome = AuditService.OUTCOME_SUCCESS,
+            request = request,
         )
 
         val body =
             mapOf(
                 "authenticated" to true,
                 "authEnabled" to true,
-                "authMethod" to (request.getAttribute(JsonUsernamePasswordAuthenticationFilter.AUTH_METHOD_ATTRIBUTE) ?: "session"),
+                "authMethod" to authMethod,
                 "username" to principal.username,
                 "displayName" to principal.displayName,
                 "csrfToken" to csrfToken.token,
@@ -169,9 +184,10 @@ class LoginSuccessHandler(
     }
 }
 
-/** 登录失败：统一 401 文案（不泄露账号是否存在）；请求体问题返回 400。 */
+/** 登录失败：统一 401 文案（不泄露账号是否存在）；请求体问题返回 400；认证事件尽力写审计。 */
 class LoginFailureHandler(
     private val entryPoint: ApiAuthenticationEntryPoint,
+    private val audit: AuditService,
 ) : AuthenticationFailureHandler {
     override fun onAuthenticationFailure(
         request: HttpServletRequest,
@@ -179,6 +195,7 @@ class LoginFailureHandler(
         exception: AuthenticationException,
     ) {
         SecurityContextHolder.clearContext()
+        recordAudit(request, exception)
         when (exception) {
             is LoginRateLimitedException -> {
                 response.setHeader("Retry-After", exception.retryAfterSeconds.toString())
@@ -201,5 +218,35 @@ class LoginFailureHandler(
                 entryPoint.writeError(request, response, ApiErrorCode.AUTH_UNAUTHORIZED, "登录失败")
             }
         }
+    }
+
+    private fun recordAudit(
+        request: HttpServletRequest,
+        exception: AuthenticationException,
+    ) {
+        if (exception is LoginBadRequestException) return
+        val identifier = request.getAttribute(JsonUsernamePasswordAuthenticationFilter.LOGIN_IDENTIFIER_ATTRIBUTE) as? String
+        val actor = audit.actorForIdentifier(identifier)
+        val action =
+            when (exception) {
+                is LoginRateLimitedException -> "auth.login.locked"
+                else -> "auth.login.failure"
+            }
+        val detail =
+            when (exception) {
+                is LoginRateLimitedException -> "登录尝试过于频繁"
+                is LoginRateLimitUnavailableException -> "登录限流不可用"
+                else -> "用户名或密码错误或账号不可用"
+            }
+        audit.recordAuth(
+            orgId = audit.defaultOrgId(),
+            actor = actor,
+            action = action,
+            targetType = "user",
+            targetId = actor.userId?.toString() ?: identifier,
+            detail = detail,
+            outcome = AuditService.OUTCOME_FAILURE,
+            request = request,
+        )
     }
 }

@@ -15,6 +15,7 @@ import java.time.Instant
 @Service
 class GitConnectionService(
     private val connections: GitConnectionRepository,
+    private val audit: AuditService,
 ) {
     companion object {
         val PROVIDERS = setOf("managed", "local", "github", "gitlab", "gitea", "ssh")
@@ -32,20 +33,39 @@ class GitConnectionService(
         externalAccountId: String? = null,
     ): GitConnectionEntity {
         require(PROVIDERS.contains(provider)) { "provider ∈ $PROVIDERS" }
-        return connections.save(
-            GitConnectionEntity(
-                orgId = orgId,
-                provider = provider,
-                externalAccountId = externalAccountId,
-                displayName = displayName.trim(),
-                createdAt = Instant.now(),
-            ),
+        val saved =
+            connections.save(
+                GitConnectionEntity(
+                    orgId = orgId,
+                    provider = provider,
+                    externalAccountId = externalAccountId,
+                    displayName = displayName.trim(),
+                    createdAt = Instant.now(),
+                ),
+            )
+        audit.record(
+            orgId,
+            audit.currentActor(),
+            "git_connection.create",
+            "git_connection",
+            saved.id?.toString(),
+            "创建 Git 连接 ${saved.provider} ${saved.displayName}",
         )
+        return saved
     }
 
     @Transactional
     fun disable(id: Long): GitConnectionEntity {
         val connection = connections.findById(id).orElse(null) ?: throw IllegalArgumentException("git connection $id 不存在")
-        return if (connection.status == "disabled") connection else connections.save(connection.copy(status = "disabled"))
+        val saved = if (connection.status == "disabled") connection else connections.save(connection.copy(status = "disabled"))
+        audit.record(
+            saved.orgId,
+            audit.currentActor(),
+            "git_connection.disable",
+            "git_connection",
+            id.toString(),
+            "禁用 Git 连接 ${saved.provider} ${saved.displayName}",
+        )
+        return saved
     }
 }

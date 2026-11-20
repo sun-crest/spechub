@@ -224,6 +224,20 @@ data class ServiceAccountRecord(
     val createdAt: String? = null,
 )
 
+/** 管理动作审计事件（C7）：只读视图，不暴露 user_agent 等内部字段。 */
+data class AuditEventRecord(
+    val id: Long,
+    val actorName: String,
+    val actorType: String,
+    val action: String,
+    val targetType: String? = null,
+    val targetId: String? = null,
+    val detail: String? = null,
+    val outcome: String = "success",
+    val ip: String? = null,
+    val createdAt: String? = null,
+)
+
 /** 项目成员关系：user → project 的角色（owner/admin/editor/viewer） */
 data class MembershipRecord(
     val id: Long? = null,

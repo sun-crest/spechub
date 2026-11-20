@@ -1,6 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.server.security.SessionAdminService
+import io.spechub.server.service.AuditService
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.UserService
 import io.spechub.server.web.common.ApiErrorCode
@@ -27,6 +28,7 @@ class SessionController(
     private val sessions: SessionAdminService,
     private val users: UserService,
     private val orgs: OrgService,
+    private val audit: AuditService,
 ) {
     @GetMapping("/sessions")
     fun list(request: HttpServletRequest): List<SessionAdminService.SessionView> {
@@ -45,6 +47,7 @@ class SessionController(
             sessions.find(user.username, id)
                 ?: throw ApiException(ApiErrorCode.NOT_FOUND, "会话不存在")
         sessions.delete(sessionId)
+        audit.recordCurrent(auth.currentOrgId(request), "session.revoke", "session", id, "吊销自己的活动会话")
     }
 
     @GetMapping("/users/{id}/sessions")
@@ -70,6 +73,7 @@ class SessionController(
             sessions.find(target.username, sessionId)
                 ?: throw ApiException(ApiErrorCode.NOT_FOUND, "会话不存在")
         sessions.delete(fullId)
+        audit.recordCurrent(auth.currentOrgId(request), "session.admin.revoke", "user", id.toString(), "管理员吊销用户 $id 的会话")
     }
 
     private fun requireTarget(

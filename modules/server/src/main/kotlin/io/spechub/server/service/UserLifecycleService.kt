@@ -33,6 +33,7 @@ class UserLifecycleService(
     private val projects: ProjectRepository,
     private val orgs: OrgService,
     private val userService: UserService,
+    private val audit: AuditService,
 ) {
     fun requireNotSelf(
         actorId: Long?,
@@ -79,31 +80,46 @@ class UserLifecycleService(
     }
 
     @Transactional
-    fun disable(userId: Long): UserRecord {
+    fun disable(
+        userId: Long,
+        orgId: Long,
+    ): UserRecord {
         val user = requireUser(userId)
         users.save(user.copy(status = UserStatus.DISABLED))
         revokeAllTokens(userId)
+        audit.record(orgId, audit.currentActor(), "user.disable", "user", userId.toString(), "禁用用户 ${user.username}")
         return requireRecord(userId)
     }
 
     @Transactional
-    fun enable(userId: Long): UserRecord {
+    fun enable(
+        userId: Long,
+        orgId: Long,
+    ): UserRecord {
         val user = requireUser(userId)
         users.save(user.copy(status = UserStatus.ACTIVE))
+        audit.record(orgId, audit.currentActor(), "user.enable", "user", userId.toString(), "启用用户 ${user.username}")
         return requireRecord(userId)
     }
 
     /** 管理端重置：置 mustChangePassword 并吊销全部令牌；会话由 Controller 在事务提交后删除。 */
     @Transactional
-    fun resetPassword(userId: Long): UserRecord {
+    fun resetPassword(
+        userId: Long,
+        orgId: Long,
+    ): UserRecord {
         val user = requireUser(userId)
         users.save(user.copy(mustChangePassword = true))
         revokeAllTokens(userId)
+        audit.record(orgId, audit.currentActor(), "user.password.reset", "user", userId.toString(), "重置用户 ${user.username} 密码")
         return requireRecord(userId)
     }
 
     @Transactional
-    fun delete(userId: Long): UserRecord {
+    fun delete(
+        userId: Long,
+        orgId: Long,
+    ): UserRecord {
         val user = requireUser(userId)
         if (projects.findAllByOwnerId(userId).isNotEmpty()) {
             throw ApiException(ApiErrorCode.CONFLICT, "该用户仍是项目 owner，请先转移项目所有权")
@@ -112,6 +128,7 @@ class UserLifecycleService(
         orgMemberships.deleteAllByUserId(userId)
         memberships.deleteAllByUserId(userId)
         users.deleteById(userId)
+        audit.record(orgId, audit.currentActor(), "user.delete", "user", userId.toString(), "删除用户 ${user.username}")
         return userService.recordOf(user)
     }
 
@@ -125,6 +142,7 @@ class UserLifecycleService(
         val user = requireUser(userId)
         if (role != OrgService.ROLE_ADMIN) ensureNotLastLoginnableOrgAdmin(userId, orgId)
         orgs.ensureMembership(userId, orgId, role)
+        audit.record(orgId, audit.currentActor(), "user.role", "user", userId.toString(), "用户 ${user.username} → $role")
         return userService.recordOf(user)
     }
 
