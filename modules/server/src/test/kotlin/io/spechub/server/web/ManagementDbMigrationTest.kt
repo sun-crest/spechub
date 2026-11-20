@@ -597,6 +597,14 @@ class ManagementDbMigrationTest {
                 )
                 val teamId = insert(c, "INSERT INTO team (org_id, name, description) VALUES (?, 'core', '')", orgId)
                 insert(c, "INSERT INTO team_member (team_id, user_id, role) VALUES (?, ?, 'lead')", teamId, memberId)
+                val repoId = insert(c, "INSERT INTO repo (project_id, url, branch) VALUES (?, 'file:///legacy-v5', 'main')", projectId)
+                insert(
+                    c,
+                    "INSERT INTO subscription (org_id, repo_id, method, path, team_id, notify_url) VALUES (?, ?, 'GET', '/pets', ?, '')",
+                    orgId,
+                    repoId,
+                    teamId,
+                )
                 SeedV5(orgId, projectId, adminId, memberId, teamId)
             }
 
@@ -628,6 +636,8 @@ class ManagementDbMigrationTest {
             )
             // 团队数据不受影响
             assertEquals(1, count(c, "SELECT COUNT(*) AS c FROM team_member WHERE team_id = ?", seed.teamId))
+            // 订阅数据保留且 team_id 关系不变
+            assertEquals(1, count(c, "SELECT COUNT(*) AS c FROM subscription WHERE team_id = ?", seed.teamId))
 
             // 旧 token 逐行迁移到 user_token：legacy / 无过期 / 前缀空 / 时间保留
             assertEquals(2, count(c, "SELECT COUNT(*) AS c FROM user_token WHERE purpose = 'legacy'"))

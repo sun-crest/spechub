@@ -26,7 +26,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * I7 —— 变更订阅 e2e（无鉴权模式）：
+ * I7 —— 变更订阅 e2e（真实 Bearer 鉴权）：
  * 订阅 /pets → 改 spec push → webhook 摄取 → subscription 的 team 收到 notification；
  * 幂等续跑（同内容再次摄取）不重复通知。
  */

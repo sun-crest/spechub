@@ -16,6 +16,8 @@ import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import tools.jackson.databind.json.JsonMapper
+import java.net.CookieManager
+import java.net.CookiePolicy
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -23,6 +25,7 @@ import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -245,8 +248,52 @@ class AuthApiTest : TestDbIsolation() {
     }
 
     @Test
-    fun `未启用鉴权 - 无 admin-token 时全放行`() {
-        // AuthApiTest 配置启用了鉴权；此项验证在 WebApiTest（无 token 配置）里覆盖。
-        assertTrue(json.readTree(req("GET", "/api/auth/status").body()).get("authEnabled").asBoolean())
+    fun `旧令牌登录建立 Spring Session 且 me 报告 org_admin`() {
+        val cookieClient =
+            HttpClient
+                .newBuilder()
+                .cookieHandler(CookieManager(null, CookiePolicy.ACCEPT_ALL))
+                .build()
+
+        fun sendWithCookie(
+            method: String,
+            path: String,
+            body: String? = null,
+        ): HttpResponse<String> {
+            val b =
+                HttpRequest
+                    .newBuilder(URI("http://localhost:$port$path"))
+                    .method(method, HttpRequest.BodyPublishers.ofString(body ?: ""))
+            if (body != null) b.header("Content-Type", "application/json")
+            return cookieClient.send(b.build(), HttpResponse.BodyHandlers.ofString())
+        }
+
+        // V7 后 admin-token 是 user_token legacy 行：登录必须建立真实 Spring Session
+        val login = sendWithCookie("POST", "/api/auth/login", """{"token":"$ADMIN"}""")
+        assertEquals(200, login.statusCode(), login.body())
+        assertTrue(
+            login
+                .headers()
+                .firstValue("Set-Cookie")
+                .orElse("")
+                .contains("spechub_session="),
+            "应写入 spechub_session：${login.headers().map()}",
+        )
+        val loginBody = json.readTree(login.body())
+        assertEquals("token", loginBody.get("authMethod").asString())
+        assertFalse(loginBody.get("csrfToken").asString().isBlank(), "登录响应应返回 CSRF token")
+
+        // 仅凭会话 Cookie（无 Bearer）即可访问受保护端点
+        assertEquals(200, sendWithCookie("GET", "/api/projects").statusCode())
+
+        val me = sendWithCookie("GET", "/api/auth/me")
+        assertEquals(200, me.statusCode(), me.body())
+        val tree = json.readTree(me.body())
+        assertTrue(tree.get("authenticated").asBoolean())
+        assertEquals("session", tree.get("authMethod").asString())
+        assertEquals("admin", tree.get("username").asString())
+        assertTrue(tree.get("orgAdmin").asBoolean(), "admin 语义统一为 org_admin")
+        assertEquals("org_admin", tree.at("/orgs/0/role").asString())
+        assertFalse(tree.has("platformAdmin"), "is_platform_admin 已从响应移除")
     }
 }

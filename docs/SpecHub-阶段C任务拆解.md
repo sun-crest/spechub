@@ -1,6 +1,6 @@
 # SpecHub · 阶段 C 任务拆解（账号与审计）
 
-> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 / C5 / C6 / C7 / C8 已完成；C9–C10 待启动
+> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 / C5 / C6 / C7 / C8 / C9 自动化门禁已完成（C9.1 浏览器手测待人工执行）；C10 待启动
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **范围**：Spring Security Web 认证底座、Spring Session 分布式会话、密码 / OIDC 登录、账号禁用与邀请、可过期可吊销令牌、项目级服务账号、管理动作审计查询。
 > **不覆盖**：多组织切换 / 组织生命周期 / 平台运营控制面 / break-glass（阶段 D1）、自助注册 / 邮箱验证 / 域名认领（阶段 D2）、SAML / SCIM、MFA / WebAuthn、组织级服务账号、`project_group` / `api_group`。
@@ -868,11 +868,11 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **迁移测试（`ManagementDbMigrationTest`）**
 
-- [ ] V5（含用户 / 旧 token / 团队 / 订阅数据）→ V6：`app_user` 新列、`user_token` legacy 回填、`service_account` / `user_identity` / `audit_event` 建表、旧数据可读；**不建会话表**。
-- [ ] 会话 / 限流使用 Redis：新增共享 Redis Testcontainer；每个测试类使用独立 namespace（或测试前后清理），避免会话 / 限流键串扰；不把会话写入管理库，不做 JDBC 迁移。
-- [ ] V6 → V7：`token_hash` / `is_platform_admin` 删除；旧 token 通过 `user_token` 仍可认证；`org_membership` admin 关系不变。
-- [ ] 空库 V1 → V7 一次跑通。
-- [ ] 邮箱唯一（忽略大小写）、服务账号名称项目内唯一、单主 / FK 约束不回归；`PRINCIPAL_NAME` 索引由 `RedisSessionTest` 覆盖。
+- [x] V5（含用户 / 旧 token / 团队 / 订阅数据）→ V6：`app_user` 新列、`user_token` legacy 回填、`service_account` / `user_identity` / `audit_event` 建表、旧数据可读；**不建会话表**。
+- [x] 会话 / 限流使用 Redis：新增共享 Redis Testcontainer；每个测试类使用独立 namespace（或测试前后清理），避免会话 / 限流键串扰；不把会话写入管理库，不做 JDBC 迁移。
+- [x] V6 → V7：`token_hash` / `is_platform_admin` 删除；旧 token 通过 `user_token` 仍可认证；`org_membership` admin 关系不变。
+- [x] 空库 V1 → V7 一次跑通。
+- [x] 邮箱唯一（忽略大小写）、服务账号名称项目内唯一、单主 / FK 约束不回归；`PRINCIPAL_NAME` 索引由 `RedisSessionTest` 覆盖。
 
 **新增集成测试**
 
@@ -896,22 +896,22 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **改造现有测试**
 
-- [ ] 测试基类（`TestDbIsolation` / `TestManagementDb`）统一注入测试 `spechub.admin-token`；所有 `@SpringBootTest` 走真实登录 / Bearer；禁止 anonymous 模式。
-- [ ] `SpecHubPropertiesValidationTest`：所有 profile 要求 admin-token；删除 dev 允许缺失 / 免鉴权的断言。
-- [ ] `AuthApiTest`：旧 token 登录建立 Spring Security 会话；`is_platform_admin` 移除；`/me` 字段；admin 语义改为 `org_admin`。
-- [ ] `AuthVisibilityTest` / `ReadIsolationTest`：Session / Bearer 双链；服务账号隔离；CSRF 对 Bearer 豁免。
-- [ ] `ProjectApiTest` / `ProjectMembershipApiTest` / `TeamApiTest` / `RepoBindingApiTest`：审核动作审计断言（如涉及）；项目删除服务账号清理；Session 登录的 POST 带 CSRF（`spring-security-test` 或真实 token）。
-- [ ] `WebApiTest` / `CommentApiTest` / `ReviewApiTest` / `SubscriptionApiTest` / `ImportExportApiTest`：改为真实 auth 模式（测试 admin token / 登录夹具）；`currentUser` / `isPlatformAdmin` 变更适配；Spring Security 错误契约不回归。
-- [ ] `ValidationContractTest`：新请求体校验（登录、密码、用户、服务账号、审计参数）。
+- [x] 测试基类（`TestDbIsolation` / `TestManagementDb`）统一注入测试 `spechub.admin-token`；所有 `@SpringBootTest` 走真实登录 / Bearer；禁止 anonymous 模式。
+- [x] `SpecHubPropertiesValidationTest`：所有 profile 要求 admin-token；删除 dev 允许缺失 / 免鉴权的断言。
+- [x] `AuthApiTest`：旧 token 登录建立 Spring Security 会话；`is_platform_admin` 移除；`/me` 字段；admin 语义改为 `org_admin`。
+- [x] `AuthVisibilityTest` / `ReadIsolationTest`：Session / Bearer 双链；服务账号隔离；CSRF 对 Bearer 豁免。
+- [x] `ProjectApiTest` / `ProjectMembershipApiTest` / `TeamApiTest` / `RepoBindingApiTest`：审核动作审计断言（如涉及）；项目删除服务账号清理；Session 登录的 POST 带 CSRF（`spring-security-test` 或真实 token）。
+- [x] `WebApiTest` / `CommentApiTest` / `ReviewApiTest` / `SubscriptionApiTest` / `ImportExportApiTest`：改为真实 auth 模式（测试 admin token / 登录夹具）；`currentUser` / `isPlatformAdmin` 变更适配；Spring Security 错误契约不回归。
+- [x] `ValidationContractTest`：新请求体校验（登录、密码、用户、服务账号、审计参数）。
 
 **门禁命令**
 
-- [ ] `./gradlew check --rerun-tasks`（PostgreSQL + Redis Testcontainer）通过；
-- [ ] `./gradlew :server:test -Dspechub.test.db=mysql --rerun-tasks`（MySQL + Redis Testcontainer）通过；
-- [ ] `./gradlew :server:ktlintCheck` 通过；
-- [ ] `cd apps/web && npm run build` 通过；
-- [ ] 全环境真实登录回归（Doc / Comment / Web / Subscription / ImportExport）通过；测试统一配置 admin-token / 登录夹具，不存在 anonymous 模式；
-- [ ] grep 门禁：`is_platform_admin` / `isPlatformAdmin` / `platformAdmin` / `app_user.token_hash` 无业务代码引用。
+- [x] `./gradlew check --rerun-tasks`（PostgreSQL + Redis Testcontainer）通过；
+- [x] `./gradlew :server:test -Dspechub.test.db=mysql --rerun-tasks`（MySQL + Redis Testcontainer）通过；
+- [x] `./gradlew :server:ktlintCheck` 通过；
+- [x] `cd apps/web && npm run build` 通过；
+- [x] 全环境真实登录回归（Doc / Comment / Web / Subscription / ImportExport）通过；测试统一配置 admin-token / 登录夹具，不存在 anonymous 模式；
+- [x] grep 门禁：`is_platform_admin` / `isPlatformAdmin` / `platformAdmin` / `app_user.token_hash` 无业务代码引用。
 
 ### C9.1 手动 e2e 清单（浏览器）
 
@@ -932,7 +932,15 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 13. 本地开发与生产一致：不配置 admin-token 启动失败；配置 `.env` 的 dev admin-token 后必须登录；没有「免登录」入口，浏览器只持有真实 `spechub_session`。
 14. 停掉 Redis：登录、会话校验、登录限流 fail-closed（503 / 无法建立会话），不降级为匿名或内存会话；恢复 Redis 后可重新登录。
 
-**状态**：待启动。
+> **C9 实施说明（2026-11-20）**：
+> - 迁移测试：`ManagementDbMigrationTest` 的 V5→V6 补齐订阅数据种子（用户 / 旧 token / 团队 / 订阅 → V6 后全部可读且不建会话表）；V6→V7、空库 V1→V7、唯一约束与 `PRINCIPAL_NAME` 索引均已覆盖。
+> - Redis 隔离：共享 Redis Testcontainer 按测试类 schema 使用独立 session namespace，并在每类上下文创建时 `FLUSHALL`，避免登录限流键（不带 namespace）跨类串扰。
+> - 新增 `RedisSessionTest`（TTL / principal 索引 / 未知会话 Cookie 不放行）与 `RedisUnavailableTest`（停 Redis 后登录 5xx、会话 Cookie 请求不放行）；`SessionRegistryTest` 并入前者。
+> - `AuthApiTest` 覆盖旧 token 登录建立 Spring Session、Cookie 访问受保护端点、`/me` 的 `org_admin` 语义与字段；`ValidationContractTest` 补登录 / 用户创建 / 令牌 / 服务账号 / 审计参数校验；项目 / 成员 / 团队 / binding 测试补审计断言；清理 Doc / Comment / Subscription / ImportExport 的「无鉴权」过时注释。
+> - 门禁实测：`./gradlew check --rerun-tasks`（PG + Redis，248 tests）✅；`./gradlew :server:test -Dspechub.test.db=mysql --rerun-tasks`（MySQL + Redis，199 tests）✅；`./gradlew :server:ktlintCheck` ✅；`cd apps/web && npm run build` ✅；grep 门禁仅剩迁移测试 / 历史注释引用，无业务代码使用。
+> - C9.1 浏览器手测（含 OIDC / MCP / UI 验收）仍需人工执行。
+
+**状态**：✅ 2026-11-20 自动化门禁通过（PG 248 tests / MySQL 199 tests / ktlint / web build）；C9.1 浏览器手测待人工执行。
 
 ---
 

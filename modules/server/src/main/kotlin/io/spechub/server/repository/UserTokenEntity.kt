@@ -8,7 +8,7 @@ import java.time.Instant
 /**
  * 用户 API 令牌（V6）。只存 SHA-256 hash；`token_prefix` 仅用于列表展示。
  *
- * - `legacy`：旧 `app_user.token_hash` 迁移来的长期令牌（无过期，V7 后仍有效）。
+ * - `legacy`：由旧 `app_user` 令牌列迁移来的长期令牌（无过期，V7 后仍有效）。
  * - `api` / `invite` / `password_reset`：必须有过期时间；邀请 / 重置使用后写 `used_at`。
  */
 @Table("user_token")

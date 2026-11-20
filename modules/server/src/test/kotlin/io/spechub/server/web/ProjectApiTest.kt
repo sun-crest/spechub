@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.repository.AuditEventRepository
 import io.spechub.server.service.RepoService
 import io.spechub.server.service.UserService
 import io.spechub.spec.index.Role
@@ -38,6 +39,9 @@ class ProjectApiTest {
 
     @Autowired
     lateinit var repos: RepoService
+
+    @Autowired
+    lateinit var auditEvents: AuditEventRepository
 
     private val json = JsonMapper.builder().build()
     private val http = HttpClient.newHttpClient()
@@ -199,5 +203,23 @@ class ProjectApiTest {
         assertEquals(409, hasRepo.statusCode(), hasRepo.body())
         assertEquals("CONFLICT", codeOf(hasRepo.body()))
         assertTrue(send("GET", "/api/projects/$id", token = owner.token).statusCode() == 200)
+    }
+
+    @Test
+    fun `项目动作写入审计`() {
+        val owner = createUser()
+        val (id, _) = createProject(owner.id, "审计项目")
+        assertEquals(200, send("PATCH", "/api/projects/$id", """{"name":"审计项目改"}""", owner.token).statusCode())
+        assertEquals(200, send("POST", "/api/projects/$id/archive", token = owner.token).statusCode())
+        assertEquals(204, send("DELETE", "/api/projects/$id", token = owner.token).statusCode())
+
+        val actions = auditEvents.findAll().map { it.action }.toSet()
+        listOf("project.create", "project.update", "project.archive", "project.delete").forEach {
+            assertTrue(it in actions, "缺少审计动作 $it：$actions")
+        }
+        assertTrue(
+            auditEvents.findAll().any { it.action == "project.delete" && it.targetId == id.toString() },
+            "审计应记录项目 $id 的删除动作",
+        )
     }
 }

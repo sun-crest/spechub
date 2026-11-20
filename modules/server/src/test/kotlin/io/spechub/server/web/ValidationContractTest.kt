@@ -69,6 +69,18 @@ class ValidationContractTest : TestDbIsolation() {
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
     }
 
+    /** 无 Bearer：登录请求必须走 Web 链的 JSON login filter。 */
+    private fun sendAnon(
+        method: String,
+        path: String,
+        body: String? = null,
+    ): HttpResponse<String> {
+        val builder = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
+        builder.method(method, if (body != null) HttpRequest.BodyPublishers.ofString(body) else HttpRequest.BodyPublishers.noBody())
+        if (body != null) builder.header("Content-Type", "application/json")
+        return client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
+    }
+
     private fun post(
         path: String,
         body: String,
@@ -133,5 +145,69 @@ class ValidationContractTest : TestDbIsolation() {
         val r = get("/api/reviews?status=bogus")
         assertEquals(400, r.statusCode())
         assertValidation(r.body(), "status")
+    }
+
+    // ── 阶段 C 新增请求体校验 ───────────────────────────────────────────────
+
+    @Test
+    fun `密码登录 - password 与 token 必须且只能提供一个`() {
+        val missing = sendAnon("POST", "/api/auth/login", "{}")
+        assertEquals(400, missing.statusCode(), missing.body())
+        assertEquals("BAD_REQUEST", json.readTree(missing.body()).get("code").asText())
+
+        val both =
+            sendAnon(
+                "POST",
+                "/api/auth/login",
+                """{"username":"admin","password":"some-password","token":"some-token"}""",
+            )
+        assertEquals(400, both.statusCode(), both.body())
+        assertEquals("BAD_REQUEST", json.readTree(both.body()).get("code").asText())
+    }
+
+    @Test
+    fun `用户创建 - 密码策略返回 newPassword 字段`() {
+        val r = post("/api/auth/users", """{"username":"weak-user","password":"short"}""")
+        assertEquals(400, r.statusCode(), r.body())
+        assertValidation(r.body(), "newPassword")
+    }
+
+    @Test
+    fun `用户令牌 - 空名称与非法有效期`() {
+        val blank = post("/api/auth/tokens", """{"name":""}""")
+        assertEquals(400, blank.statusCode(), blank.body())
+        assertValidation(blank.body(), "name")
+
+        val badDays = post("/api/auth/tokens", """{"name":"ci","expiresInDays":0}""")
+        assertEquals(400, badDays.statusCode(), badDays.body())
+        assertValidation(badDays.body(), "expiresInDays")
+    }
+
+    @Test
+    fun `服务账号 - 空名称 非法角色与非法有效期`() {
+        val projectId = defaultProjectId()
+
+        val blank = post("/api/service-accounts", """{"projectId":$projectId,"name":""}""")
+        assertEquals(400, blank.statusCode(), blank.body())
+        assertValidation(blank.body(), "name")
+
+        val badRole = post("/api/service-accounts", """{"projectId":$projectId,"name":"role-check","role":"owner"}""")
+        assertEquals(400, badRole.statusCode(), badRole.body())
+        assertEquals("VALIDATION", json.readTree(badRole.body()).get("code").asText())
+
+        val badDays = post("/api/service-accounts", """{"projectId":$projectId,"name":"days-check","expiresInDays":0}""")
+        assertEquals(400, badDays.statusCode(), badDays.body())
+        assertEquals("VALIDATION", json.readTree(badDays.body()).get("code").asText())
+    }
+
+    @Test
+    fun `审计查询 - 非法时间与结果值`() {
+        val badFrom = get("/api/audit?from=not-an-instant")
+        assertEquals(400, badFrom.statusCode(), badFrom.body())
+        assertValidation(badFrom.body(), "from")
+
+        val badOutcome = get("/api/audit?outcome=maybe")
+        assertEquals(400, badOutcome.statusCode(), badOutcome.body())
+        assertEquals("VALIDATION", json.readTree(badOutcome.body()).get("code").asText())
     }
 }

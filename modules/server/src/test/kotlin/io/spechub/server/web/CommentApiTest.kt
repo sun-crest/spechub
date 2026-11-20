@@ -25,7 +25,7 @@ import java.nio.file.Path
 import kotlin.test.assertEquals
 
 /**
- * I5 —— 轻评论 + 变更记录（无鉴权模式：未配置 admin-token 全放行，聚焦业务链路）：
+ * I5 —— 轻评论 + 变更记录（真实 Bearer 鉴权，聚焦业务链路）：
  * - 接口评论：发表 / 列表 / 删除（作者可删）。
  * - spec 写回在 changelog 带 diff 摘要；全局变更流 GET /api/changelog 报告所有写操作。
  */

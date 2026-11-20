@@ -1,7 +1,9 @@
 package io.spechub.server.web
 
+import io.spechub.server.repository.AuditEventRepository
 import io.spechub.spec.index.Role
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.DynamicPropertyRegistry
@@ -15,6 +17,7 @@ import java.nio.file.Path
 import java.util.UUID
 import kotlin.io.path.createTempDirectory
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /** 阶段 A：多项目成员 API（添加/列表/改角色/移除、owner 锁定、项目 admin 权限）。 */
 @SpringBootTest(
@@ -27,6 +30,9 @@ import kotlin.test.assertEquals
 class ProjectMembershipApiTest {
     @LocalServerPort
     var port: Int = 0
+
+    @Autowired
+    lateinit var auditEvents: AuditEventRepository
 
     private val json = JsonMapper.builder().build()
     private val http = HttpClient.newHttpClient()
@@ -162,5 +168,32 @@ class ProjectMembershipApiTest {
 
         // 非成员看不到成员列表
         assertEquals(404, send("GET", "/api/projects/$projectId/members", token = stranger.token).statusCode())
+    }
+
+    @Test
+    fun `项目成员动作写入审计`() {
+        val owner = createOrgUser("audit-owner")
+        val member = createOrgUser("audit-member")
+        val projectId = createProject(owner)
+
+        assertEquals(
+            201,
+            send(
+                "POST",
+                "/api/projects/$projectId/members",
+                """{"username":"${member.username}","role":"${Role.VIEWER}"}""",
+                owner.token,
+            ).statusCode(),
+        )
+        assertEquals(
+            200,
+            send("PATCH", "/api/projects/$projectId/members/${member.id}", """{"role":"${Role.EDITOR}"}""", owner.token).statusCode(),
+        )
+        assertEquals(204, send("DELETE", "/api/projects/$projectId/members/${member.id}", token = owner.token).statusCode())
+
+        val actions = auditEvents.findAll().map { it.action }.toSet()
+        listOf("project.member.add", "project.member.role", "project.member.delete").forEach {
+            assertTrue(it in actions, "缺少审计动作 $it：$actions")
+        }
     }
 }

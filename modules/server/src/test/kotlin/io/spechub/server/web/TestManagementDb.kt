@@ -71,6 +71,9 @@ object TestManagementDb {
         // 每测试类独立 session namespace，避免跨类会话 / principal 索引串扰
         registry.add("spring.session.data.redis.namespace") { "spechub:session:$schema" }
         registry.add("spechub.session-cookie-secure") { "false" }
+        // C9：登录限流键不带 namespace；每个测试类开始前清空共享 Redis，
+        // 避免上一类的失败计数（同 IP / 同标识）导致后续类被误锁。
+        redis.execInContainer("redis-cli", "FLUSHALL")
     }
 
     /** 创建独立 schema/database 并返回连接目标（幂等）。 */

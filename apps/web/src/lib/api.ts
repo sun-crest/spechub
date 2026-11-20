@@ -72,7 +72,7 @@ export interface Me {
   csrfToken?: string | null;
   mustChangePassword?: boolean;
   hasPassword?: boolean;
-  /** 组织管理员是唯一组织管理标识（阶段 C 移除 platformAdmin） */
+  /** 组织管理员是唯一组织管理标识（阶段 C 移除平台级管理员字段） */
   orgAdmin?: boolean;
   oidcEnabled?: boolean;
   oidcLoginUrl?: string | null;

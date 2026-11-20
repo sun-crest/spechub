@@ -16,7 +16,7 @@ import java.time.Instant
  * 用户 API 令牌（阶段 C）。
  *
  * - 明文只返回一次；库中只存 SHA-256 hash 与前缀（列表展示 / secret 扫描识别）。
- * - `legacy` 无过期（旧 admin-token / app_user.token_hash 迁移）；`api` / `invite` /
+ * - `legacy` 无过期（旧 admin-token / `app_user` 旧令牌列迁移）；`api` / `invite` /
  *   `password_reset` 必须有过期时间。
  * - `resolveLogin` 只接受 `legacy` / `api`；邀请 / 重置令牌仅用于密码设置，不能登录。
  * - `last_used_at` 写节流 5 分钟，避免每请求写放大。

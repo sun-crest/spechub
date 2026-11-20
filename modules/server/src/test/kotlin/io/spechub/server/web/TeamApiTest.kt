@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.repository.AuditEventRepository
 import io.spechub.server.repository.OrgEntity
 import io.spechub.server.repository.OrgRepository
 import io.spechub.server.service.OrgService
@@ -61,6 +62,9 @@ class TeamApiTest {
 
     @Autowired
     lateinit var teamService: TeamService
+
+    @Autowired
+    lateinit var auditEvents: AuditEventRepository
 
     private val json = JsonMapper.builder().build()
     private val http = HttpClient.newHttpClient()
@@ -270,5 +274,20 @@ class TeamApiTest {
         val resp = send("GET", "/api/teams/${assertNotNull(otherTeam.id)}")
         assertEquals(404, resp.statusCode(), resp.body())
         assertEquals("NOT_FOUND", codeOf(resp.body()))
+    }
+
+    @Test
+    fun `团队动作写入审计`() {
+        val team = createTeam()
+        assertEquals(200, send("PATCH", "/api/teams/${team.id}", """{"name":"${team.name}-audit"}""").statusCode())
+        val member = createUser()
+        assertEquals(201, send("POST", "/api/teams/${team.id}/members", """{"userId":${member.id},"role":"member"}""").statusCode())
+        assertEquals(200, send("PATCH", "/api/teams/${team.id}/members/${member.id}", """{"role":"lead"}""").statusCode())
+        assertEquals(204, send("DELETE", "/api/teams/${team.id}/members/${member.id}").statusCode())
+
+        val actions = auditEvents.findAll().map { it.action }.toSet()
+        listOf("team.create", "team.update", "team.member.add", "team.member.role", "team.member.delete").forEach {
+            assertTrue(it in actions, "缺少审计动作 $it：$actions")
+        }
     }
 }

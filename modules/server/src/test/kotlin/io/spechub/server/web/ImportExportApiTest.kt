@@ -26,7 +26,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * J —— 导入导出（无鉴权放行，聚焦链路）：
+ * J —— 导入导出（真实 Bearer 鉴权，聚焦链路）：
  * - J1/J2 导入：POST /api/import/swagger2 + /postman（带 repoId+path）→ 写回真源 + 摄取；
  * - J3 导出：GET /repos/{id}/export/openapi31|openapi30|postman。
  */

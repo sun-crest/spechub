@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.repository.AuditEventRepository
 import io.spechub.server.repository.RepoBindingEntity
 import io.spechub.server.service.ProjectService
 import io.spechub.server.service.RepoBindingService
@@ -70,6 +71,9 @@ class RepoBindingApiTest {
 
     @Autowired
     lateinit var jdbc: JdbcTemplate
+
+    @Autowired
+    lateinit var auditEvents: AuditEventRepository
 
     private val json = JsonMapper.builder().build()
     private val http = HttpClient.newHttpClient()
@@ -403,5 +407,23 @@ class RepoBindingApiTest {
         val defaultProjectId = projects.projectIdByName(ProjectService.DEFAULT_PROJECT) ?: error("default project 未初始化")
         val repoId = registerRepo(defaultProjectId, seedOrigin("/pets"))
         assertEquals(defaultProjectId, repoService.getRepo(repoId)?.projectId)
+    }
+
+    @Test
+    fun `binding 动作写入审计`() {
+        val projectId = createProject()
+        val repoId = registerRepo(projectId, seedOrigin("/pets"))
+        val candidate = createCandidate(repoId, seedOrigin("/cats"))
+
+        assertEquals(200, send("POST", "/api/repos/$repoId/bindings/$candidate/verify").statusCode())
+        assertEquals(
+            200,
+            send("POST", "/api/repos/$repoId/bindings/$candidate/activate", """{"confirm":true}""").statusCode(),
+        )
+
+        val actions = auditEvents.findAll().map { it.action }.toSet()
+        listOf("repo.binding.create", "repo.binding.verify", "repo.binding.activate").forEach {
+            assertTrue(it in actions, "缺少审计动作 $it：$actions")
+        }
     }
 }

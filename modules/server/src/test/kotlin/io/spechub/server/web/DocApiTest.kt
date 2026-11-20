@@ -23,7 +23,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * K —— AI 文档层（Doc 域）集成（无鉴权放行）：
+ * K —— AI 文档层（Doc 域）集成（真实 Bearer 鉴权）：
  * - docs/ Markdown 随摄取入索引（listDocs）；全文检索 q（K2 中文子串）；
  * - 详情 markdown 含 front-matter related 生成的「关联接口」节（K3 Doc↔Api 链接）；评论挂在 doc。
  */
