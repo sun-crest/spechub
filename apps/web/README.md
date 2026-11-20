@@ -9,7 +9,7 @@ H 组 Web（由 `apps/web-spike` 于 2026-11-14 转正）。Vite 6 + React 19 + 
 - **H3** 接口详情三段式 ✅ —— 契约从 `specJson` 前端解析渲染（Parameters 表 + Responses + schema 递归）；Doc 域**真 Markdown 渲染**（react-markdown + remark-gfm，标题索引从 md 提取）
 - **H4** 编辑即提交 ✅ —— 双栏编辑器保存 = 强制 diff 确认（Monaco DiffEditor + commit message）→ `PUT /api/repos/{id}/spec` 写回真源（platform commit → 自动摄取）；e2e 实证
 - **H5** Monaco 双栏编辑器 ✅ —— 左 YAML/JSON 编辑（本地打包 monaco，dev/构建均验证）｜右实时渲染预览（`yaml` 解析 → 操作列表 + 复用契约渲染引擎）
-- **H6** 登录 / admin 初始化 ✅ —— admin token 简单登录占位（§7 O3，RBAC 留 P2 I4）：后端 `GET /api/auth/status` + `POST /api/auth/login`；前端 localStorage 持有 token → 全请求带 Bearer；后端启用鉴权时未登录进入**只读**（编辑入口隐藏/禁用），登录/登出在顶栏账号菜单；未配 admin-token 时免鉴权照常可用
+- **H6 / C8** 登录与账号安全 ✅ —— 阶段 C：Spring Security 双链 + Spring Session（Redis），密码 / OIDC / 兼容令牌登录；浏览器只持有 HttpOnly 会话 Cookie，CSRF token 仅存内存；账号与安全（资料 / 改密 / 活动会话 / API 令牌）、服务账号、审计日志；Web 端不再持久化长期令牌
 
 ## 运行
 
@@ -49,7 +49,13 @@ cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
 
 **build**：`cd apps/web && npm run build`（monaco 独立 chunk）。
 
-**登录（H6）**：默认后端未配 admin-token，前端免登录直接可用。要启用鉴权：backend 启动时加 `SPECHUB_ADMIN_TOKEN=<token>`（或 `--seed-admin` 生成，日志打印）→ 前端启动后未登录为**只读**，顶栏账号菜单「登录…」输入 token，成功后写操作可用、请求带 Bearer。
+**登录（阶段 C / C8）**：所有环境都必须真实登录（后端要求配置 `SPECHUB_ADMIN_TOKEN`、Redis 可用）。前端启动即探测 `/api/auth/status` + `/api/auth/me`，无有效会话弹出登录框：
+
+- 默认：用户名或邮箱 + 密码；
+- OIDC 启用时显示「使用 SSO 登录」；Vite dev 已代理 `/oauth2`、`/login/oauth2`（OIDC 回调必须与前端同源，否则 Cookie / 回调会落到错误端口）；
+- 兼容 admin-token / 用户 API 令牌：展开「使用令牌登录」。令牌只用于本次 `/api/auth/login`，**不写入 localStorage**；历史 `spechub.admin-token` 键在加载时清除。
+
+前端请求一律同源（`/api`，Vite 代理到 `VITE_API_BASE`），`credentials: "same-origin"` 携带会话 Cookie；非 GET/HEAD 请求自动带 `X-CSRF-Token`。本地 dev 可设 `VITE_DEV_ADMIN_TOKEN=<token>` 预填兼容令牌输入框（仅 dev 构建注入，不进生产包）。
 
 **运行自检（冒烟命令）**：起好后可快速验证读写链路
 ```bash

@@ -12,8 +12,11 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // dev 时前端同源代理到 backend（对应 SPECHUB_EXTERNAL_URL）
+      // dev 时前端同源代理到 backend（对应 SPECHUB_EXTERNAL_URL）。
+      // OIDC 授权 / 回调必须与前端同源，否则会话 Cookie 与回调会落到错误端口。
       "/api": { target: BACKEND, changeOrigin: true },
+      "/oauth2": { target: BACKEND, changeOrigin: true },
+      "/login/oauth2": { target: BACKEND, changeOrigin: true },
     },
   },
   build: {

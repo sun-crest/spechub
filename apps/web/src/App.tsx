@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Boxes, ChevronsUpDown, LogOut, Moon, PanelLeftClose, Search, Shield, Sun, CheckCircle2, Users, History, ClipboardCheck, FolderPlus, Settings2, Plus } from "lucide-react";
+import { Boxes, ChevronsUpDown, ClipboardList, KeyRound, LogOut, Moon, PanelLeftClose, Search, Shield, ShieldCheck, Sun, CheckCircle2, Users, History, ClipboardCheck, FolderPlus, Settings2, Plus } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -18,8 +18,11 @@ import { RepoRegisterDialog } from "./demo/RepoRegisterDialog";
 import { ChangeLogDialog } from "./demo/ChangeLogDialog";
 import { ReviewDialog } from "./demo/ReviewDialog";
 import { TeamDialog } from "./demo/TeamDialog";
+import { SecurityDialog } from "./demo/SecurityDialog";
+import { ServiceAccountDialog } from "./demo/ServiceAccountDialog";
+import { AuditDialog } from "./demo/AuditDialog";
 import { DocPanel } from "./demo/DocPanel";
-import { getAuthStatus, getAdminToken, setAdminToken, getMe, listApis, listProjects, listRepos, listDocs, searchDocs, listReviews, repoDisplay, WRITE_ROLES, type Api, type Doc, type Me, type Project, type Repo, type WriteSpecResp, type AuthStatus } from "@/lib/api";
+import { getAuthStatus, setCsrfToken, logout, UNAUTHORIZED_EVENT, ApiError, getMe, listApis, listProjects, listRepos, listDocs, searchDocs, listReviews, repoDisplay, WRITE_ROLES, type Api, type Doc, type Me, type Project, type Repo, type WriteSpecResp, type AuthStatus, type LoginResult } from "@/lib/api";
 
 export default function App() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -47,11 +50,17 @@ export default function App() {
   const [editing, setEditing] = useState<EditingEntry | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  // H6 登录：authStatus=null 表示尚未探测；authEnabled=false 后端未启用鉴权（免登录只读+可写）
+  // 阶段 C：所有环境真实登录；authStatus 仅用于 OIDC 探测，me 为当前会话主体
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
-  // I4 RBAC：当前用户 + 默认项目角色（决定写入口可见性）
+  const [loginError, setLoginError] = useState<string | null>(null);
+  // I4 RBAC：当前用户 + 项目角色（决定写入口可见性）
   const [me, setMe] = useState<Me | null>(null);
+  const authedRef = useRef(false);
+  // 账号与安全 / 服务账号 / 审计日志
+  const [securityOpen, setSecurityOpen] = useState(false);
+  const [serviceAccountsOpen, setServiceAccountsOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   // B6：团队管理（组织级，账号菜单入口）
   const [teamsOpen, setTeamsOpen] = useState(false);
@@ -61,45 +70,108 @@ export default function App() {
   const [reviewsOpen, setReviewsOpen] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const loadPendingReviews = () => {
-    if (!me?.authEnabled) { setPendingCount(0); return; }
+    if (!authedRef.current) { setPendingCount(0); return; }
     void listReviews("pending").then((rs) => setPendingCount(rs.length)).catch(() => setPendingCount(0));
   };
-  useEffect(() => { loadPendingReviews(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [me?.authEnabled]);
+  useEffect(() => { loadPendingReviews(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [me?.authenticated]);
 
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
 
-  const loadMe = () => getMe().then(setMe).catch(() => setMe(null));
+  /** 应用 `/auth/me` 结果：同步内存 CSRF token 与「已认证」标记（供 load 守卫使用）。 */
+  const applyMe = (m: Me | null) => {
+    authedRef.current = m?.authenticated === true;
+    setMe(m);
+    if (m?.csrfToken) setCsrfToken(m.csrfToken);
+  };
+  const refreshMe = async (): Promise<Me | null> => {
+    try {
+      const m = await getMe();
+      applyMe(m);
+      return m;
+    } catch {
+      applyMe(null);
+      return null;
+    }
+  };
 
+  // 启动即探测会话：/auth/status + /auth/me；无会话一律弹登录框（无 dev 免登录分支）
   useEffect(() => {
     let alive = true;
-    getAuthStatus().then((s) => { if (alive) { setAuthStatus(s); if (s.authEnabled && !s.authenticated) setLoginOpen(true); } }).catch(() => {});
-    void loadMe();
+    void (async () => {
+      // OIDC 回调失败（/?loginError=oidc）：提示后清理 URL 标记
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("loginError") === "oidc") {
+        setLoginError("SSO 登录失败，请重试或改用密码登录");
+        setLoginOpen(true);
+        params.delete("loginError");
+        const qs = params.toString();
+        window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+      }
+      try {
+        const s = await getAuthStatus();
+        if (!alive) return;
+        setAuthStatus(s);
+        if (!s.authenticated) {
+          setLoading(false);
+          setLoginOpen(true);
+          return;
+        }
+        const m = await getMe();
+        if (!alive) return;
+        applyMe(m);
+        void load();
+      } catch {
+        if (!alive) return;
+        setLoading(false);
+        setLoginOpen(true);
+      }
+    })();
     return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // I4 编辑入口可见性：未启用鉴权 → 可写；启用后需已认证且当前项目角色 ∈ editor/admin/owner
+  // 会话失效（任意 API 401）：清空当前用户与数据，关闭管理对话框并弹出登录框
+  useEffect(() => {
+    const onUnauthorized = () => {
+      authedRef.current = false;
+      setMe(null);
+      setAuthStatus((s) => (s ? { ...s, authenticated: false, username: null, authMethod: null } : { authEnabled: true, authenticated: false }));
+      setProjects([]); setRepos([]); setApis([]); setDocs([]);
+      setSelected(null); setEditing(null); setSelectedDocId(null);
+      setSecurityOpen(false); setServiceAccountsOpen(false); setAuditOpen(false);
+      setMembersOpen(false); setTeamsOpen(false); setReviewsOpen(false);
+      setPendingCount(0);
+      setLoginOpen(true);
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
+
+  // I4 编辑入口可见性：必须已认证，且组织管理员或当前项目角色 ∈ editor/admin/owner
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? projects[0] ?? null;
   const currentProjectRole = selectedProjectId != null
-    ? (me?.projectRoles?.[String(selectedProjectId)] ?? (me?.platformAdmin ? "owner" : null))
+    ? (me?.projectRoles?.[String(selectedProjectId)] ?? null)
     : null;
-  const isOrgAdmin = me?.orgAdmin === true || me?.platformAdmin === true;
-  const canManageCurrentProject = me?.orgAdmin === true || (currentProjectRole != null && ["admin", "owner"].includes(currentProjectRole));
+  const isOrgAdmin = me?.orgAdmin === true;
+  const isAuthenticated = me?.authenticated === true;
+  const canManageCurrentProject = isOrgAdmin || (currentProjectRole != null && ["admin", "owner"].includes(currentProjectRole));
   const canOwnerCurrentProject = isOrgAdmin || currentProjectRole === "owner";
-  const meCanWrite = me == null
-    ? !(authStatus?.authEnabled && !authStatus.authenticated) // 尚未加载：若已探测启用且未认证 → 先按只读
-    : !me.authEnabled || (me.authenticated === true && (me.platformAdmin ?? false)) || (me.authenticated === true && WRITE_ROLES.includes(currentProjectRole ?? ""));
-  const canWrite = meCanWrite;
+  const canWrite = isAuthenticated && (isOrgAdmin || WRITE_ROLES.includes(currentProjectRole ?? ""));
   // I6：release 是只读消费视图，编辑/发布只作用于 draft
   const canEdit = canWrite && stage === "draft";
-  // I5：评论能力 = 登录即可（未启用鉴权视为已登录）
-  const canComment = me == null
-    ? !(authStatus?.authEnabled && !authStatus.authenticated)
-    : !me.authEnabled || me.authenticated === true;
+  // I5：评论能力 = 登录即可
+  const canComment = isAuthenticated;
   const meUsername = me?.username ?? null;
 
   // A8：先取可见项目，再按选中项目拉取 repos / apis / docs（不再全量）
   const loadSeq = useRef(0);
   async function load() {
+    // 未登录不拉业务数据（登录成功后由 onAuthed 显式触发）
+    if (!authedRef.current) {
+      setProjects([]); setRepos([]); setApis([]); setDocs([]);
+      setLoading(false);
+      return;
+    }
     const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
@@ -123,7 +195,8 @@ export default function App() {
       setApis(ap);
       setDocs(dc);
     } catch (e) {
-      if (seq === loadSeq.current) setError(String(e));
+      // 401 由全局 unauthorized 处理（弹登录框），不展示业务错误横幅
+      if (seq === loadSeq.current && !(e instanceof ApiError && e.status === 401)) setError(String(e));
     } finally {
       if (seq === loadSeq.current) setLoading(false);
     }
@@ -164,6 +237,40 @@ export default function App() {
 
   const cntByRepo = (id: number) => apis.filter((a) => a.repoId === id).length;
   const cntByTag = (t: string) => apis.filter((a) => a.tag === t).length;
+
+  /** 登录成功：换成会话后刷新 /auth/me 与业务数据（登录框不持久化令牌）。 */
+  async function handleAuthed(_result: LoginResult) {
+    setLoginError(null);
+    setLoginOpen(false);
+    // 重新探测 status，拿到 OIDC 配置等仅登录前可见的字段
+    try {
+      setAuthStatus(await getAuthStatus());
+    } catch {
+      setAuthStatus((s) => (s ? { ...s, authenticated: true } : { authEnabled: true, authenticated: true }));
+    }
+    const m = await refreshMe();
+    if (m?.authenticated) await load();
+  }
+
+  /** 退出登录：POST /auth/logout 删除 Spring Session，清空前端状态并回到登录框。 */
+  async function handleLogout() {
+    try {
+      await logout();
+    } catch {
+      /* 会话可能已失效：仍按已登出处理 */
+    }
+    setCsrfToken(null);
+    authedRef.current = false;
+    setMe(null);
+    setAuthStatus((s) => (s ? { ...s, authenticated: false, username: null, authMethod: null } : { authEnabled: true, authenticated: false }));
+    setProjects([]); setRepos([]); setApis([]); setDocs([]);
+    setSelected(null); setEditing(null); setSelectedDocId(null);
+    setSecurityOpen(false); setServiceAccountsOpen(false); setAuditOpen(false);
+    setMembersOpen(false); setTeamsOpen(false); setReviewsOpen(false);
+    setPendingCount(0);
+    setLoginOpen(true);
+    setToast("已退出登录");
+  }
 
   return (
     <div className="flex h-svh bg-background text-foreground">
@@ -317,7 +424,7 @@ export default function App() {
                 </DropdownMenuItem>
               ))}
               {projects.length === 0 && <DropdownMenuItem disabled>无项目</DropdownMenuItem>}
-              {(me?.orgAdmin === true || me?.platformAdmin === true) && (
+              {isOrgAdmin && (
                 <DropdownMenuItem onSelect={() => setProjectDialog({ mode: "create" })}>
                   <FolderPlus className="size-3.5" /> 新建项目…
                 </DropdownMenuItem>
@@ -358,54 +465,56 @@ export default function App() {
               >
                 <Avatar className="size-8">
                   <AvatarFallback className="bg-secondary text-xs font-semibold text-foreground">
-                    {(me?.authenticated || !me?.authEnabled) ? (me?.username?.[0]?.toUpperCase() ?? "A") : "?"}
+                    {isAuthenticated ? (me?.username?.[0]?.toUpperCase() ?? "A") : "?"}
                   </AvatarFallback>
                 </Avatar>
                 <span className="text-[11px]">
-                  {me?.authEnabled
-                    ? (canWrite ? <span className="text-emerald-600 dark:text-emerald-400">{me.username ?? (me.authenticated ? "已认证" : "只读")}</span>
-                      : <span className="text-muted-foreground">{me.username ?? "只读"}</span>)
-                    : <span className="text-muted-foreground">免登录</span>}
+                  {isAuthenticated
+                    ? (canWrite
+                      ? <span className="text-emerald-600 dark:text-emerald-400">{me?.username}</span>
+                      : <span className="text-muted-foreground">{me?.username}</span>)
+                    : <span className="text-muted-foreground">未登录</span>}
                 </span>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {!me?.authEnabled ? (
-                  <>
-                    <DropdownMenuItem disabled className="text-muted-foreground">后端未启用鉴权（免登录）</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => setTeamsOpen(true)}>
-                      <Users className="size-3.5" /> 团队管理…
-                    </DropdownMenuItem>
-                  </>
-                ) : me?.authenticated ? (
+                {isAuthenticated ? (
                   <>
                     <DropdownMenuItem disabled className="flex flex-col items-start gap-0.5">
-                      <span className="font-mono text-[13px]">{me.username}</span>
+                      <span className="font-mono text-[13px]">{me?.username}</span>
                       <span className="text-[11px] text-muted-foreground">
-                        {me.platformAdmin ? "平台 admin（owner*）" : (currentProjectRole ? `${selectedProject?.name ?? "当前项目"} · 角色：${currentProjectRole}` : "未分配项目角色（只读）")}
+                        {isOrgAdmin
+                          ? "组织管理员（org_admin）"
+                          : (currentProjectRole ? `${selectedProject?.name ?? "当前项目"} · 角色：${currentProjectRole}` : "未分配项目角色（只读）")}
                       </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setSecurityOpen(true)}>
+                      <ShieldCheck className="size-3.5" /> 账号与安全…
                     </DropdownMenuItem>
                     {canManageCurrentProject && (
                       <DropdownMenuItem onSelect={() => setMembersOpen(true)}>
                         <Users className="size-3.5" /> 成员与角色…
                       </DropdownMenuItem>
                     )}
+                    {canManageCurrentProject && (
+                      <DropdownMenuItem onSelect={() => setServiceAccountsOpen(true)}>
+                        <KeyRound className="size-3.5" /> 服务账号…
+                      </DropdownMenuItem>
+                    )}
+                    {isOrgAdmin && (
+                      <DropdownMenuItem onSelect={() => setAuditOpen(true)}>
+                        <ClipboardList className="size-3.5" /> 审计日志…
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem onSelect={() => setTeamsOpen(true)}>
                       <Users className="size-3.5" /> 团队管理…
                     </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => {
-                      const enabled = authStatus?.authEnabled ?? false;
-                      setAdminToken(null);
-                      setAuthStatus({ authEnabled: enabled, authenticated: false, username: null });
-                      setMe(null);
-                      setEditing(null);
-                      void load();
-                    }}>
+                    <DropdownMenuItem onSelect={() => void handleLogout()}>
                       <LogOut className="size-3.5" /> 退出登录
                     </DropdownMenuItem>
                   </>
                 ) : (
                   <>
-                    <DropdownMenuItem disabled className="text-muted-foreground">未登录（只读）</DropdownMenuItem>
+                    <DropdownMenuItem disabled className="text-muted-foreground">未登录</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => setLoginOpen(true)}>登录…</DropdownMenuItem>
                   </>
                 )}
@@ -415,11 +524,21 @@ export default function App() {
         </header>
 
         <main className="min-h-0 flex-1">
-          {!loading && !error && projects.length === 0 ? (
+          {me == null ? (
+            <div className="flex h-full items-center justify-center p-8 text-[13px] text-muted-foreground">
+              正在校验登录状态…
+            </div>
+          ) : !isAuthenticated ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+              <Shield className="size-8 text-muted-foreground/60" />
+              <div className="text-sm text-muted-foreground">请登录后使用 SpecHub。</div>
+              <Button size="sm" onClick={() => setLoginOpen(true)}>登录…</Button>
+            </div>
+          ) : !loading && !error && projects.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
               <FolderPlus className="size-8 text-muted-foreground/60" />
               <div className="text-sm text-muted-foreground">当前没有可见项目。</div>
-              {(me?.orgAdmin === true || me?.platformAdmin === true) ? (
+              {isOrgAdmin ? (
                 <Button size="sm" onClick={() => setProjectDialog({ mode: "create" })}>
                   <FolderPlus className="size-3.5" /> 新建项目
                 </Button>
@@ -493,14 +612,37 @@ export default function App() {
         </div>
       )}
 
-      {/* H6 登录对话框 → I4 RBAC（登录后刷新当前用户与写入口可见性） */}
-      {authStatus?.authEnabled && (
-        <LoginDialog
-          open={loginOpen}
-          onOpenChange={setLoginOpen}
-          onAuthed={(status) => { setAuthStatus(status); void loadMe(); void load(); }}
-        />
-      )}
+      {/* 阶段 C 登录：密码 / OIDC / 兼容令牌；成功后建立真实 Spring Session */}
+      <LoginDialog
+        open={loginOpen}
+        onOpenChange={(o) => { setLoginOpen(o); if (!o) setLoginError(null); }}
+        onAuthed={(status) => { void handleAuthed(status); }}
+        oidcEnabled={authStatus?.oidcEnabled}
+        oidcLoginUrl={authStatus?.oidcLoginUrl}
+        initialError={loginError}
+      />
+
+      {/* 阶段 C 账号与安全：资料 / 改密 / 活动会话 / 我的令牌 */}
+      <SecurityDialog
+        open={securityOpen || me?.mustChangePassword === true}
+        onOpenChange={(o) => { if (!o && me?.mustChangePassword) return; setSecurityOpen(o); }}
+        me={me}
+        forcePasswordChange={me?.mustChangePassword === true}
+        onChanged={() => void refreshMe()}
+      />
+
+      {/* 阶段 C 服务账号（当前项目 admin+ / org_admin） */}
+      <ServiceAccountDialog
+        open={serviceAccountsOpen}
+        onOpenChange={setServiceAccountsOpen}
+        projects={projects}
+        projectRoles={me?.projectRoles}
+        orgAdmin={isOrgAdmin}
+        defaultProjectId={selectedProjectId}
+      />
+
+      {/* 阶段 C 审计日志（org_admin） */}
+      <AuditDialog open={auditOpen} onOpenChange={setAuditOpen} />
 
       {/* I4 / A6 项目成员与角色管理（当前项目 admin+） */}
       <MembersDialog
@@ -508,7 +650,7 @@ export default function App() {
         onOpenChange={setMembersOpen}
         projectId={selectedProjectId}
         projectName={selectedProject?.name ?? null}
-        canManageOrg={me?.orgAdmin === true}
+        canManageOrg={isOrgAdmin}
       />
 
       {/* A8 项目创建 / 设置（归档 / 删除） */}
@@ -543,7 +685,7 @@ export default function App() {
         open={teamsOpen}
         onOpenChange={setTeamsOpen}
         me={me}
-        onChanged={() => void loadMe()}
+        onChanged={() => void refreshMe()}
       />
 
       {/* I5 全局变更记录 */}

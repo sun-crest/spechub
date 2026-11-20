@@ -233,7 +233,6 @@ export function MembersDialog({
                       variant="ghost"
                       className="size-6 text-destructive"
                       title="删除组织用户"
-                      disabled={u.platformAdmin}
                       onClick={() => void doDeleteOrgUser(u)}
                     >
                       <Trash2 className="size-3" />

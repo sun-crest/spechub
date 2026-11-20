@@ -1,6 +1,6 @@
 # SpecHub · 阶段 C 任务拆解（账号与审计）
 
-> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 / C5 / C6 / C7 已完成；C8–C10 待启动
+> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 / C5 / C6 / C7 / C8 已完成；C9–C10 待启动
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **范围**：Spring Security Web 认证底座、Spring Session 分布式会话、密码 / OIDC 登录、账号禁用与邀请、可过期可吊销令牌、项目级服务账号、管理动作审计查询。
 > **不覆盖**：多组织切换 / 组织生命周期 / 平台运营控制面 / break-glass（阶段 D1）、自助注册 / 邮箱验证 / 域名认领（阶段 D2）、SAML / SCIM、MFA / WebAuthn、组织级服务账号、`project_group` / `api_group`。
@@ -795,52 +795,52 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **`apps/web/src/lib/api.ts`**
 
-- [ ] 去掉 Web 默认路径的 `localStorage` 长期令牌：
+- [x] 去掉 Web 默认路径的 `localStorage` 长期令牌：
   - 删除 / 停用 `getAdminToken` / `setAdminToken` 的默认使用；
   - 启动时清除历史遗留的 `spechub.admin-token` localStorage 键（用户需用密码 / OIDC / 令牌重新登录）；
   - `j()` 设置 `credentials: "same-origin"`（`VITE_API_BASE` 跨域时必须 `include` + 后端 CORS，文档标注推荐 Vite 代理）；
   - 会话登录后把 `csrfToken` 放内存变量，非 GET/HEAD 请求带 `X-CSRF-Token`；
   - 401 时清空当前用户并触发登录框；
   - 保留「兼容令牌登录」路径，但不在 Web 持久化。
-- [ ] 类型扩展：`AuthStatus` / `Me` 增加 `authMethod` / `csrfToken` / `email` / `status` / `mustChangePassword` / `hasPassword` / `oidcEnabled` / `oidcLoginUrl`；移除 `platformAdmin`，统一用 `orgAdmin`。
-- [ ] 新增 API：`logout` / `changePassword` / `setupPassword` / 会话列表与吊销 / 令牌 CRUD / 服务账号 CRUD / `listAudit`。
+- [x] 类型扩展：`AuthStatus` / `Me` 增加 `authMethod` / `csrfToken` / `email` / `status` / `mustChangePassword` / `hasPassword` / `oidcEnabled` / `oidcLoginUrl`；移除 `platformAdmin`，统一用 `orgAdmin`。
+- [x] 新增 API：`logout` / `changePassword` / `setupPassword` / 会话列表与吊销 / 令牌 CRUD / 服务账号 CRUD / `listAudit`。
 
 **`LoginDialog.tsx`**
 
-- [ ] 默认密码登录：用户名或邮箱 + 密码；
-- [ ] `oidcEnabled` 时显示「使用 SSO 登录」按钮，跳转 `oidcLoginUrl`（相对路径，保持同源）；
-- [ ] Vite 代理增加 `/oauth2`、`/login/oauth2`（OIDC 回调必须经前端同源代理，否则 Cookie / 回调落到错误端口）；
-- [ ] 「使用令牌登录」折叠为高级选项（兼容 admin-token / 用户令牌）；
-- [ ] 错误统一展示，不区分用户不存在 / 密码错误；429 显示「尝试过于频繁」；
-- [ ] 登录成功后不再写 localStorage。
+- [x] 默认密码登录：用户名或邮箱 + 密码；
+- [x] `oidcEnabled` 时显示「使用 SSO 登录」按钮，跳转 `oidcLoginUrl`（相对路径，保持同源）；
+- [x] Vite 代理增加 `/oauth2`、`/login/oauth2`（OIDC 回调必须经前端同源代理，否则 Cookie / 回调落到错误端口）；
+- [x] 「使用令牌登录」折叠为高级选项（兼容 admin-token / 用户令牌）；
+- [x] 错误统一展示，不区分用户不存在 / 密码错误；429 显示「尝试过于频繁」；
+- [x] 登录成功后不再写 localStorage。
 
 **`App.tsx`**
 
-- [ ] 启动探测 `/api/auth/status` + `/api/auth/me`；会话有效则不弹登录框；
-- [ ] 账号菜单：
+- [x] 启动探测 `/api/auth/status` + `/api/auth/me`；会话有效则不弹登录框；
+- [x] 账号菜单：
   - `账号与安全…`（所有人）；
   - `服务账号…`（当前项目 admin+ / org_admin）；
   - `审计日志…`（org_admin）；
   - `团队管理…`（保留）；
   - `退出登录` 调用 `POST /api/auth/logout` 后刷新；
-- [ ] 移除 `platformAdmin` 判断，统一 `orgAdmin`；
-- [ ] `mustChangePassword=true` 时强制打开改密对话框；
-- [ ] 所有环境启动即探测 `/api/auth/status` + `/api/auth/me`；未认证一律显示登录框，**不再有 dev 免登录 / `authEnabled=false` 分支**；dev 可通过 `VITE_DEV_ADMIN_TOKEN` 预填 token（仅 dev 构建、不进生产包），但仍调用 `/api/auth/login` 拿真实 Spring Session。
+- [x] 移除 `platformAdmin` 判断，统一 `orgAdmin`；
+- [x] `mustChangePassword=true` 时强制打开改密对话框；
+- [x] 所有环境启动即探测 `/api/auth/status` + `/api/auth/me`；未认证一律显示登录框，**不再有 dev 免登录 / `authEnabled=false` 分支**；dev 可通过 `VITE_DEV_ADMIN_TOKEN` 预填 token（仅 dev 构建、不进生产包），但仍调用 `/api/auth/login` 拿真实 Spring Session。
 
 **新增对话框**
 
-- [ ] `SecurityDialog.tsx`：
+- [x] `SecurityDialog.tsx`：
   - 资料：用户名 / 邮箱 / 状态 / 组织角色；
   - 修改密码（当前密码 + 新密码 + 确认）；
   - 活动会话：列表（IP / User-Agent / 创建时间 / 最近访问 / 当前会话标记）、吊销其它会话；数据来自 Spring Session；
   - 我的令牌：列表（前缀 / 名称 / 过期 / 最近使用）、创建（名称 + 有效期）、吊销；新令牌只显示一次并提供复制提示；
   - OIDC 绑定状态（只读；不提供解绑）。
-- [ ] `ServiceAccountDialog.tsx`：
+- [x] `ServiceAccountDialog.tsx`：
   - 项目选择（默认当前项目）；
   - 列表（名称 / 角色 / 前缀 / 过期 / 最近使用 / 状态）；
   - 创建（名称 / viewer|editor / 有效期 1–365 天）；密钥只显示一次；
   - 吊销 / 轮换（二次确认）。
-- [ ] `AuditDialog.tsx`：
+- [x] `AuditDialog.tsx`：
   - 过滤：actor / action / targetType / outcome / 时间范围；
   - 表格：时间 / 操作者 / 动作 / 目标 / 结果 / IP / 摘要；
   - 分页（limit 50，最多 200）；
@@ -848,11 +848,19 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **文档与构建**
 
-- [ ] `apps/web` `tsc -b && vite build` 通过；
-- [ ] 文案统一「账号与安全」「服务账号」「审计日志」；
-- [ ] 浏览器手测清单随 C9 落文档。
+- [x] `apps/web` `tsc -b && vite build` 通过；
+- [x] 文案统一「账号与安全」「服务账号」「审计日志」；
+- [x] 浏览器手测清单随 C9 落文档。
 
-**状态**：待启动。
+> **C8 实施说明（2026-11-20）**：
+> - Web 端彻底移除 localStorage 长期令牌：模块加载即清除 `spechub.admin-token`；会话 Cookie + 内存 CSRF token，非 GET/HEAD 带 `X-CSRF-Token`，401 统一回登录框。
+> - `LoginDialog` 默认用户名 / 邮箱 + 密码；OIDC 启用时显示 SSO；兼容 admin-token / 用户令牌折叠为高级项，仅用于 `/api/auth/login` 换取会话，不持久化；429 提示「尝试过于频繁」。
+> - `App` 启动探测 `/status` + `/me`，无会话即弹登录框，删除全部 `authEnabled=false` / `platformAdmin` 分支；`mustChangePassword` 强制打开「账号与安全 → 修改密码」，改密成功前不可关闭。
+> - 账号菜单新增「账号与安全」「服务账号」「审计日志」；服务账号入口限当前项目 admin+ / org_admin，审计限 org_admin。
+> - 新增 `SecurityDialog`（资料 / 改密 / 活动会话 / 令牌 / OIDC 只读状态）、`ServiceAccountDialog`（创建 / 轮换 / 吊销，密钥只显示一次）、`AuditDialog`（过滤 + 分页 50）。
+> - Vite dev 代理补 `/oauth2`、`/login/oauth2`；`tsc -b && vite build` 通过。浏览器手测清单按计划在 C9 执行。
+
+**状态**：✅ 2026-11-20 完成。
 
 ---
 

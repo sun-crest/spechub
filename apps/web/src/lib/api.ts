@@ -1,38 +1,85 @@
 /** SpecHub backend REST 客户端（对齐 modules/server Records.kt / ApiQueryController） */
 
-// ── H6 登录（admin token 占位 → I4 升级为 RBAC 用户登录，向后兼容）────────────
-const TOKEN_KEY = "spechub.admin-token";
+// ── 阶段 C：认证 / 会话 / CSRF（不再持久化长期令牌）─────────────────────────
+/**
+ * - 登录态由 Spring Session Cookie（HttpOnly `spechub_session`）承载；
+ * - CSRF token 只保存在内存，非 GET/HEAD 请求带 `X-CSRF-Token`；
+ * - Web 端不再写 localStorage：模块加载时清除历史遗留的 `spechub.admin-token`
+ *   （升级后用户需用密码 / OIDC / 令牌重新登录）；
+ * - 推荐用 Vite 代理保持同源（见 vite.config.ts）。若 `VITE_API_BASE` 跨域，
+ *   `credentials` 必须改为 `include`，且后端开启 CORS credentials 与
+ *   `SameSite=None; Secure` Cookie，否则登录态 / CSRF 会失效。
+ */
+const LEGACY_TOKEN_KEY = "spechub.admin-token";
+try {
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
+} catch {
+  /* 隐私模式忽略 */
+}
 
-/** 从 localStorage 读取令牌（I4：用户 token，或 admin-token 兼容） */
-export const getAdminToken = (): string | null => {
-  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+let csrfToken: string | null = null;
+/** 登录 / `/auth/me` 返回的 CSRF token（仅内存，不持久化）。 */
+export const setCsrfToken = (token: string | null) => {
+  csrfToken = token;
 };
-/** 保存 / 清除令牌（登录成功 / 登出） */
-export const setAdminToken = (t: string | null) => {
-  try {
-    if (t) localStorage.setItem(TOKEN_KEY, t);
-    else localStorage.removeItem(TOKEN_KEY);
-  } catch { /* 隐私模式忽略 */ }
-};
+export const getCsrfToken = () => csrfToken;
+
+/** 401 时通知 App 清空当前用户并弹出登录框（登录请求自身除外）。 */
+export const UNAUTHORIZED_EVENT = "spechub:unauthorized";
+
+/** REST 错误：保留 HTTP 状态码 / 错误码，前端据此区分 401 / 429 等。 */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 export interface AuthStatus {
   authEnabled: boolean;
   authenticated: boolean;
+  authMethod?: string | null;
   username?: string | null;
+  oidcEnabled?: boolean;
+  oidcLoginUrl?: string | null;
+}
+
+/** `POST /api/auth/login` 响应（Spring Security JSON filter）。 */
+export interface LoginResult {
+  authenticated: boolean;
+  authEnabled: boolean;
+  authMethod?: string | null;
+  username?: string | null;
+  displayName?: string | null;
+  csrfToken?: string | null;
+  mustChangePassword?: boolean;
 }
 
 export interface Me {
   authenticated: boolean;
   authEnabled: boolean;
+  /** session / bearer（服务账号固定 bearer） */
+  authMethod?: string | null;
   username?: string | null;
   displayName?: string | null;
-  platformAdmin?: boolean;
-  /** 组织管理员（含平台 admin） */
+  email?: string | null;
+  status?: string | null;
+  /** 当前会话 CSRF token（前端存内存，写请求回带） */
+  csrfToken?: string | null;
+  mustChangePassword?: boolean;
+  hasPassword?: boolean;
+  /** 组织管理员是唯一组织管理标识（阶段 C 移除 platformAdmin） */
   orgAdmin?: boolean;
-  /** 当前组织 */
+  oidcEnabled?: boolean;
+  oidcLoginUrl?: string | null;
+  /** 当前组织（阶段 C 单组织） */
   currentOrgId?: number | null;
   currentOrgSlug?: string | null;
-  /** 当前用户的组织列表（阶段 A 一个默认组织） */
+  /** 当前用户的组织列表 */
   orgs?: { id: number; name: string; slug: string; role: string }[];
   /** 兼容字段：阶段 A 起不再返回 default 项目角色，前端用 projectRoles */
   role?: string | null;
@@ -47,7 +94,9 @@ export interface UserView {
   id: number;
   username: string;
   displayName: string;
-  platformAdmin: boolean;
+  email?: string | null;
+  status?: string;
+  mustChangePassword?: boolean;
   role?: string | null;
   orgRole?: string | null;
   createdAt?: string | null;
@@ -64,6 +113,8 @@ export interface ProjectMember {
 export interface CreateUserResp {
   user: UserView;
   token: string;
+  /** 邀请用户的一次性密码设置令牌（只返回一次） */
+  setupToken?: string | null;
 }
 
 /** 写权限角色集合（editor / admin / owner） */
@@ -183,34 +234,118 @@ export interface TryResponse {
   durationMs: number;
 }
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = init?.body ? { "Content-Type": "application/json" } : {};
-  const token = getAdminToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const r = await fetch("/api" + path, { headers, ...init });
+  const method = (init?.method ?? "GET").toUpperCase();
+  const headers = new Headers(init?.headers);
+  if (init?.body) headers.set("Content-Type", "application/json");
+  // 会话写请求带 CSRF（Bearer 链由后端豁免；Web 端不会再持久化 Bearer）
+  if (!SAFE_METHODS.has(method) && csrfToken) headers.set("X-CSRF-Token", csrfToken);
+  const r = await fetch("/api" + path, { ...init, method, headers, credentials: "same-origin" });
   if (!r.ok) {
     // 统一错误体 { status, code, message }：优先展示后端 message
     let msg = `${r.status} ${r.statusText}`;
+    let code: string | undefined;
     try {
-      const body = (await r.json()) as { message?: string };
+      const body = (await r.json()) as { message?: string; code?: string };
       if (body?.message) msg = body.message;
+      code = body?.code;
     } catch { /* 非 JSON 错误体 */ }
-    throw new Error(msg);
+    // 会话失效：清空 CSRF 并通知 App 弹登录框。
+    // 排除登录本身与改密（当前密码错误后端返回 401，不应把用户踢下线）。
+    if (r.status === 401 && path !== "/auth/login" && !path.startsWith("/auth/password")) {
+      csrfToken = null;
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
+    throw new ApiError(r.status, msg, code);
   }
   if (r.status === 204) return undefined as T;
   return r.json() as Promise<T>;
 }
 
-// ── H6 鉴权端点（/api/auth 已被 TokenAuthFilter 放行）────────────────────────
+// ── 阶段 C：认证 / 改密 / 会话 / 令牌 ───────────────────────────────────────
 export const getAuthStatus = () => j<AuthStatus>("/auth/status");
-/** I4 RBAC 登录：username + token；username 留空向后兼容 admin-token */
-export const login = (token: string, username?: string) =>
-  j<AuthStatus>("/auth/login", { method: "POST", body: JSON.stringify({ username, token }) });
-/** 当前用户 + 对默认项目角色（前端据此定编辑入口可见性） */
 export const getMe = () => j<Me>("/auth/me");
-/** 组织用户目录（org_admin） */
+
+/** 密码登录：用户名或邮箱 + 密码（成功后 Spring Session 建立会话）。 */
+export const loginWithPassword = async (identifier: string, password: string) => {
+  const r = await j<LoginResult>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username: identifier, password }),
+  });
+  setCsrfToken(r.csrfToken ?? null);
+  return r;
+};
+
+/** 兼容令牌登录：admin-token / 用户 API 令牌；不再把令牌写入 localStorage。 */
+export const loginWithToken = async (token: string, username?: string) => {
+  const r = await j<LoginResult>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username: username?.trim() || undefined, token }),
+  });
+  setCsrfToken(r.csrfToken ?? null);
+  return r;
+};
+
+/** 退出登录（Spring Security logout：删除会话 + 审计）。 */
+export const logout = () => j<void>("/auth/logout", { method: "POST" });
+
+/** 修改自己的密码；成功后其它 Web 会话被吊销。 */
+export const changePassword = (currentPassword: string | null, newPassword: string) =>
+  j<void>("/auth/password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+
+/** 邀请 / 重置令牌设置密码（无需登录）。 */
+export const setupPassword = (token: string, newPassword: string) =>
+  j<{ ok: boolean }>("/auth/password/setup", {
+    method: "POST",
+    body: JSON.stringify({ token, newPassword }),
+  });
+
+export interface SessionView {
+  /** 脱敏会话 id（sha256 前 16 位），不暴露 Spring Session 主键 */
+  id: string;
+  ip?: string | null;
+  userAgent?: string | null;
+  createdAt?: string | null;
+  lastAccessedAt?: string | null;
+  current: boolean;
+}
+
+export const listSessions = () => j<SessionView[]>("/auth/sessions");
+export const revokeSession = (id: string) =>
+  j<void>(`/auth/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export interface TokenView {
+  id: number;
+  name: string;
+  prefix: string;
+  purpose: string;
+  expiresAt?: string | null;
+  lastUsedAt?: string | null;
+  createdAt?: string | null;
+  status: string;
+}
+
+export interface CreateTokenResp {
+  token: TokenView;
+  secret: string;
+}
+
+export const listTokens = () => j<TokenView[]>("/auth/tokens");
+export const createToken = (name: string, expiresInDays = 90) =>
+  j<CreateTokenResp>("/auth/tokens", {
+    method: "POST",
+    body: JSON.stringify({ name, expiresInDays }),
+  });
+export const revokeToken = (id: number) => j<void>(`/auth/tokens/${id}`, { method: "DELETE" });
+
+/** I4 RBAC 兼容端点：组织用户目录 / 创建 / 角色 / 令牌重置 / 删除（org_admin）。 */
 export const listUsers = () => j<UserView[]>("/auth/users");
-export const createUser = (u: { username: string; displayName?: string; orgRole?: string }) =>
+export const createUser = (u: { username: string; displayName?: string; email?: string; password?: string; orgRole?: string }) =>
   j<CreateUserResp>("/auth/users", { method: "POST", body: JSON.stringify(u) });
 export const setUserRole = (id: number, role: string) =>
   j<UserView>(`/auth/users/${id}/role`, { method: "POST", body: JSON.stringify({ role }) });
@@ -542,6 +677,83 @@ export const mockPreview = (apiId: number) => j<MockPreview>(`/apis/${apiId}/moc
 // ── I1 Try it out ───────────────────────────────────────────────────────────
 export const tryApi = (apiId: number, req: TryRequest) =>
   j<TryResponse>(`/apis/${apiId}/try`, { method: "POST", body: JSON.stringify(req) });
+
+// ── 阶段 C：项目级服务账号（C5）────────────────────────────────────────────
+export interface ServiceAccount {
+  id: number;
+  projectId: number;
+  name: string;
+  /** 令牌前缀（明文只返回一次） */
+  prefix: string;
+  role: string;
+  status: string;
+  expiresAt?: string | null;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+  createdAt?: string | null;
+}
+
+export interface CreateServiceAccountResp {
+  account: ServiceAccount;
+  token: string;
+}
+
+export const SERVICE_ACCOUNT_ROLES = ["viewer", "editor"];
+
+export const listServiceAccounts = (projectId: number) =>
+  j<ServiceAccount[]>(`/service-accounts?projectId=${projectId}`);
+export const createServiceAccount = (body: {
+  projectId: number;
+  name: string;
+  role: string;
+  expiresInDays?: number;
+}) => j<CreateServiceAccountResp>("/service-accounts", { method: "POST", body: JSON.stringify(body) });
+export const rotateServiceAccount = (id: number, expiresInDays?: number) =>
+  j<CreateServiceAccountResp>(`/service-accounts/${id}/rotate`, {
+    method: "POST",
+    body: JSON.stringify({ expiresInDays }),
+  });
+export const revokeServiceAccount = (id: number) =>
+  j<void>(`/service-accounts/${id}`, { method: "DELETE" });
+
+// ── 阶段 C：管理动作审计（C7，org_admin）───────────────────────────────────
+export interface AuditEvent {
+  id: number;
+  actorName: string;
+  actorType: string;
+  action: string;
+  targetType?: string | null;
+  targetId?: string | null;
+  detail?: string | null;
+  outcome: string;
+  ip?: string | null;
+  createdAt?: string | null;
+}
+
+export interface AuditQuery {
+  from?: string;
+  to?: string;
+  actor?: string;
+  action?: string;
+  targetType?: string;
+  outcome?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export const listAudit = (q: AuditQuery = {}) => {
+  const p = new URLSearchParams();
+  if (q.from) p.set("from", q.from);
+  if (q.to) p.set("to", q.to);
+  if (q.actor?.trim()) p.set("actor", q.actor.trim());
+  if (q.action?.trim()) p.set("action", q.action.trim());
+  if (q.targetType?.trim()) p.set("targetType", q.targetType.trim());
+  if (q.outcome) p.set("outcome", q.outcome);
+  if (q.limit != null) p.set("limit", String(q.limit));
+  if (q.offset != null) p.set("offset", String(q.offset));
+  const s = p.toString();
+  return j<AuditEvent[]>(`/audit${s ? `?${s}` : ""}`);
+};
 
 /** repo.url → 展示名（git 路径尾段，去 .git） */
 export const repoDisplay = (url: string) => url.replace(/\.git$/, "").split("/").pop() ?? url;

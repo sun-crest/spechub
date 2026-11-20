@@ -49,9 +49,8 @@ export function TeamDialog({
   const [addUsername, setAddUsername] = useState("");
   const [addRole, setAddRole] = useState("member");
 
-  // dev 免登录：后端团队端点全放行，前端同样展示全部团队与管理入口
-  const devMode = me?.authEnabled === false;
-  const fullAccess = me?.orgAdmin === true || me?.platformAdmin === true || devMode;
+  // 阶段 C：所有环境真实登录；org_admin 可管理全部团队
+  const fullAccess = me?.orgAdmin === true;
   const visibleTeams = useMemo(
     () => (fullAccess ? teams : teams.filter((t) => t.myRole != null)),
     [teams, fullAccess],
