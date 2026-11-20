@@ -1,5 +1,6 @@
 package io.spechub.server.config
 
+import jakarta.validation.Valid
 import jakarta.validation.constraints.AssertTrue
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
@@ -45,6 +46,8 @@ data class SpecHubProperties(
     // R11 文档端点是否公开：dev 默认 true，放行 api-docs / doc.html / webjars；
     // prod 置 false 并关闭 springdoc/knife4j，文档仍受鉴权保护（401）。
     val openapiPublic: Boolean = true,
+    /** OIDC 作为 Web 链的附加登录方式；enabled=false 时不注册任何 OIDC bean。 */
+    @field:Valid val oidc: OidcProperties = OidcProperties(),
 ) {
     fun gitSourcePath(): Path = Path.of(gitSourceDir)
 
@@ -59,4 +62,43 @@ data class SpecHubProperties(
     companion object {
         private fun defaultDir(name: String) = "${System.getProperty("user.dir")}/.spechub/$name"
     }
+}
+
+/**
+ * OIDC 单 IdP 配置（C6）。作为 Web 链 `oauth2Login` 的附加登录方式，不影响 Bearer API 链。
+ *
+ * - `enabled=false`：不注册 `ClientRegistrationRepository`，登录页不显示 SSO；
+ * - `issuer-uri` 默认用于启动发现；若 IdP 不允许启动外联，可显式提供
+ *   `authorization-uri` / `token-uri` / `jwk-set-uri`（仍以 issuer-uri 作为身份 provider 标识）；
+ * - `client-secret` 只经环境变量注入，不写日志。
+ */
+data class OidcProperties(
+    val enabled: Boolean = false,
+    @field:NotBlank val registrationId: String = "spechub",
+    val issuerUri: String? = null,
+    val clientId: String? = null,
+    val clientSecret: String? = null,
+    val scopes: List<String> = listOf("openid", "email", "profile"),
+    /** 空 = `${external-url}/login/oauth2/code/<registration-id>` */
+    val redirectUri: String? = null,
+    val autoProvision: Boolean = false,
+    @field:NotBlank val defaultOrgSlug: String = "default",
+    @field:NotBlank val emailClaim: String = "email",
+    val requireVerifiedEmail: Boolean = true,
+    val authorizationUri: String? = null,
+    val tokenUri: String? = null,
+    val jwkSetUri: String? = null,
+    val userInfoUri: String? = null,
+) {
+    @AssertTrue(message = "启用 OIDC 时必须配置 spechub.oidc.issuer-uri / client-id / client-secret")
+    fun isConfiguredWhenEnabled(): Boolean =
+        !enabled ||
+            (!issuerUri.isNullOrBlank() && !clientId.isNullOrBlank() && !clientSecret.isNullOrBlank())
+
+    fun resolvedRedirectUri(externalUrl: String): String =
+        redirectUri?.takeIf { it.isNotBlank() }
+            ?: "${externalUrl.trimEnd('/')}/login/oauth2/code/$registrationId"
+
+    /** 显式端点齐全时跳过 issuer 发现。 */
+    fun hasExplicitEndpoints(): Boolean = !authorizationUri.isNullOrBlank() && !tokenUri.isNullOrBlank() && !jwkSetUri.isNullOrBlank()
 }

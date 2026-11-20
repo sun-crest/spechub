@@ -3,6 +3,7 @@ package io.spechub.server.web
 import io.spechub.server.repository.ProjectEntity
 import io.spechub.server.repository.UserStatus
 import io.spechub.server.security.AppUserPrincipal
+import io.spechub.server.security.OidcAppUserPrincipal
 import io.spechub.server.security.ServicePrincipal
 import io.spechub.server.service.OrgService
 import io.spechub.server.service.ProjectService
@@ -55,11 +56,11 @@ class AuthService(
     /** 服务账号 principal（用户 / 匿名返回 null）。 */
     fun currentService(): ServicePrincipal? = currentAuthentication()?.principal as? ServicePrincipal
 
-    /** 人类用户（服务账号 / 匿名返回 null）；每请求校验 status，禁用立即 401。 */
+    /** 人类用户（密码 / OIDC / 服务账号中的服务账号返回 null）；每请求校验 status，禁用立即 401。 */
     fun currentUser(req: HttpServletRequest? = null): UserRecord? {
-        val principal = currentAuthentication()?.principal as? AppUserPrincipal ?: return null
+        val userId = humanUserId(currentAuthentication()?.principal) ?: return null
         val user =
-            users.findById(principal.userId)
+            users.findById(userId)
                 ?: throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "账号不存在或已被删除")
         if (user.status !in UserStatus.LOGINNABLE) {
             throw ApiException(ApiErrorCode.AUTH_UNAUTHORIZED, "账号已禁用")
@@ -68,7 +69,7 @@ class AuthService(
     }
 
     /** 人类用户 id（服务账号 / 匿名返回 null）。 */
-    fun currentUserId(): Long? = (currentAuthentication()?.principal as? AppUserPrincipal)?.userId
+    fun currentUserId(): Long? = humanUserId(currentAuthentication()?.principal)
 
     /** 当前组织：服务账号取账号 org；人类取第一个 active org_membership。 */
     fun currentOrg(req: HttpServletRequest? = null): io.spechub.server.repository.OrgEntity {
@@ -91,7 +92,7 @@ class AuthService(
     /** 审计 / changelog 操作者：用户名或 `service:<name>`；无身份回退 anonymous。 */
     fun currentActor(req: HttpServletRequest? = null): String =
         currentService()?.let { SERVICE_ACTOR_PREFIX + it.name }
-            ?: (currentAuthentication()?.principal as? AppUserPrincipal)?.username
+            ?: humanUsername(currentAuthentication()?.principal)
             ?: "anonymous"
 
     // ── 组织 / 项目角色 ──────────────────────────────────────────────────
@@ -131,6 +132,7 @@ class AuthService(
         when (principal) {
             is ServicePrincipal -> if (projectId != null && principal.projectId == projectId) principal.role else null
             is AppUserPrincipal -> users.findById(principal.userId)?.let { effectiveRole(it, projectId) }
+            is OidcAppUserPrincipal -> users.findById(principal.appUserId)?.let { effectiveRole(it, projectId) }
             else -> null
         }
 
@@ -442,4 +444,18 @@ class AuthService(
             displayName = name,
             status = "active",
         )
+
+    private fun humanUserId(principal: Any?): Long? =
+        when (principal) {
+            is AppUserPrincipal -> principal.userId
+            is OidcAppUserPrincipal -> principal.appUserId
+            else -> null
+        }
+
+    private fun humanUsername(principal: Any?): String? =
+        when (principal) {
+            is AppUserPrincipal -> principal.username
+            is OidcAppUserPrincipal -> principal.username
+            else -> null
+        }
 }

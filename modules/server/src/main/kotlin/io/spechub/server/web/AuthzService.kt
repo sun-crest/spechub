@@ -1,6 +1,7 @@
 package io.spechub.server.web
 
 import io.spechub.server.security.AppUserPrincipal
+import io.spechub.server.security.OidcAppUserPrincipal
 import io.spechub.server.security.ServicePrincipal
 import io.spechub.server.service.ProjectService
 import io.spechub.server.service.UserService
@@ -22,7 +23,12 @@ class AuthzService(
         authentication: Authentication?,
         orgId: Long,
     ): Boolean {
-        val userId = (authentication?.principal as? AppUserPrincipal)?.userId ?: return false
+        val userId =
+            when (val principal = authentication?.principal) {
+                is AppUserPrincipal -> principal.userId
+                is OidcAppUserPrincipal -> principal.appUserId
+                else -> return false
+            }
         return auth.isOrgAdminById(userId, orgId)
     }
 
@@ -38,6 +44,12 @@ class AuthzService(
 
             is AppUserPrincipal -> {
                 val user = users.findById(principal.userId)
+                val role = user?.let { auth.effectiveRole(it, projectId) }
+                role != null && Role.rank(role) >= Role.rank(min)
+            }
+
+            is OidcAppUserPrincipal -> {
+                val user = users.findById(principal.appUserId)
                 val role = user?.let { auth.effectiveRole(it, projectId) }
                 role != null && Role.rank(role) >= Role.rank(min)
             }
@@ -60,6 +72,10 @@ class AuthzService(
 
             is AppUserPrincipal -> {
                 auth.canReadProject(users.findById(principal.userId), project, stage)
+            }
+
+            is OidcAppUserPrincipal -> {
+                auth.canReadProject(users.findById(principal.appUserId), project, stage)
             }
 
             else -> {

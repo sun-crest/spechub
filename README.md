@@ -93,12 +93,12 @@ cd apps/web && VITE_API_BASE=http://localhost:18080 npm run dev
 
 ### 多项目（阶段 A）
 
-**bootstrap（幂等）**：后端首次启动写入默认组织 `default` 与默认项目 `default`（`ApplicationInit`）。配置 `SPECHUB_ADMIN_TOKEN` 时，token 持有者为平台 admin → 默认组织 `org_admin`、默认项目 owner；未配置则是 dev 免登录模式，行为与阶段 A 之前一致。
+**bootstrap（幂等）**：后端首次启动写入默认组织 `default` 与默认项目 `default`（`ApplicationInit`）。`SPECHUB_ADMIN_TOKEN` 在所有环境必填：token 持有者为默认组织 `org_admin`、默认项目 owner；所有环境都必须真实登录（admin-token / 密码 / OIDC → Spring Session），不存在免登录模式。
 
 **种子数据（本地 / dev 示例）**——仓库必须归属项目，指定 `projectId`：
 
 ```bash
-# 1) 创建项目并取回 id（dev 免登录；生产需 org_admin token）
+# 1) 创建项目并取回 id（需 org_admin；登录后携带 Spring Session Cookie + CSRF）
 PID=$(curl -s -X POST http://localhost:8080/api/projects -H 'Content-Type: application/json' \
   -d '{"name":"支付平台","slug":"payments"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
 
@@ -122,7 +122,7 @@ curl -s "http://localhost:8080/api/apis?projectId=$PID&stage=draft"
 团队是**组织级**实体（`org → team`），与项目成员独立：项目角色管「谁能写这个仓」，团队管「哪个消费团队订阅了哪些接口、变更通知发给谁」。团队角色为 `lead` / `member`。
 
 ```bash
-# 1) 创建团队（org_admin；dev 免登录放行），创建者自动成为 lead
+# 1) 创建团队（org_admin；服务账号不可用），创建者自动成为 lead
 TID=$(curl -s -X POST http://localhost:8080/api/teams -H 'Content-Type: application/json' \
   -d '{"name":"支付团队","description":"消费方"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
 
@@ -149,7 +149,9 @@ curl -s "http://localhost:8080/api/subscriptions/notifications?teamId=$TID"
 
 **可选端**：MCP `cd apps/mcp && npm install && npm run build && node dist/index.js`（连 backend 走 HTTP）；CLI `cd apps/cli && go build`（或 `scripts/build-release.sh` 交叉编译四平台）。
 
-> **Profile**：默认 `dev`（未配 admin-token 时鉴权关闭，本地/最小部署零摩擦）；生产设 `SPRING_PROFILES_ACTIVE=prod` 并必须提供 `SPECHUB_ADMIN_TOKEN`，缺失/空串会在配置绑定阶段校验失败、启动即停（不会运行期降级为鉴权关闭）。compose 档通过 `.env` 的 `SPRING_PROFILES_ACTIVE` / `SPECHUB_ADMIN_TOKEN` 注入。
+> **Profile / 登录**：所有 profile 都启用鉴权，`SPECHUB_ADMIN_TOKEN` 必填（缺失/空串在配置绑定阶段启动失败）。dev 用 `.env` 的 dev 值以 `admin` + token 完成首次 bootstrap，再设置密码 / 绑定 OIDC；生产设 `SPRING_PROFILES_ACTIVE=prod` 并注入正式 token。compose 档通过 `.env` 的 `SPRING_PROFILES_ACTIVE` / `SPECHUB_ADMIN_TOKEN` 注入。
+>
+> **OIDC（可选，C6）**：设置 `SPECHUB_OIDC_ENABLED=true` + `SPECHUB_OIDC_ISSUER_URI` / `CLIENT_ID` / `CLIENT_SECRET`；回调地址 `${SPECHUB_EXTERNAL_URL}/login/oauth2/code/spechub` 需在 IdP 注册，`external-url` 必须是浏览器可访问地址。Vite 开发代理下将 `external-url` / `redirect-uri` 指向前端开发地址（如 `http://localhost:5173`）保证回调与 Cookie 同源；`auto-provision` 默认关闭，OIDC-only 用户密码为空。
 
 > **API 文档（R11）**：dev 启动后访问 `http://localhost:8080/doc.html`（Knife4j Next UI）或 `/v3/api-docs`（OpenAPI JSON）；prod 关闭文档端点并保持鉴权保护（401）。文档层 Jackson 2 仅作为 springdoc / Knife4j 的运行时传递依赖，业务代码只使用 Jackson 3（约束见 `CLAUDE.md`）。
 

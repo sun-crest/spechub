@@ -1,5 +1,6 @@
 package io.spechub.server.web
 
+import io.spechub.server.config.SpecHubProperties
 import io.spechub.server.repository.UserStatus
 import io.spechub.server.security.SessionAdminService
 import io.spechub.server.service.ChangelogService
@@ -56,6 +57,7 @@ class AuthController(
     private val passwordEncoder: PasswordEncoder,
     private val sessions: SessionAdminService,
     private val lifecycle: UserLifecycleService,
+    private val props: SpecHubProperties,
 ) {
     data class StatusResponse(
         val authEnabled: Boolean,
@@ -174,6 +176,8 @@ class AuthController(
             authenticated = authenticated,
             authMethod = authMethod(req),
             username = auth.currentService()?.name ?: auth.currentUser(req)?.username,
+            oidcEnabled = props.oidc.enabled,
+            oidcLoginUrl = oidcLoginUrl(),
         )
     }
 
@@ -192,6 +196,8 @@ class AuthController(
                 currentOrgSlug = org?.slug,
                 projectRoles = mapOf(service.projectId to service.role),
                 canManage = false,
+                oidcEnabled = props.oidc.enabled,
+                oidcLoginUrl = oidcLoginUrl(),
             )
         }
 
@@ -247,6 +253,8 @@ class AuthController(
             projectRoles = projectRoles,
             teams = teamViews,
             canManage = orgAdmin || projectRoles.values.any { Role.rank(it) >= Role.rank(Role.ADMIN) },
+            oidcEnabled = props.oidc.enabled,
+            oidcLoginUrl = oidcLoginUrl(),
         )
     }
 
@@ -569,6 +577,8 @@ class AuthController(
 
     /** session：浏览器会话（Spring Session）；bearer：Authorization: Bearer（用户令牌 / 服务账号）。 */
     private fun authMethod(req: HttpServletRequest): String = if (req.getHeader("Authorization")?.startsWith("Bearer ", ignoreCase = true) == true) "bearer" else "session"
+
+    private fun oidcLoginUrl(): String? = if (props.oidc.enabled) "/oauth2/authorization/${props.oidc.registrationId}" else null
 
     private fun validateOrgRole(
         role: String,

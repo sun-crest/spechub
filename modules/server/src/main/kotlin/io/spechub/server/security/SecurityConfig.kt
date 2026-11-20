@@ -5,6 +5,7 @@ import io.spechub.server.repository.ServiceAccountRepository
 import io.spechub.server.service.UserService
 import io.spechub.server.service.UserTokenService
 import jakarta.servlet.http.HttpServletResponse
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
@@ -19,6 +20,8 @@ import org.springframework.security.core.userdetails.UserDetailsPasswordService
 import org.springframework.security.core.userdetails.UserDetailsService
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 import org.springframework.security.crypto.password.PasswordEncoder
+import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository
 import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.access.intercept.AuthorizationFilter
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
@@ -170,6 +173,8 @@ class SecurityConfig(
         deniedHandler: ApiAccessDeniedHandler,
         rateLimiter: RedisLoginRateLimiter,
         users: UserService,
+        clientRegistrations: ObjectProvider<ClientRegistrationRepository>,
+        oidcUsers: ObjectProvider<OidcUserService>,
     ): SecurityFilterChain {
         http.csrf { csrf ->
             csrf.csrfTokenRepository(csrfTokenRepository)
@@ -207,6 +212,25 @@ class SecurityConfig(
             logout.logoutSuccessHandler { _, response, _ -> response.status = HttpServletResponse.SC_NO_CONTENT }
             logout.deleteCookies(SESSION_COOKIE)
             logout.clearAuthentication(true)
+        }
+
+        // C6：OIDC 只挂在 Web 链；enabled=false 时不注册任何 oauth2Login filter。
+        if (props.oidc.enabled) {
+            val repository =
+                checkNotNull(clientRegistrations.getIfAvailable()) {
+                    "spechub.oidc.enabled=true 但 ClientRegistrationRepository 未注册"
+                }
+            val oidcUserService =
+                checkNotNull(oidcUsers.getIfAvailable()) {
+                    "spechub.oidc.enabled=true 但 OidcUserService 未注册"
+                }
+            http.oauth2Login { oauth2 ->
+                oauth2.clientRegistrationRepository(repository)
+                oauth2.authorizedClientRepository(NoOpOAuth2AuthorizedClientRepository())
+                oauth2.userInfoEndpoint { endpoint -> endpoint.oidcUserService(oidcUserService) }
+                oauth2.successHandler(OidcLoginSuccessHandler())
+                oauth2.failureHandler(OidcLoginFailureHandler())
+            }
         }
 
         http.authorizeHttpRequests { authorize ->

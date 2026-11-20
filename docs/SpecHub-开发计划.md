@@ -170,7 +170,7 @@
 
 > **详细任务拆解**：[SpecHub-阶段C任务拆解.md](SpecHub-阶段C任务拆解.md)（C0–C10，含依赖、文件落点、安全门禁、手动 e2e 清单）
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
-> **状态**：C0 / C1 / C2 / C3 / C4 / C5 已完成；C6–C10 待启动
+> **状态**：C0 / C1 / C2 / C3 / C4 / C5 / C6 已完成；C7–C10 待启动
 > **认证基线**：阶段 C 起本地与生产使用同一套真实登录（admin-token / 密码 / OIDC + Spring Session Data Redis，机器用 Bearer）；不保留 dev 免登录或放行链，不做 JDBC 会话过渡。
 > **C0 结论**：Spring Security 双链 + Spring Session Data Redis + Redis 登录限流；全环境真实登录；Argon2id；项目级服务账号；OIDC `oauth2Login`；独立 `audit_event`。
 
@@ -180,7 +180,7 @@
 - [x] C3 密码登录与会话端点（JSON 登录 filter、`LogoutFilter`、`/me`、密码管理、CSRF、Redis 登录限流）✅ 2026-11-19（审计写点待 C7）
 - [x] C4 账号生命周期与令牌管理（禁用 / 启用 / 邀请 / 重置、Redis 会话列表与吊销、用户令牌 CRUD、最后 org_admin 保护、V7 收紧）✅ 2026-11-20（审计写点待 C7）
 - [x] C5 项目级服务账号（`ServiceAccountAuthenticationProvider`、CRUD / 轮换 / 跨项目隔离、MCP / CLI 文档）✅ 2026-11-20（审计写点待 C7）
-- [ ] C6 OIDC 登录（`oauth2Login`、单 IdP、PKCE、身份绑定、auto-provision 默认关）
+- [x] C6 OIDC 登录（`oauth2Login`、单 IdP、PKCE、身份绑定、auto-provision 默认关）✅ 2026-11-20（审计写点待 C7）
 - [ ] C7 管理动作审计（`audit_event`、关键写点接入、`GET /api/audit`、保留策略；可补 Spring Security 事件）
 - [ ] C8 前端账号与安全改造（登录框、账号与安全 / 活动会话、服务账号、审计页、去掉 localStorage 长期令牌、无 dev 免登录）
 - [ ] C9 测试矩阵与双库验证（迁移 V5→V6→V7、SecurityConfig、真实登录 / Redis 会话 / 密码 / 禁用 / 服务账号 / OIDC / 审计、手动 e2e）

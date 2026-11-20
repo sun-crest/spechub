@@ -62,3 +62,20 @@ spechub:
   gitea-url: ${SPECHUB_GITEA_URL:http://localhost:3000}
   polling-interval-ms: ${SPECHUB_POLLING_INTERVAL_MS:60000}
   default-branch: ${SPECHUB_DEFAULT_BRANCH:main}
+  # C6：OIDC 单 IdP（Web 链 oauth2Login 的附加登录方式；enabled=false 时不注册任何 OIDC bean）
+  oidc:
+    enabled: ${SPECHUB_OIDC_ENABLED:false}
+    registration-id: ${SPECHUB_OIDC_REGISTRATION_ID:spechub}
+    issuer-uri: ${SPECHUB_OIDC_ISSUER_URI:}
+    client-id: ${SPECHUB_OIDC_CLIENT_ID:}
+    client-secret: ${SPECHUB_OIDC_CLIENT_SECRET:}
+    scopes: ${SPECHUB_OIDC_SCOPES:openid,email,profile}
+    redirect-uri: ${SPECHUB_OIDC_REDIRECT_URI:}
+    auto-provision: ${SPECHUB_OIDC_AUTO_PROVISION:false}
+    default-org-slug: ${SPECHUB_OIDC_DEFAULT_ORG_SLUG:default}
+    email-claim: ${SPECHUB_OIDC_EMAIL_CLAIM:email}
+    require-verified-email: ${SPECHUB_OIDC_REQUIRE_VERIFIED_EMAIL:true}
+    authorization-uri: ${SPECHUB_OIDC_AUTHORIZATION_URI:}
+    token-uri: ${SPECHUB_OIDC_TOKEN_URI:}
+    jwk-set-uri: ${SPECHUB_OIDC_JWK_SET_URI:}
+    user-info-uri: ${SPECHUB_OIDC_USER_INFO_URI:}

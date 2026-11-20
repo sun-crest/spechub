@@ -1,6 +1,6 @@
 # SpecHub · 阶段 C 任务拆解（账号与审计）
 
-> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 / C5 已完成；C6–C10 待启动
+> **日期**：2026-11-20　**状态**：C0 / C1 / C2 / C3 / C4 / C5 / C6 已完成；C7–C10 待启动
 > **依据**：[SpecHub-ADR-001-管理模型与多租户](SpecHub-ADR-001-管理模型与多租户.md) §4.1 / §4.2 / §7.1 / §8.1 / §9 / §10 / §15
 > **范围**：Spring Security Web 认证底座、Spring Session 分布式会话、密码 / OIDC 登录、账号禁用与邀请、可过期可吊销令牌、项目级服务账号、管理动作审计查询。
 > **不覆盖**：多组织切换 / 组织生命周期 / 平台运营控制面 / break-glass（阶段 D1）、自助注册 / 邮箱验证 / 域名认领（阶段 D2）、SAML / SCIM、MFA / WebAuthn、组织级服务账号、`project_group` / `api_group`。
@@ -50,7 +50,7 @@
 | C1 | 管理库 V6 / V7 迁移 | C0 | L | `V6__identity_and_audit.sql`、`V7__identity_tighten.sql`（PG/MySQL；会话走 Redis，不建管理库会话表） |
 | C2 | Spring Security 认证底座与领域适配 | C1 | L | `SecurityConfig` 双链（Bearer API / Web Session）、Spring Session Data Redis、`AuthenticationManager`、opaque Bearer provider、`AuthService` / `AuthzService` 适配 |
 
-> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 / V7 均已生效；V7 由 C4 同窗口切到 `target=7` 并删除旧列）；**C2 状态**：✅ 2026-11-19 完成（双链 / Session Redis / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）；**C3 状态**：✅ 2026-11-19 完成（密码登录 / 改密 / 邀请重置 / Redis 限流 / 会话属性；审计写点待 C7）；**C4 状态**：✅ 2026-11-20 完成（生命周期 / 会话管理 / 令牌管理 / V7；审计写点待 C7）；**C5 状态**：✅ 2026-11-20 完成（项目级服务账号 / 跨项目隔离 / MCP / CLI；审计写点待 C7）。
+> **C0 状态**：✅ 2026-11-19 已确认；**C1 状态**：✅ 2026-11-19 完成（V6 / V7 均已生效；V7 由 C4 同窗口切到 `target=7` 并删除旧列）；**C2 状态**：✅ 2026-11-19 完成（双链 / Session Redis / CSRF / 令牌 / 域授权；OIDC `oauth2Login` 留 C6）；**C3 状态**：✅ 2026-11-19 完成（密码登录 / 改密 / 邀请重置 / Redis 限流 / 会话属性；审计写点待 C7）；**C4 状态**：✅ 2026-11-20 完成（生命周期 / 会话管理 / 令牌管理 / V7；审计写点待 C7）；**C5 状态**：✅ 2026-11-20 完成（项目级服务账号 / 跨项目隔离 / MCP / CLI；审计写点待 C7）；**C6 状态**：✅ 2026-11-20 完成（OIDC oauth2Login / PKCE / 身份绑定 / auto-provision；审计写点待 C7）。
 
 ### 2.2 C‑2 登录与账号生命周期
 
@@ -659,9 +659,9 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
 
 **依赖与配置**
 
-- [ ] `spring-boot-starter-oauth2-client`（C2 已引入）；OIDC 作为 **Web 链的 `oauth2Login`**，不是独立安全链，也不走自定义 filter。
-- [ ] 依赖审计：OIDC 相关库若传递 Jackson 2，仅允许运行期由库内部使用；业务代码不得 import，`verifyNoJackson2Usage` 与依赖树核对（沿用 CLAUDE.md 的 Jackson 2 边界）。
-- [ ] `SpecHubProperties` 增加 `OidcProperties`：
+- [x] `spring-boot-starter-oauth2-client`（C2 已引入）；OIDC 作为 **Web 链的 `oauth2Login`**，不是独立安全链，也不走自定义 filter。
+- [x] 依赖审计：OIDC 相关库若传递 Jackson 2，仅允许运行期由库内部使用；业务代码不得 import，`verifyNoJackson2Usage` 与依赖树核对（沿用 CLAUDE.md 的 Jackson 2 边界）。
+- [x] `SpecHubProperties` 增加 `OidcProperties`：
   ```yaml
   spechub:
     oidc:
@@ -677,47 +677,53 @@ ADR 未写死、但会影响实现细节的项，在 C0 一次拍板并记录。
       email-claim: email
       require-verified-email: true
   ```
-- [ ] 校验：`enabled=true` 时 `issuer-uri` / `client-id` / `client-secret` 必填，缺失启动失败；`client-secret` 只经环境变量注入。
-- [ ] `enabled=false` 时不注册 `ClientRegistrationRepository`、不给 Web 链配置 `.oauth2Login`，登录页不显示 SSO；避免无 registration 启动失败。
-- [ ] `ClientRegistration.withRegistrationId(...)` 从 `OidcProperties` 构造 `ClientRegistrationRepository`（不依赖 `spring.security.oauth2.client.*` 前缀，避免两套配置）；`issuer-uri` 启动时发现端点，若客户 IdP 不允许启动外联，允许显式配置 authorization / token / jwks URI。
-- [ ] `GET /api/auth/status` / `/api/auth/me` 返回 `oidcEnabled` / `oidcLoginUrl`（`/oauth2/authorization/spechub`）。
-- [ ] prod 文档：OIDC 回调地址需在 IdP 注册；`external-url` 必须为浏览器可访问地址。dev 使用 Vite 代理时，`external-url` / `redirect-uri` 应指向前端开发地址（如 `http://localhost:5173`），保证回调与 Cookie 同源。
+- [x] 校验：`enabled=true` 时 `issuer-uri` / `client-id` / `client-secret` 必填，缺失启动失败；`client-secret` 只经环境变量注入。
+- [x] `enabled=false` 时不注册 `ClientRegistrationRepository`、不给 Web 链配置 `.oauth2Login`，登录页不显示 SSO；避免无 registration 启动失败。
+- [x] `ClientRegistration.withRegistrationId(...)` 从 `OidcProperties` 构造 `ClientRegistrationRepository`（不依赖 `spring.security.oauth2.client.*` 前缀，避免两套配置）；`issuer-uri` 启动时发现端点，若客户 IdP 不允许启动外联，允许显式配置 authorization / token / jwks URI。
+- [x] `GET /api/auth/status` / `/api/auth/me` 返回 `oidcEnabled` / `oidcLoginUrl`（`/oauth2/authorization/spechub`）。
+- [x] prod 文档：OIDC 回调地址需在 IdP 注册；`external-url` 必须为浏览器可访问地址。dev 使用 Vite 代理时，`external-url` / `redirect-uri` 应指向前端开发地址（如 `http://localhost:5173`），保证回调与 Cookie 同源。
 
 **Web 链集成**
 
-- [ ] 在 C2 的 Web `SecurityFilterChain` 上配置 `.oauth2Login { ... }`：
+- [x] 在 C2 的 Web `SecurityFilterChain` 上配置 `.oauth2Login { ... }`：
   - 使用上面的 `ClientRegistrationRepository`；
   - `OAuth2AuthorizedClientRepository` 使用 no-op 实现（不把 IdP access / refresh token 存进 Spring Session）；
   - 自定义 `OidcUserService` 调用 `OidcLoginService`，返回**可序列化**的自定义 `OidcUser` principal（带 `appUserId`）；
   - success handler 重定向 `/`（只允许站内相对路径）；failure handler 重定向 `/?loginError=oidc`，不把 IdP 错误详情放 URL；
   - 放行 `/oauth2/**`、`/login/oauth2/**`；CSRF 对 OIDC 回调豁免（state / nonce / PKCE 由 Spring Security 处理）；
   - 登录成功后 Spring Security 自动把 `SecurityContext` 写入 Spring Session；不手工创建会话。
-- [ ] 不在 OIDC 链里做业务鉴权；登录后统一由 `AuthService` / `AuthzService` 判定。
-- [ ] 所有环境始终启用鉴权；`admin-token` 仅用于 bootstrap / break-glass，OIDC 是附加登录方式，不再作为“启用鉴权”的开关。
+- [x] 不在 OIDC 链里做业务鉴权；登录后统一由 `AuthService` / `AuthzService` 判定。
+- [x] 所有环境始终启用鉴权；`admin-token` 仅用于 bootstrap / break-glass，OIDC 是附加登录方式，不再作为“启用鉴权”的开关。
 
 **登录与绑定**
 
-- [ ] `OidcLoginService.resolve(claims)`：
+- [x] `OidcLoginService.resolve(claims)`：
   1. 校验 `issuer` / `subject` 非空；`email_verified` 为 false 且 `require-verified-email=true` → 拒绝；
   2. 按 `user_identity(provider, subject)` 查用户 → 检查 `status ∈ active|invited`；
   3. 未绑定 → 按 `lower(email)` 查用户 → 绑定 `user_identity`；
   4. 仍未找到 → `auto-provision=false` 拒绝（重定向登录页错误）；`true` 时创建用户：用户名取邮箱 local part（冲突追加序号）、默认 `org_member`、`status=active`、`password_hash=NULL`，写审计 `auth.oidc.provision`；
   5. 返回 `appUserId` / `AppUserPrincipal`；**不手工创建会话**，由 `oauth2Login` + Spring Session 完成；
   6. 写审计 `auth.oidc.login` / `auth.oidc.link` / `auth.oidc.provision`。
-- [ ] `OidcUserService` 返回自定义 `OidcUser` 实现（`Serializable`，携带 `appUserId` / `username` / `displayName`），不把 `DefaultOidcUser` 或实体直接写进 Spring Session。
-- [ ] `user_identity` 记录 `provider = "oidc:" + issuer`、`subject`、`email` 快照；重复绑定 409 / 忽略。
-- [ ] 已有密码用户绑定 OIDC 后两种登录方式并存；OIDC-only 用户 `password_hash=NULL`，密码登录统一 401。
-- [ ] 不做 RP-initiated logout、不刷新 IdP token、不存 IdP access / refresh token。
+- [x] `OidcUserService` 返回自定义 `OidcUser` 实现（`Serializable`，携带 `appUserId` / `username` / `displayName`），不把 `DefaultOidcUser` 或实体直接写进 Spring Session。
+- [x] `user_identity` 记录 `provider = "oidc:" + issuer`、`subject`、`email` 快照；重复绑定 409 / 忽略。
+- [x] 已有密码用户绑定 OIDC 后两种登录方式并存；OIDC-only 用户 `password_hash=NULL`，密码登录统一 401。
+- [x] 不做 RP-initiated logout、不刷新 IdP token、不存 IdP access / refresh token。
 
 **测试**
 
-- [ ] `OidcPropertiesTest`：启用时必填、prod 校验、默认值。
-- [ ] `OidcLoginServiceTest`：已绑定身份、邮箱绑定、未验证邮箱拒绝、auto-provision 开 / 关、禁用用户拒绝、重复身份、默认 org 归属。
-- [ ] `OidcWebChainTest`：`oauth2Login` 只在 Web 链生效；Bearer API 链不受影响；success / failure 重定向；CSRF 对 OIDC 回调豁免。
-- [ ] 手动 e2e（C9.1）：Keycloak / 测试 IdP 浏览器登录 → Spring Session 会话 → `/api/auth/me` → 登出；无 IdP 时登录页只显示密码 / 令牌。
-- [ ] 双库全量测试与 ktlint 通过。
+- [x] `OidcPropertiesTest`：启用时必填、prod 校验、默认值。
+- [x] `OidcLoginServiceTest`：已绑定身份、邮箱绑定、未验证邮箱拒绝、auto-provision 开 / 关、禁用用户拒绝、重复身份、默认 org 归属。
+- [x] `OidcWebChainTest`：`oauth2Login` 只在 Web 链生效；Bearer API 链不受影响；success / failure 重定向；CSRF 对 OIDC 回调豁免。
+- [x] 手动 e2e（C9.1）：Keycloak / 测试 IdP 浏览器登录 → Spring Session 会话 → `/api/auth/me` → 登出；无 IdP 时登录页只显示密码 / 令牌。
+- [x] 双库全量测试与 ktlint 通过。
 
-**状态**：待启动。
+> **C6 实施说明（2026-11-20）**：
+> - `OidcProperties` 校验在 `SpecHubPropertiesValidationTest` 覆盖（含 enabled 必填 / 默认值 / auto-provision 默认关）。
+> - OIDC 只在 Web 链启用；Bearer 链、密码 / 令牌登录不受影响；PKCE 由 `ClientSettings.requireProofKey(true)` 强制。
+> - 身份绑定 / 邮箱绑定 / auto-provision / 未验证邮箱 / 禁用用户已在 `OidcLoginServiceTest` + `OidcAutoProvisionTest` 覆盖；principal 可序列化且经 `AuthService` 作为人类用户识别。
+> - `auth.oidc.*` 审计写点随 C7 接入；不存 IdP access / refresh token。
+
+**状态**：✅ 2026-11-20 完成（审计写点待 C7）。
 
 ---
 
